@@ -1,5 +1,7 @@
 <Solution>
-  <Project Path="SaaSPlatform.Api.Host/SaaSPlatform.Api.Host.csproj" />
+  <Project Path="SaaSPlateform.Api.Host/SaaSPlateform.Api.Host.csproj" Id="5bb9c653-c8fb-4e89-9a08-308fc5ce13f4" />
+  <Project Path="SaaSPlatform.Core.Agents/SaaSPlatform.Core.Agents.csproj" Id="b0da19ae-484b-4966-b6de-5fe952c1073d" />
+  <Project Path="SaaSPlatform.Core.Billing/SaaSPlatform.Core.Billing.csproj" Id="14f8c526-27a3-437d-986a-341d56249000" />
   <Project Path="SaaSPlatform.Core.Catalog/SaaSPlatform.Core.Catalog.csproj" />
   <Project Path="SaaSPlatform.Core.Communication/SaaSPlatform.Core.Communication.csproj" />
   <Project Path="SaaSPlatform.Core.IAM/SaaSPlatform.Core.IAM.csproj" />

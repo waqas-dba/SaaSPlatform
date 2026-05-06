@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace SaaSPlatform.Api.Host.Controllers
+namespace SaaSPlateform.Api.Host.Controllers
 {
     [ApiController]
     [Route("[controller]")]

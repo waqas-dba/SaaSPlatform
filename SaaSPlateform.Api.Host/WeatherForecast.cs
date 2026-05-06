@@ -1,4 +1,4 @@
-namespace SaaSPlatform.Api.Host
+namespace SaaSPlateform.Api.Host
 {
     public class WeatherForecast
     {
