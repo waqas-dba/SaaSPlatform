@@ -31,4 +31,15 @@ public class SaaSPlatformDbContext : DbContext
     public DbSet<TenantUsage> TenantUsages { get; set; }
     public DbSet<Agent> Agents { get; set; }
     public DbSet<AgentCommission> AgentCommissions { get; set; }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Scan the Core assembly (where entities & some configs may be)
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(RolePermission).Assembly);
+
+        // Scan the Infrastructure assembly (where other configs may be)
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(SaaSPlatformDbContext).Assembly);
+    }
 }
