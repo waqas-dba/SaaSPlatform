@@ -1,1 +1,12 @@
-<Solution />
+<Solution>
+  <Project Path="SaaSPlatform.Api.Host/SaaSPlatform.Api.Host.csproj" />
+  <Project Path="SaaSPlatform.Core.Catalog/SaaSPlatform.Core.Catalog.csproj" />
+  <Project Path="SaaSPlatform.Core.Communication/SaaSPlatform.Core.Communication.csproj" />
+  <Project Path="SaaSPlatform.Core.IAM/SaaSPlatform.Core.IAM.csproj" />
+  <Project Path="SaaSPlatform.Core.Orders/SaaSPlatform.Core.Orders.csproj" />
+  <Project Path="SaaSPlatform.Core.Security/SaaSPlatform.Core.Security.csproj" />
+  <Project Path="SaaSPlatform.Core.Settings/SaaSPlatform.Core.Settings.csproj" />
+  <Project Path="SaaSPlatform.Core.Tenant/SaaSPlatform.Core.Tenant.csproj" />
+  <Project Path="SaaSPlatform.Infrastructure/SaaSPlatform.Infrastructure.csproj" />
+  <Project Path="SaaSPlatform.SharedKernel/SaaSPlatform.SharedKernel.csproj" />
+</Solution>
