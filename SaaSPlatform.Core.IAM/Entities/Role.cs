@@ -10,4 +10,7 @@ public class Role : BaseEntity, ITenantScoped
     public string? Description { get; set; }
 
     public bool IsSystem { get; set; } = false;
+
+    public ICollection<UserRole>? UserRoles { get; set; }
+    public ICollection<RolePermission>? RolePermissions { get; set; }
 }

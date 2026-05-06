@@ -5,12 +5,12 @@ namespace SaaSPlatform.Core.IAM.Entities;
 public class Permission : BaseEntity
 {
     public string Name { get; set; } = default!;
-
-    // Examples:
     // orders.create
     // orders.view
-    // billing.manage
-    // catalog.delete
+    // catalog.update
 
     public Guid ModuleId { get; set; }
+    public PermissionModule Module { get; set; } = default!;
+
+    public ICollection<RolePermission>? RolePermissions { get; set; }
 }
