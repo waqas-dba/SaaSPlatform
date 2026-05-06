@@ -1,21 +1,28 @@
 ﻿using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.Core.Billing.Enums;
 
 namespace SaaSPlatform.Core.Billing.Entities;
 
 public class Subscription : BaseEntity, ITenantScoped
 {
-    public Guid TenantId { get; set; }   // ✅ REQUIRED
-
+    public Guid TenantId { get; set; }
     public Guid PlanId { get; set; }
+
+    public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Trialing;
 
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
 
-    public bool IsActive { get; set; } = true;
+    public DateTime? TrialEndsAt { get; set; }
 
-    public string Status { get; set; } = "Active";
+    // 🔴 Payment failure tracking
+    public DateTime? PaymentFailedAt { get; set; }
 
-    public bool IsYearly { get; set; }
+    // 🟡 GRAY DAYS CONFIG
+    public int MaxGraceDays { get; set; } = 7;
+    public int GraceDaysUsed { get; set; } = 0;
+
+    public bool IsAutoRenew { get; set; } = true;
 
     public DateTime NextBillingDate { get; set; }
 
