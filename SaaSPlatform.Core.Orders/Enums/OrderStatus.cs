@@ -1,4 +1,4 @@
-﻿namespace SaaSPlatform.Core.SharedKernel.Enums;
+﻿namespace SaaSPlatform.Core.Orders.Enums;
 
 public enum OrderStatus
 {
