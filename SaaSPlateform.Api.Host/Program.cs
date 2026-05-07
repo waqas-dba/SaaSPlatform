@@ -1,11 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using SaaSPlateform.Api.Host.Middleware;
 using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.IAM.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Persistence.Seed;
 using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.IAM;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +22,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(); // ✅ REQUIRED
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+
+builder.Services.Configure<JwtSettings>(
+    builder.Configuration.GetSection("Jwt"));
+
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+
 builder.Services.AddScoped<
     ITenantContext,
     TenantContext>();
@@ -25,6 +35,9 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     ITenantAccessService,
     TenantAccessService>();
+
+builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 var provider = builder.Configuration["DatabaseProvider"];
 
@@ -36,7 +49,7 @@ builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
     }
     else if (provider == "SqlServer")
     {
-        //options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+       throw new NotImplementedException("SQL Server support is not implemented yet");
     }
     else
     {
