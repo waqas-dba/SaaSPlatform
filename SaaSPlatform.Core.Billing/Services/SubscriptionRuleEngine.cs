@@ -1,38 +1,51 @@
 ﻿using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
 
 namespace SaaSPlatform.Core.Billing.Services;
 
-public class SubscriptionRuleEngine
+public class SubscriptionRuleEngine : ISubscriptionRuleEngine
 {
-    public Task<bool> CanAccessAsync(Subscription subscription, Plan plan)
+    public Task<bool> CanAccessAsync(
+        Subscription subscription,
+        Plan plan)
     {
         var now = DateTime.UtcNow;
 
-        // TRIAL
+        // ===== ACTIVE =====
+        if (subscription.Status == SubscriptionStatus.Active)
+        {
+            return Task.FromResult(true);
+        }
+
+        // ===== TRIAL =====
         if (subscription.Status == SubscriptionStatus.Trialing)
         {
-            return Task.FromResult(
-                subscription.TrialEndsAt.HasValue &&
-                subscription.TrialEndsAt > now);
+            if (subscription.TrialEndsAt.HasValue &&
+                subscription.TrialEndsAt.Value > now)
+            {
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
         }
 
-        // ACTIVE
-        if (subscription.Status == SubscriptionStatus.Active)
-            return Task.FromResult(true);
-
-        // PAST DUE → GRACE HANDLING
-        if (subscription.Status == SubscriptionStatus.PastDue)
+        // ===== GRACE PERIOD =====
+        if (subscription.Status == SubscriptionStatus.GracePeriod)
         {
-            if (!subscription.PaymentFailedAt.HasValue)
-                return Task.FromResult(false);
+            var graceEndDate =
+                subscription.NextBillingDate
+                    .AddDays(plan.GraceDays);
 
-            var graceEnd = subscription.PaymentFailedAt
-                .Value.AddDays(plan.GraceDays);
+            if (graceEndDate > now)
+            {
+                return Task.FromResult(true);
+            }
 
-            return Task.FromResult(graceEnd > now);
+            return Task.FromResult(false);
         }
 
+        // ===== DEFAULT BLOCK =====
         return Task.FromResult(false);
     }
 }

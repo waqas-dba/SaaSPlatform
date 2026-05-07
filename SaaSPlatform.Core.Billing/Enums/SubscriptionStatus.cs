@@ -7,5 +7,6 @@ public enum SubscriptionStatus
     PastDue,
     Suspended,
     Canceled,
-    Expired
+    Expired,
+    GracePeriod
 }

@@ -5,30 +5,42 @@ namespace SaaSPlatform.Core.Billing.Services;
 
 public class SubscriptionService
 {
-    public void HandlePaymentFailed(Subscription subscription)
+    public void HandlePaymentFailed(
+        Subscription subscription)
     {
         subscription.PaymentFailedAt = DateTime.UtcNow;
-        subscription.Status = SubscriptionStatus.PastDue;
+
+        subscription.Status =
+            SubscriptionStatus.GracePeriod;
     }
 
-    public void Activate(Subscription subscription)
+    public void EvaluateSubscription(
+        Subscription subscription,
+        Plan plan)
     {
-        subscription.Status = SubscriptionStatus.Active;
-        subscription.PaymentFailedAt = null;
-        subscription.CancelledAt = null;
-    }
+        if (subscription.Status != SubscriptionStatus.GracePeriod)
+            return;
 
-    public void SuspendIfExpired(Subscription subscription, Plan plan)
-    {
         if (!subscription.PaymentFailedAt.HasValue)
             return;
 
-        var graceEnd = subscription.PaymentFailedAt
-            .Value.AddDays(plan.GraceDays);
+        var graceEndDate =
+            subscription.NextBillingDate
+                .AddDays(plan.GraceDays);
 
-        if (DateTime.UtcNow > graceEnd)
+        if (DateTime.UtcNow > graceEndDate)
         {
-            subscription.Status = SubscriptionStatus.Suspended;
+            subscription.Status =
+                SubscriptionStatus.Suspended;
         }
+    }
+
+    public bool IsTenantActive(
+        Subscription subscription)
+    {
+        return subscription.Status is
+            SubscriptionStatus.Active
+            or SubscriptionStatus.Trialing
+            or SubscriptionStatus.GracePeriod;
     }
 }
