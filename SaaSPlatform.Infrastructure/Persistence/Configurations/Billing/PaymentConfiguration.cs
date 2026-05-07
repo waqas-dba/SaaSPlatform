@@ -14,7 +14,6 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
             x.Status
         });
 
-        builder.HasIndex(x => x.TransactionId);
 
         builder.Property(x => x.Amount)
             .HasPrecision(18, 2);

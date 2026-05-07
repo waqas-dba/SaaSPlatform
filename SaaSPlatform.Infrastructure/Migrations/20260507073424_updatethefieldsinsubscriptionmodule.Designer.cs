@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SaaSPlatform.Infrastructure.Persistence;
 namespace SaaSPlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(SaaSPlatformDbContext))]
-    partial class SaaSPlatformDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260507073424_updatethefieldsinsubscriptionmodule")]
+    partial class updatethefieldsinsubscriptionmodule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -144,9 +147,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
-
-                    b.Property<DateTime?>("StatusUpdatedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("SubscriptionId")
                         .HasColumnType("uuid");

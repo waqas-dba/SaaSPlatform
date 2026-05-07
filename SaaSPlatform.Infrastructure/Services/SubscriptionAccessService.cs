@@ -34,8 +34,7 @@ public class SubscriptionAccessService : ISubscriptionAccessService
                 x.TenantId == tenantId &&
                 (
                     x.Status == SubscriptionStatus.Active ||
-                    x.Status == SubscriptionStatus.Trialing ||
-                    x.Status == SubscriptionStatus.GracePeriod
+                    x.Status == SubscriptionStatus.Trialing 
                 ));
 
         _cache.Set(

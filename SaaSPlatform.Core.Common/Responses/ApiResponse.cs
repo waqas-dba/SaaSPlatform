@@ -14,7 +14,7 @@ public class ApiResponse<T>
 
     public List<string>? Errors { get; set; }
 
-    #region Success
+    #region Success Response
 
     public static ApiResponse<T> SuccessResponse(
         T data,
@@ -32,7 +32,7 @@ public class ApiResponse<T>
 
     #endregion
 
-    #region Failure
+    #region Failure Response (FIXED)
 
     public static ApiResponse<T> FailResponse(
         string message,

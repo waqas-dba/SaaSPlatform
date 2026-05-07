@@ -8,35 +8,27 @@ public class SubscriptionService
     public void HandlePaymentFailed(Subscription subscription)
     {
         subscription.PaymentFailedAt = DateTime.UtcNow;
-        subscription.Status = SubscriptionStatus.GracePeriod;
-        subscription.GraceDaysUsed = 0;
+        subscription.Status = SubscriptionStatus.PastDue;
     }
 
-    public void EvaluateSubscription(Subscription subscription)
+    public void Activate(Subscription subscription)
     {
-        if (subscription.Status != SubscriptionStatus.GracePeriod)
-            return;
+        subscription.Status = SubscriptionStatus.Active;
+        subscription.PaymentFailedAt = null;
+        subscription.CancelledAt = null;
+    }
 
+    public void SuspendIfExpired(Subscription subscription, Plan plan)
+    {
         if (!subscription.PaymentFailedAt.HasValue)
             return;
 
-        var daysPassed = (DateTime.UtcNow - subscription.PaymentFailedAt.Value).TotalDays;
+        var graceEnd = subscription.PaymentFailedAt
+            .Value.AddDays(plan.GraceDays);
 
-        if (daysPassed <= subscription.MaxGraceDays)
-        {
-            subscription.GraceDaysUsed = (int)daysPassed;
-            subscription.Status = SubscriptionStatus.GracePeriod;
-        }
-        else
+        if (DateTime.UtcNow > graceEnd)
         {
             subscription.Status = SubscriptionStatus.Suspended;
         }
-    }
-
-    public bool IsTenantActive(Subscription subscription)
-    {
-        return subscription.Status is SubscriptionStatus.Active
-            or SubscriptionStatus.GracePeriod
-            or SubscriptionStatus.Trialing;
     }
 }
