@@ -2,7 +2,7 @@
 
 namespace SaaSPlatform.SharedKernel.Interfaces
 {
-    internal class IAggregateRoot
+    public class IAggregateRoot
     {
     }
 }

@@ -10,7 +10,13 @@ public class Store : AuditableEntity, ITenantScoped
     public string Name { get; set; } = default!;
 
     public string? Phone { get; set; }
+
     public string? Address { get; set; }
+
+    // GEO LOCATION
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
 
     public bool IsActive { get; set; } = true;
 

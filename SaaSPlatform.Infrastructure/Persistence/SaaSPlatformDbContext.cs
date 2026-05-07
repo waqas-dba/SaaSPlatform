@@ -6,6 +6,7 @@ using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.Orders.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
+using System.Linq.Expressions;
 
 namespace SaaSPlatform.Infrastructure.Persistence;
 
@@ -58,34 +59,36 @@ public class SaaSPlatformDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // APPLY CONFIGURATIONS FROM CORE
         modelBuilder.ApplyConfigurationsFromAssembly(
             typeof(RolePermission).Assembly);
 
-        // APPLY CONFIGURATIONS FROM INFRASTRUCTURE
         modelBuilder.ApplyConfigurationsFromAssembly(
             typeof(SaaSPlatformDbContext).Assembly);
 
-        ConfigureGlobalFilters(modelBuilder);
+        ApplySoftDeleteFilter(modelBuilder); // 👈 ADD THIS
+
     }
 
-    private static void ConfigureGlobalFilters(ModelBuilder modelBuilder)
+
+    private static void ApplySoftDeleteFilter(ModelBuilder modelBuilder)
     {
-        // SOFT DELETE FILTERS
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            // Only apply to entities that have IsDeleted property
+            if (entityType.ClrType.GetProperty("IsDeleted") == null)
+                continue;
 
-        modelBuilder.Entity<Tenant>()
-            .HasQueryFilter(x => !x.IsDeleted);
+            var parameter = Expression.Parameter(entityType.ClrType, "x");
 
-        modelBuilder.Entity<Store>()
-            .HasQueryFilter(x => !x.IsDeleted);
+            var property = Expression.Property(parameter, "IsDeleted");
 
-        modelBuilder.Entity<Category>()
-            .HasQueryFilter(x => !x.IsDeleted);
+            var filter = Expression.Lambda(
+                Expression.Equal(property, Expression.Constant(false)),
+                parameter
+            );
 
-        modelBuilder.Entity<Product>()
-            .HasQueryFilter(x => !x.IsDeleted);
-
-        modelBuilder.Entity<Order>()
-            .HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity(entityType.ClrType)
+                .HasQueryFilter(filter);
+        }
     }
 }

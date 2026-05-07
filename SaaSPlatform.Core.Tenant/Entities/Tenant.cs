@@ -7,26 +7,31 @@ public class Tenant : AuditableEntity
     public string Name { get; set; } = default!;
 
     public string? Email { get; set; }
+
     public string? Phone { get; set; }
+
     public string? Address { get; set; }
+
+    // GEO LOCATION
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
 
     public bool IsActive { get; set; } = true;
 
     // Branding
     public string? LogoUrl { get; set; }
 
-    // SEO / SaaS routing (VERY IMPORTANT)
-    public string? Slug { get; set; }   // example: "pizza-hub"
+    // SEO / ROUTING
+    public string? Slug { get; set; }
 
-    // 🔥 AGENT WHO BROUGHT THIS TENANT
+    // AGENT
     public Guid? AgentId { get; set; }
 
-    // 🔥 CURRENT ACTIVE SUBSCRIPTION (snapshot reference)
+    // SUBSCRIPTION
     public Guid? ActiveSubscriptionId { get; set; }
 
-    // onboarding tracking
     public DateTime? OnboardedAt { get; set; }
 
-    // Navigation
     public ICollection<TenantDomain>? Domains { get; set; }
 }
