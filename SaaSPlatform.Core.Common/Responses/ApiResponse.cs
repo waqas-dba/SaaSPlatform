@@ -1,0 +1,54 @@
+﻿namespace SaaSPlatform.Core.Common.Responses;
+
+public class ApiResponse<T>
+{
+    public bool Success { get; set; }
+
+    public string Message { get; set; } = string.Empty;
+
+    public string? Code { get; set; }
+
+    public string? TraceId { get; set; }
+
+    public T? Data { get; set; }
+
+    public List<string>? Errors { get; set; }
+
+    #region Success
+
+    public static ApiResponse<T> SuccessResponse(
+        T data,
+        string message = "",
+        string? traceId = null)
+    {
+        return new ApiResponse<T>
+        {
+            Success = true,
+            Message = message,
+            Data = data,
+            TraceId = traceId
+        };
+    }
+
+    #endregion
+
+    #region Failure
+
+    public static ApiResponse<T> FailResponse(
+        string message,
+        string? code = null,
+        List<string>? errors = null,
+        string? traceId = null)
+    {
+        return new ApiResponse<T>
+        {
+            Success = false,
+            Message = message,
+            Code = code,
+            Errors = errors,
+            TraceId = traceId
+        };
+    }
+
+    #endregion
+}

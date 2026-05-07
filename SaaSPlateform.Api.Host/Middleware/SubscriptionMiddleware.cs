@@ -1,7 +1,8 @@
-﻿using Microsoft.AspNetCore.Http;
-using SaaSPlatform.Core.Billing.Interfaces;
+﻿using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Common.Responses;
+using System.Text.Json;
 
-namespace SaaSPlatform.Api.Host.Middleware;
+namespace SaaSPlateform.Api.Host.Middleware;
 
 public class SubscriptionMiddleware
 {
@@ -24,12 +25,22 @@ public class SubscriptionMiddleware
             return;
         }
 
-        var isAllowed = await subscriptionService.IsTenantAllowedAsync(tenantId);
+        var isAllowed = await subscriptionService
+            .IsTenantAllowedAsync(tenantId);
 
         if (!isAllowed)
         {
-            context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
-            await context.Response.WriteAsync("Subscription Suspended");
+            context.Response.StatusCode = 402;
+            context.Response.ContentType = "application/json";
+
+            var response =
+                ApiResponse<object>.FailResponse(
+                    "Subscription expired or suspended",
+                    "SUBSCRIPTION_BLOCKED");
+
+            await context.Response.WriteAsync(
+                JsonSerializer.Serialize(response));
+
             return;
         }
 

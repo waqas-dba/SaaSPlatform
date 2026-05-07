@@ -17,6 +17,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\SaaSPlatform.Core.Billing\SaaSPlatform.Core.Billing.csproj" />
+		<ProjectReference Include="..\SaaSPlatform.Core.Common\SaaSPlatform.Core.Common.csproj" />
 		<ProjectReference Include="..\SaaSPlatform.Infrastructure\SaaSPlatform.Infrastructure.csproj" />
 	</ItemGroup>
 

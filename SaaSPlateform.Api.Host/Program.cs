@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using SaaSPlateform.Api.Host.Middleware;
 using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Persistence.Seed;
 using SaaSPlatform.Infrastructure.Services;
@@ -14,7 +16,13 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(); // ✅ REQUIRED
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+builder.Services.AddScoped<
+    ITenantContext,
+    TenantContext>();
 
+builder.Services.AddScoped<
+    ITenantAccessService,
+    TenantAccessService>();
 
 var provider = builder.Configuration["DatabaseProvider"];
 
@@ -53,7 +61,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-app.UseMiddleware<SaaSPlatform.Api.Host.Middleware.SubscriptionMiddleware>();
+
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseMiddleware<TenantMiddleware>();
+app.UseMiddleware<SubscriptionMiddleware>();
+
 app.UseAuthorization();
 app.MapControllers();
 
