@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SaaSPlatform.Core.Orders\SaaSPlatform.Core.Orders.csproj" />
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\SaaSPlatform.SharedKernel.csproj" />
   </ItemGroup>
 

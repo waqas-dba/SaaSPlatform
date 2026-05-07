@@ -1,4 +1,5 @@
-﻿using SaaSPlatform.Core.SharedKernel.Common;
+﻿using SaaSPlatform.Core.Orders.Entities;
+using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 

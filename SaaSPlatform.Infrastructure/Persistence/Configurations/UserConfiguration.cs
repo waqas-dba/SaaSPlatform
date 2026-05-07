@@ -35,7 +35,7 @@ public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
     public void Configure(EntityTypeBuilder<Permission> builder)
     {
         builder.HasIndex(x => x.Name).IsUnique();
-        builder.HasIndex(x => x.ModuleId);
+        builder.HasIndex(x => x.PermissionModuleId);
     }
 }
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SaaSPlatform.Infrastructure.Persistence;
 namespace SaaSPlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(SaaSPlatformDbContext))]
-    partial class SaaSPlatformDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260507042850_createnewefandindexes")]
+    partial class createnewefandindexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -163,7 +166,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "Status");
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payment");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Billing.Entities.Plan", b =>
@@ -292,6 +295,32 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.ToTable("Subscriptions");
                 });
 
+            modelBuilder.Entity("SaaSPlatform.Core.Billing.Entities.TenantUsage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CategoryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastUpdated")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("OrderCountThisMonth")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProductCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TenantUsages");
+                });
+
             modelBuilder.Entity("SaaSPlatform.Core.Billing.Entities.TenantUsageLedger", b =>
                 {
                     b.Property<Guid>("Id")
@@ -324,7 +353,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.HasIndex("TenantId", "UsageMonthYear")
                         .IsUnique();
 
-                    b.ToTable("TenantUsageLedgers");
+                    b.ToTable("TenantUsageLedger");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Catalog.Entities.Addon", b =>
@@ -504,19 +533,19 @@ namespace SaaSPlatform.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ModuleId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid>("PermissionModuleId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
+
+                    b.HasIndex("ModuleId");
 
                     b.HasIndex("Name")
                         .IsUnique();
-
-                    b.HasIndex("PermissionModuleId");
 
                     b.ToTable("Permissions");
                 });
@@ -590,7 +619,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "IsRevoked");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshToken");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.IAM.Entities.Role", b =>
@@ -828,98 +857,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.ToTable("OrderItemAddons");
                 });
 
-            modelBuilder.Entity("SaaSPlatform.Core.Orders.Entities.RestaurantTable", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Capacity")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("QRCode")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("StoreId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StoreId");
-
-                    b.ToTable("RestaurantTables");
-                });
-
-            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Store", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Address")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Phone")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Slug")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Stores");
-                });
-
             modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Tenant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1025,7 +962,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
                 {
                     b.HasOne("SaaSPlatform.Core.IAM.Entities.PermissionModule", "Module")
                         .WithMany("Permissions")
-                        .HasForeignKey("PermissionModuleId")
+                        .HasForeignKey("ModuleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -1088,15 +1025,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("SaaSPlatform.Core.Orders.Entities.RestaurantTable", b =>
-                {
-                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.Store", null)
-                        .WithMany("Tables")
-                        .HasForeignKey("StoreId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.TenantDomain", b =>
                 {
                     b.HasOne("SaaSPlatform.Core.Tenant.Entities.Tenant", null)
@@ -1136,11 +1064,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
             modelBuilder.Entity("SaaSPlatform.Core.Orders.Entities.OrderItem", b =>
                 {
                     b.Navigation("Addons");
-                });
-
-            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Store", b =>
-                {
-                    b.Navigation("Tables");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Tenant", b =>

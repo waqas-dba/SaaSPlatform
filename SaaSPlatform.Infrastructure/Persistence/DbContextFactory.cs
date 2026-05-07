@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
+using SaaSPlatform.Infrastructure.Persistence;
 
 public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
 {

@@ -9,7 +9,7 @@ public class Permission : BaseEntity
     // orders.view
     // catalog.update
 
-    public Guid ModuleId { get; set; }
+    public Guid PermissionModuleId { get; set; }
     public PermissionModule Module { get; set; } = default!;
 
     public ICollection<RolePermission>? RolePermissions { get; set; }
