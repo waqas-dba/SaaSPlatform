@@ -1,0 +1,1858 @@
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\AuditableDbContext.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.SharedKernel.Common;
+using SaaSPlatform.Infrastructure.Services;
+
+namespace SaaSPlatform.Infrastructure.Persistence;
+
+/// <summary>
+/// Handles automatic audit tracking.
+/// </summary>
+public abstract class AuditableDbContext : DbContext
+{
+    private readonly CurrentUserService? _currentUser;
+
+    protected AuditableDbContext(
+        DbContextOptions options,
+        CurrentUserService? currentUser = null)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
+
+    public override async Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var entries =
+            ChangeTracker
+                .Entries<AuditableEntity>();
+
+        foreach (var entry in entries)
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+
+                    entry.Entity.CreatedAt = DateTime.UtcNow;
+
+                    entry.Entity.CreatedBy =
+                        _currentUser?.UserId;
+
+                    break;
+
+                case EntityState.Modified:
+
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+
+                    entry.Entity.UpdatedBy =
+                        _currentUser?.UserId;
+
+                    break;
+            }
+        }
+
+        return await base.SaveChangesAsync(
+            cancellationToken);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\DbContextFactory.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+using SaaSPlatform.Infrastructure.Persistence;
+
+public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
+{
+    public SaaSPlatformDbContext CreateDbContext(string[] args)
+    {
+        var config = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())   // <-- add this
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+        var provider = config["DatabaseProvider"];
+
+        var optionsBuilder = new DbContextOptionsBuilder<SaaSPlatformDbContext>();
+
+        if (provider == "Postgres")
+            optionsBuilder.UseNpgsql(config.GetConnectionString("Postgres"));
+        else
+            throw new Exception("Unsupported database provider");
+
+        return new SaaSPlatformDbContext(optionsBuilder.Options);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\SaaSPlatformDbContext.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.IAM.Entities;
+
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence.Extensions;
+using SaaSPlatform.Infrastructure.Services;
+
+namespace SaaSPlatform.Infrastructure.Persistence;
+
+/// <summary>
+/// Main database context.
+/// </summary>
+public class SaaSPlatformDbContext : AuditableDbContext
+{
+    private readonly ITenantContext? _tenantContext;
+
+    public SaaSPlatformDbContext(
+        DbContextOptions<SaaSPlatformDbContext> options,
+        ITenantContext? tenantContext = null,
+        CurrentUserService? currentUser = null)
+        : base(options, currentUser)
+    {
+        _tenantContext = tenantContext;
+    }
+
+    // =========================================================
+    // TENANT
+    // =========================================================
+
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+
+    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
+
+    public DbSet<TenantLegalInfo> TenantLegalInfos =>
+        Set<TenantLegalInfo>();
+
+    // =========================================================
+    // STORE
+    // =========================================================
+
+    public DbSet<Store> Stores => Set<Store>();
+
+    public DbSet<StoreCuisine> StoreCuisines =>
+        Set<StoreCuisine>();
+
+    public DbSet<StoreDeliveryZone> StoreDeliveryZones =>
+        Set<StoreDeliveryZone>();
+
+    // =========================================================
+    // IAM
+    // =========================================================
+
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<Role> Roles => Set<Role>();
+
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
+
+    public DbSet<Permission> Permissions =>
+        Set<Permission>();
+
+    public DbSet<RolePermission> RolePermissions =>
+        Set<RolePermission>();
+
+    public DbSet<PermissionModule> PermissionModules =>
+        Set<PermissionModule>();
+
+    public DbSet<RefreshToken> RefreshTokens =>
+        Set<RefreshToken>();
+
+    // =========================================================
+    // BILLING
+    // =========================================================
+
+    public DbSet<Plan> Plans => Set<Plan>();
+
+    public DbSet<Subscription> Subscriptions =>
+        Set<Subscription>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
+
+    // =========================================================
+    // LOCATION
+    // =========================================================
+
+    public DbSet<Zone> Zones => Set<Zone>();
+
+    public DbSet<Cuisine> Cuisines => Set<Cuisine>();
+
+    // =========================================================
+    // MENU
+    // =========================================================
+
+    public DbSet<Product> Products => Set<Product>();
+
+    public DbSet<Addon> Addons => Set<Addon>();
+
+    public DbSet<AddonGroup> AddonGroups =>
+        Set<AddonGroup>();
+
+    public DbSet<AddonGroupItem> AddonGroupItems =>
+        Set<AddonGroupItem>();
+
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(SaaSPlatformDbContext).Assembly);
+
+        // =====================================================
+        // Apply tenant filters ONLY when available
+        // =====================================================
+
+        if (_tenantContext is not null)
+        {
+            modelBuilder.ApplyTenantFilters(
+                _tenantContext);
+        }
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+
+public class PlanConfiguration : IEntityTypeConfiguration<Plan>
+{
+    public void Configure(EntityTypeBuilder<Plan> builder)
+    {
+        builder.HasIndex(x => x.Name).IsUnique();
+    }
+}
+
+public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
+{
+    public void Configure(EntityTypeBuilder<Subscription> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.Status });
+        builder.HasIndex(x => x.NextBillingDate);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Billing/PaymentConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+
+public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
+{
+    public void Configure(EntityTypeBuilder<Payment> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.Status });
+        builder.HasIndex(x => new { x.TenantId, x.StoreId });   // new index for store‑scoped queries
+
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
+
+        // Optional FK to Store (if StoreId is set)
+        builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+               .WithMany()
+               .HasForeignKey(p => p.StoreId)
+               .IsRequired(false);    // because StoreId is nullable
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+
+public class TenantUsageLedgerConfiguration : IEntityTypeConfiguration<TenantUsageLedger>
+{
+    public void Configure(EntityTypeBuilder<TenantUsageLedger> builder)
+    {
+        builder.HasIndex(x => new
+        {
+            x.TenantId,
+            x.UsageMonthYear
+        }).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class AddonConfiguration : IEntityTypeConfiguration<Addon>
+{
+    public void Configure(EntityTypeBuilder<Addon> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
+        builder.Property(x => x.Price).HasPrecision(18, 2);
+
+        // FK to Store (optional but clean)
+        builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+               .WithMany()
+               .HasForeignKey(a => a.StoreId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonGroupConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class AddonGroupConfiguration : IEntityTypeConfiguration<AddonGroup>
+{
+    public void Configure(EntityTypeBuilder<AddonGroup> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
+        builder.Property(x => x.Name).HasMaxLength(200);
+
+        builder.HasMany(g => g.Items)
+               .WithOne(i => i.AddonGroup)
+               .HasForeignKey(i => i.AddonGroupId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonGroupItemConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class AddonGroupItemConfiguration : IEntityTypeConfiguration<AddonGroupItem>
+{
+    public void Configure(EntityTypeBuilder<AddonGroupItem> builder)
+    {
+        builder.HasIndex(x => new { x.AddonGroupId, x.AddonId }).IsUnique();
+        builder.Property(x => x.PriceAdjustment).HasPrecision(18, 2);
+
+        builder.HasOne(i => i.AddonGroup)
+               .WithMany(g => g.Items)
+               .HasForeignKey(i => i.AddonGroupId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(i => i.Addon)
+               .WithMany()
+               .HasForeignKey(i => i.AddonId)
+               .OnDelete(DeleteBehavior.Restrict);  // don't delete addon if group item exists
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+
+public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+{
+    public void Configure(EntityTypeBuilder<Category> builder)
+    {
+        // Composite index for tenant/store/parent
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.ParentCategoryId });
+        // Fast lookup per store + name
+        builder.HasIndex(x => new { x.StoreId, x.Name });
+
+        builder.Property(x => x.PhotoUrl).HasMaxLength(500);
+        builder.Property(x => x.Icon).HasMaxLength(200);
+
+        // FK to Store
+        builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+               .WithMany()
+               .HasForeignKey(c => c.StoreId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/CuisineConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class CuisineConfiguration : IEntityTypeConfiguration<Cuisine>
+{
+    public void Configure(EntityTypeBuilder<Cuisine> builder)
+    {
+        builder.HasIndex(c => c.Name).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class FeaturedProductConfiguration : IEntityTypeConfiguration<FeaturedProduct>
+{
+    public void Configure(EntityTypeBuilder<FeaturedProduct> builder)
+    {
+        // Uniqueness per store + section + product
+        builder.HasIndex(fp => new { fp.TenantId, fp.StoreId, fp.Section, fp.ProductId })
+               .IsUnique();
+
+        // Fast lookup by store and section
+        builder.HasIndex(fp => new { fp.StoreId, fp.Section, fp.CategoryId });
+
+        builder.HasOne(fp => fp.Product)
+               .WithMany()
+               .HasForeignKey(fp => fp.ProductId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // FK to Store (optional but clarifies relationship)
+        builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+               .WithMany()
+               .HasForeignKey(fp => fp.StoreId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/ProductAddonGroupConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class ProductAddonGroupConfiguration : IEntityTypeConfiguration<ProductAddonGroup>
+{
+    public void Configure(EntityTypeBuilder<ProductAddonGroup> builder)
+    {
+        builder.HasIndex(x => new { x.ProductId, x.AddonGroupId }).IsUnique();
+
+        builder.HasOne(x => x.Product)
+               .WithMany()
+               .HasForeignKey(x => x.ProductId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(x => x.AddonGroup)
+               .WithMany()
+               .HasForeignKey(x => x.AddonGroupId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+    public void Configure(EntityTypeBuilder<Product> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.CategoryId });
+        builder.HasIndex(x => new { x.StoreId, x.Name });
+
+        builder.Property(x => x.MainImageUrl).HasMaxLength(500);
+
+        // FK to Store
+        builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+               .WithMany()
+               .HasForeignKey(p => p.StoreId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        // Relationship to ProductImages
+        builder.HasMany(p => p.Images)
+               .WithOne()
+               .HasForeignKey(i => i.ProductId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog
+{
+
+
+    public class ProductImageConfiguration : IEntityTypeConfiguration<ProductImage>
+    {
+        public void Configure(EntityTypeBuilder<ProductImage> builder)
+        {
+            builder.HasIndex(x => new { x.ProductId, x.DisplayOrder });
+            builder.Property(x => x.ImageUrl).HasMaxLength(500);
+        }
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+
+public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVariant>
+{
+    public void Configure(EntityTypeBuilder<ProductVariant> builder)
+    {
+        builder.HasIndex(x => x.ProductId);
+        builder.HasOne<Product>()
+               .WithMany()
+               .HasForeignKey(pv => pv.ProductId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
+{
+    public void Configure(EntityTypeBuilder<Permission> builder)
+    {
+        builder.HasIndex(x => x.Name).IsUnique();
+        builder.HasIndex(x => x.PermissionModuleId);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionModuleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class PermissionModuleConfiguration : IEntityTypeConfiguration<PermissionModule>
+{
+    public void Configure(EntityTypeBuilder<PermissionModule> builder)
+    {
+        builder.HasIndex(x => x.Code).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RefreshTokenConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
+{
+    public void Configure(EntityTypeBuilder<RefreshToken> builder)
+    {
+        builder.HasIndex(x => x.Token)
+            .IsUnique();
+
+        builder.HasIndex(x => new
+        {
+            x.UserId,
+            x.IsRevoked
+        });
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RoleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class RoleConfiguration : IEntityTypeConfiguration<Role>
+{
+    public void Configure(EntityTypeBuilder<Role> builder)
+    {
+        builder.HasIndex(x => new { x.TenantId, x.Name });
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RolePermissionConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
+{
+    public void Configure(EntityTypeBuilder<RolePermission> builder)
+    {
+        builder.HasKey(x => new { x.RoleId, x.PermissionId });
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class UserConfiguration : IEntityTypeConfiguration<User>
+{
+    public void Configure(EntityTypeBuilder<User> builder)
+    {
+        builder.HasIndex(x => x.Email).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserRoleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
+
+public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
+{
+    public void Configure(EntityTypeBuilder<UserRole> builder)
+    {
+        builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
+
+        builder.HasIndex(x => new { x.UserId, x.TenantId });
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Orders.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Orders;
+
+public class OrderConfiguration : IEntityTypeConfiguration<Order>
+{
+    public void Configure(EntityTypeBuilder<Order> builder)
+    {
+        builder.HasIndex(x => new
+        {
+            x.TenantId,
+            x.CreatedAt
+        });
+
+        builder.HasIndex(x => new
+        {
+            x.TenantId,
+            x.OrderNumber
+        }).IsUnique();
+
+        builder.HasIndex(x => new
+        {
+            x.TenantId,
+            x.Status
+        });
+
+        builder.HasIndex(x => x.StoreId);
+
+        builder.Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        builder.Property(x => x.DiscountAmount)
+            .HasPrecision(18, 2);
+
+        builder.Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        builder.Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        builder.Property(x => x.OrderType).IsRequired();
+        builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class StoreConfiguration : IEntityTypeConfiguration<Store>
+{
+    public void Configure(EntityTypeBuilder<Store> builder)
+    {
+        builder.Property(x => x.Latitude).HasPrecision(9, 6);
+        builder.Property(x => x.Longitude).HasPrecision(9, 6);
+
+        builder.HasIndex(x => new { x.TenantId, x.Slug });
+        builder.HasIndex(x => x.City);
+        builder.HasIndex(x => x.ZoneName);
+        builder.HasIndex(x => x.IsOnline);
+        // Removed CuisineId index
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreCuisineConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class StoreCuisineConfiguration : IEntityTypeConfiguration<StoreCuisine>
+{
+    public void Configure(EntityTypeBuilder<StoreCuisine> builder)
+    {
+        builder.HasKey(sc => new { sc.StoreId, sc.CuisineId });
+
+        builder.HasOne(sc => sc.Store)
+               .WithMany(s => s.StoreCuisines)
+               .HasForeignKey(sc => sc.StoreId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(sc => sc.Cuisine)
+               .WithMany()
+               .HasForeignKey(sc => sc.CuisineId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreDeliveryZoneConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/StoreDeliveryZoneConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class StoreDeliveryZoneConfiguration : IEntityTypeConfiguration<StoreDeliveryZone>
+{
+    public void Configure(EntityTypeBuilder<StoreDeliveryZone> builder)
+    {
+        builder.HasKey(x => new { x.StoreId, x.ZoneId });
+        builder.HasOne(x => x.Store).WithMany(s => s.DeliveryZones).HasForeignKey(x => x.StoreId);
+        builder.HasOne(x => x.Zone).WithMany().HasForeignKey(x => x.ZoneId);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class TenantConfiguration
+    : IEntityTypeConfiguration<Tenant>
+{
+    public void Configure(
+        EntityTypeBuilder<Tenant> builder)
+    {
+        builder.Property(x => x.Latitude)
+            .HasPrecision(9, 6);
+
+        builder.Property(x => x.Longitude)
+            .HasPrecision(9, 6);
+
+        builder.HasIndex(x => x.Slug)
+            .IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantLegalInfoConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/TenantLegalInfoConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class TenantLegalInfoConfiguration : IEntityTypeConfiguration<TenantLegalInfo>
+{
+    public void Configure(EntityTypeBuilder<TenantLegalInfo> builder)
+    {
+        builder.HasIndex(x => x.TenantId).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\ZoneConfiguration.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/ZoneConfiguration.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
+
+public class ZoneConfiguration : IEntityTypeConfiguration<Zone>
+{
+    public void Configure(EntityTypeBuilder<Zone> builder)
+    {
+        builder.HasIndex(z => new { z.City, z.Name }).IsUnique();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Extensions\QueryFilterExtensions.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.SharedKernel.Common;
+using SaaSPlatform.Core.Tenant.Interfaces;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Extensions;
+
+public static class QueryFilterExtensions
+{
+    public static void ApplyTenantFilters(
+        this ModelBuilder modelBuilder,
+        ITenantContext tenantContext)
+    {
+        var entityTypes =
+            modelBuilder.Model.GetEntityTypes()
+                .Where(x =>
+                    typeof(ITenantScoped)
+                        .IsAssignableFrom(x.ClrType));
+
+        foreach (var entityType in entityTypes)
+        {
+            var method =
+                typeof(QueryFilterExtensions)
+                    .GetMethod(
+                        nameof(SetTenantFilter),
+                        System.Reflection.BindingFlags.Static |
+                        System.Reflection.BindingFlags.NonPublic)!
+                    .MakeGenericMethod(entityType.ClrType);
+
+            method.Invoke(
+                null,
+                new object[]
+                {
+                    modelBuilder,
+                    tenantContext
+                });
+        }
+    }
+
+    private static void SetTenantFilter<TEntity>(
+        ModelBuilder builder,
+        ITenantContext tenantContext)
+        where TEntity : class, ITenantScoped
+    {
+        builder.Entity<TEntity>()
+            .HasQueryFilter(
+                e => e.TenantId ==
+                     tenantContext.TenantId);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\DbSeeder.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Infrastructure.Services.IAM;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Seed;
+
+public static class DbSeeder
+{
+    public static async Task SeedAsync(SaaSPlatformDbContext db)
+    {
+        // ======================================================
+        // 1. APPLY MIGRATIONS
+        // ======================================================
+        await db.Database.MigrateAsync();
+
+        // ======================================================
+        // 2. SYSTEM TENANT
+        // ======================================================
+        if (!await db.Tenants.AnyAsync(x => x.Id == SeedData.SystemTenantId))
+        {
+            await db.Tenants.AddAsync(new Tenant
+            {
+                Id = SeedData.SystemTenantId,
+                Name = "System",
+                Slug = "system",
+                IsActive = true,
+                RegistrationStatus = RegistrationStatus.Approved
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // ======================================================
+        // 3. SYSTEM STORE (FIXED DUPLICATE ISSUE)
+        // ======================================================
+        var storeExists = await db.Stores
+            .AnyAsync(x => x.Id == SeedData.SystemStoreId);
+
+        if (!storeExists)
+        {
+            await db.Stores.AddAsync(new Store
+            {
+                Id = SeedData.SystemStoreId,
+                TenantId = SeedData.SystemTenantId,
+                Name = "System Store",
+                Slug = "system-store",
+                IsOnline = false
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // ======================================================
+        // 4. MODULES / PERMISSIONS / PLANS / ROLES
+        // ======================================================
+        if (!await db.PermissionModules.AnyAsync())
+            await db.PermissionModules.AddRangeAsync(SeedData.Modules);
+
+        if (!await db.Permissions.AnyAsync())
+            await db.Permissions.AddRangeAsync(SeedData.Permissions);
+
+        if (!await db.Plans.AnyAsync())
+            await db.Plans.AddRangeAsync(SeedData.Plans);
+
+        if (!await db.Roles.AnyAsync(x => x.Name == "SuperAdmin"))
+            await db.Roles.AddAsync(SeedData.SuperAdminRole);
+
+        await db.SaveChangesAsync();
+
+        // ======================================================
+        // 5. ROLE PERMISSIONS (SAFE INSERT)
+        // ======================================================
+        if (!await db.RolePermissions.AnyAsync())
+        {
+            var rolePermissions = SeedData.Permissions.Select(p => new RolePermission
+            {
+                RoleId = SeedData.SuperAdminRoleId,
+                PermissionId = p.Id
+            });
+
+            await db.RolePermissions.AddRangeAsync(rolePermissions);
+            await db.SaveChangesAsync();
+        }
+
+        // ======================================================
+        // 6. CUISINES / ZONES / ADDONS / GROUPS
+        // ======================================================
+        if (!await db.Cuisines.AnyAsync())
+            await db.Cuisines.AddRangeAsync(SeedData.Cuisines);
+
+        if (!await db.Zones.AnyAsync())
+            await db.Zones.AddRangeAsync(SeedData.Zones);
+
+        if (!await db.Addons.AnyAsync())
+            await db.Addons.AddRangeAsync(SeedData.Addons);
+
+        if (!await db.AddonGroups.AnyAsync())
+            await db.AddonGroups.AddRangeAsync(SeedData.AddonGroups);
+
+        if (!await db.AddonGroupItems.AnyAsync())
+            await db.AddonGroupItems.AddRangeAsync(SeedData.AddonGroupItems);
+
+        await db.SaveChangesAsync();
+
+        // ======================================================
+        // 7. SUPER ADMIN USER (SAFE)
+        // ======================================================
+        const string superAdminPhone = "0000000000";
+
+        var userExists = await db.Users.AnyAsync(x => x.Phone == superAdminPhone);
+
+        if (!userExists)
+        {
+            var adminUser = new User
+            {
+                Id = Guid.NewGuid(),
+                Name = "Super Admin",
+                Phone = superAdminPhone,
+                Email = "admin@system.com",
+                PasswordHash = new PasswordHasher().Hash("Admin@123"),
+                IsActive = true
+            };
+
+            await db.Users.AddAsync(adminUser);
+            await db.SaveChangesAsync();
+
+            await db.UserRoles.AddAsync(new UserRole
+            {
+                UserId = adminUser.Id,
+                RoleId = SeedData.SuperAdminRoleId,
+                TenantId = SeedData.SystemTenantId
+            });
+
+            await db.TenantUsers.AddAsync(new TenantUser
+            {
+                TenantId = SeedData.SystemTenantId,
+                UserId = adminUser.Id,
+                IsOwner = false,
+                IsActive = true
+            });
+
+            await db.SaveChangesAsync();
+        }
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\SeedData.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Seed;
+
+public static class SeedData
+{
+    // SYSTEM TENANT
+    public static readonly Guid SystemTenantId =
+        Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    // SYSTEM STORE (holds global addons)
+    public static readonly Guid SystemStoreId =
+        Guid.Parse("22222222-3333-4444-5555-666666666666");
+
+    // SUPER ADMIN ROLE
+    public static readonly Guid SuperAdminRoleId =
+        Guid.Parse("22222222-2222-2222-2222-222222222222");
+
+    // MODULES
+    public static readonly List<PermissionModule> Modules =
+    [
+        new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000001"), Name = "Catalog", Code = "catalog" },
+        new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000002"), Name = "Orders",  Code = "orders"  },
+        new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000003"), Name = "Billing", Code = "billing" },
+        new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000004"), Name = "IAM",     Code = "iam"     }
+    ];
+
+    // PERMISSIONS
+    public static readonly List<Permission> Permissions =
+    [
+        // Catalog
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000001"), Name = "catalog.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000002"), Name = "catalog.create", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000003"), Name = "catalog.update", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        // Orders
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000004"), Name = "orders.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000005"), Name = "orders.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
+        // Billing
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000006"), Name = "billing.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000007"), Name = "billing.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
+        // IAM
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000008"), Name = "users.manage",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000009"), Name = "tenant.view",    PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000A"), Name = "store.update",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000B"), Name = "tenant.approve", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") }
+    ];
+
+    // PLANS
+    public static readonly List<Plan> Plans =
+    [
+        new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000001"), Name = "Starter",    PriceMonthly = 0,   PriceYearly = 0,    MaxStores = 1, MaxUsers = 2,   MaxProducts = 50,     MaxCategories = 10,    MaxOrdersPerMonth = 1000,   IsActive = true },
+        new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000002"), Name = "Pro",        PriceMonthly = 29,  PriceYearly = 290,  MaxStores = 5, MaxUsers = 20,  MaxProducts = 1000,   MaxCategories = 100,   MaxOrdersPerMonth = 50000,  IsActive = true },
+        new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000003"), Name = "Enterprise", PriceMonthly = 199, PriceYearly = 1990, MaxStores = 999, MaxUsers = 999, MaxProducts = 999999, MaxCategories = 999999, MaxOrdersPerMonth = 999999, IsActive = true }
+    ];
+
+    // SUPER ADMIN ROLE
+    public static readonly Role SuperAdminRole = new()
+    {
+        Id = SuperAdminRoleId,
+        TenantId = SystemTenantId,
+        Name = "SuperAdmin",
+        Description = "System Super Administrator",
+        IsSystem = true
+    };
+
+    // ===== CUISINES =====
+    public static readonly List<Cuisine> Cuisines = new()
+    {
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000001"), Name = "Fast Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000002"), Name = "Dessert" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000003"), Name = "BBQ" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000004"), Name = "Sea Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000005"), Name = "Hot Beverages" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000006"), Name = "Continental" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000007"), Name = "Drinks & Beverages" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000008"), Name = "Broast" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000009"), Name = "Chinese" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000A"), Name = "Karahi and Handi" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000B"), Name = "Pizza" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000C"), Name = "Steak" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000D"), Name = "Vegetarian" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000E"), Name = "Middle Eastern" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000F"), Name = "Ice Cream" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000010"), Name = "Savouries" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000011"), Name = "Biryani" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000012"), Name = "Pulao" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000013"), Name = "Rice" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000014"), Name = "Sandwiches" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000015"), Name = "Street Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000016"), Name = "Desi" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000017"), Name = "Breakfast" }
+    };
+
+    // ===== ZONES =====
+    public static readonly List<Zone> Zones = new()
+    {
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000001"), Name = "H-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000002"), Name = "F-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000003"), Name = "G-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000004"), Name = "I-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000005"), Name = "Blue Area", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000006"), Name = "Bahria Town", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000007"), Name = "DHA", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000008"), Name = "Saddar", City = "Rawalpindi" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
+    };
+
+    // ===== ADDONS (assigned to system store) =====
+    public static readonly List<Addon> Addons = new()
+    {
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000001"), Name = "Extra Cheese", Price = 1.50m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000002"), Name = "Pepperoni",      Price = 2.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000003"), Name = "Mushrooms",      Price = 1.80m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000004"), Name = "Olives",         Price = 1.20m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000005"), Name = "Ketchup",        Price = 0.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000006"), Name = "Mayo",           Price = 0.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
+        new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000007"), Name = "Hot Sauce",      Price = 0.50m, TenantId = SystemTenantId, StoreId = SystemStoreId }
+    };
+
+    // ===== ADDON GROUPS (assigned to system store) =====
+    public static readonly Guid ToppingsGroupId = Guid.Parse("90000000-0000-0000-0000-000000000001");
+    public static readonly Guid SaucesGroupId = Guid.Parse("90000000-0000-0000-0000-000000000002");
+
+    public static readonly List<AddonGroup> AddonGroups = new()
+    {
+        new AddonGroup
+        {
+            Id = ToppingsGroupId,
+            TenantId = SystemTenantId,
+            StoreId = SystemStoreId,
+            Name = "Choose your toppings",
+            MaxSelect = 3,
+            IsRequired = false,
+            DisplayOrder = 1
+        },
+        new AddonGroup
+        {
+            Id = SaucesGroupId,
+            TenantId = SystemTenantId,
+            StoreId = SystemStoreId,
+            Name = "Select sauces",
+            MaxSelect = 2,
+            IsRequired = false,
+            DisplayOrder = 2
+        }
+    };
+
+    // ===== ADDON GROUP ITEMS =====
+    public static readonly List<AddonGroupItem> AddonGroupItems = new()
+    {
+        // Toppings
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000001"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000001"), PriceAdjustment = 0, DisplayOrder = 1 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000002"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000002"), PriceAdjustment = 0, DisplayOrder = 2 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000003"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000003"), PriceAdjustment = 0, DisplayOrder = 3 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000004"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000004"), PriceAdjustment = 0, DisplayOrder = 4 },
+        // Sauces
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000005"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000005"), PriceAdjustment = 0, DisplayOrder = 1 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000006"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000006"), PriceAdjustment = 0, DisplayOrder = 2 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000007"), PriceAdjustment = 0, DisplayOrder = 3 }
+    };
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\CurrentUserService.cs
+==================================================
+
+using Microsoft.AspNetCore.Http;
+using SaaSPlatform.Core.IAM.Constants;
+
+namespace SaaSPlatform.Infrastructure.Services;
+
+public class CurrentUserService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public CurrentUserService(
+        IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public Guid? UserId
+    {
+        get
+        {
+            var value =
+                _httpContextAccessor.HttpContext?
+                    .User
+                    .FindFirst(ClaimConstants.UserId)?
+                    .Value;
+
+            return Guid.TryParse(value, out var id)
+                ? id
+                : null;
+        }
+    }
+
+    public Guid? TenantId
+    {
+        get
+        {
+            var value =
+                _httpContextAccessor.HttpContext?
+                    .User
+                    .FindFirst(ClaimConstants.TenantId)?
+                    .Value;
+
+            return Guid.TryParse(value, out var id)
+                ? id
+                : null;
+        }
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\SubscriptionAccessService.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Services/SubscriptionAccessService.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services;
+
+public class SubscriptionAccessService : ISubscriptionAccessService
+{
+    private readonly SaaSPlatformDbContext _db;
+    private readonly IMemoryCache _cache;
+
+    public SubscriptionAccessService(SaaSPlatformDbContext db, IMemoryCache cache)
+    {
+        _db = db;
+        _cache = cache;
+    }
+
+    public async Task<bool> IsTenantAllowedAsync(Guid tenantId)
+    {
+        var cacheKey = $"tenant_subscription_{tenantId}";
+
+        if (_cache.TryGetValue(cacheKey, out bool cachedValue))
+            return cachedValue;
+
+        var subscription = await _db.Subscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+        bool allowed = false;
+        if (subscription?.Plan != null)
+        {
+            allowed = subscription.Status == SubscriptionStatus.Active
+                      || subscription.Status == SubscriptionStatus.Trialing
+                      || (subscription.Status == SubscriptionStatus.GracePeriod
+                          && DateTime.UtcNow < subscription.NextBillingDate.AddDays(subscription.Plan.GraceDays));
+        }
+
+        _cache.Set(cacheKey, allowed, TimeSpan.FromSeconds(60));
+        return allowed;
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Billing\PaymentService.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace SaaSPlatform.Infrastructure.Services.Billing;
+
+public class PaymentService : IPaymentService
+{
+    private readonly SaaSPlatformDbContext _db;
+
+    public PaymentService(SaaSPlatformDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task MarkAsPaidAsync(Guid paymentId)
+    {
+        var payment = await _db.Payments.FindAsync(paymentId);
+
+        if (payment == null)
+            return;
+
+        payment.Status = PaymentStatus.Paid;
+        payment.PaidAt = DateTime.UtcNow;
+        payment.StatusUpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\AuthService.cs
+==================================================
+
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.IAM.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services.IAM;
+
+public class AuthService : IAuthService
+{
+    private readonly SaaSPlatformDbContext _db;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IJwtTokenService _jwtTokenService;
+
+    public AuthService(
+        SaaSPlatformDbContext db,
+        IPasswordHasher passwordHasher,
+        IJwtTokenService jwtTokenService)
+    {
+        _db = db;
+        _passwordHasher = passwordHasher;
+        _jwtTokenService = jwtTokenService;
+    }
+
+    public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId)
+    {
+        // 1. Find user by phone number (the username)
+        var userRole = await _db.UserRoles
+            .AsNoTracking()
+            .Include(ur => ur.User)
+            .FirstOrDefaultAsync(ur =>
+                ur.TenantId == tenantId &&
+                ur.User!.Phone == request.Email);   // ← phone is the login identifier
+
+        if (userRole?.User is null)
+            throw new UnauthorizedAccessException("Invalid credentials.");
+
+        var user = userRole.User;
+
+        // 2. Verify password
+        if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
+            throw new UnauthorizedAccessException("Invalid credentials.");
+
+        // 3. Retrieve all roles for this user in the tenant
+        var roles = await _db.UserRoles
+            .AsNoTracking()
+            .Where(ur => ur.UserId == user.Id && ur.TenantId == tenantId)
+            .Select(ur => ur.Role!.Name)
+            .ToListAsync();
+
+        // 4. Generate tokens (JWT already contains phone claim)
+        var (accessToken, _) = _jwtTokenService.GenerateAccessToken(user, tenantId, roles);
+        var refreshToken = CreateRefreshToken(user.Id);
+
+        // 5. Update last login
+        var trackedUser = await _db.Users.FindAsync(user.Id);
+        trackedUser!.LastLoginAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return new LoginResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = refreshToken.Token
+        };
+    }
+
+    public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId)
+    {
+        var storedToken = await _db.RefreshTokens
+            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+
+        if (storedToken is null || storedToken.IsRevoked || storedToken.ExpiresAt < DateTime.UtcNow)
+            throw new UnauthorizedAccessException("Invalid or expired refresh token.");
+
+        var user = await _db.Users.FindAsync(storedToken.UserId);
+        if (user is null) throw new UnauthorizedAccessException("User not found.");
+
+        var roles = await _db.UserRoles
+            .AsNoTracking()
+            .Where(ur => ur.UserId == user.Id && ur.TenantId == tenantId)
+            .Select(ur => ur.Role!.Name)
+            .ToListAsync();
+
+        var (accessToken, _) = _jwtTokenService.GenerateAccessToken(user, tenantId, roles);
+
+        // Rotate refresh token
+        var newRefreshToken = CreateRefreshToken(user.Id);
+        storedToken.IsRevoked = true;
+        storedToken.RevokedAt = DateTime.UtcNow;
+        storedToken.ReplacedByToken = newRefreshToken.Token;
+
+        await _db.SaveChangesAsync();
+
+        return new LoginResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = newRefreshToken.Token
+        };
+    }
+
+    public async Task LogoutAsync(string refreshToken)
+    {
+        var token = await _db.RefreshTokens
+            .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+
+        if (token != null)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    private RefreshToken CreateRefreshToken(Guid userId)
+    {
+        var token = new RefreshToken
+        {
+            UserId = userId,
+            Token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+            ExpiresAt = DateTime.UtcNow.AddDays(7) // ideally from JwtSettings
+        };
+        _db.RefreshTokens.Add(token);
+        return token;
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\PermissionRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services.IAM;
+
+public class PermissionRepository : IPermissionRepository
+{
+    private readonly SaaSPlatformDbContext _db;
+
+    public PermissionRepository(SaaSPlatformDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task<bool> HasPermissionAsync(
+        Guid userId,
+        Guid tenantId,
+        string permission)
+    {
+        return await _db.UserRoles
+            .AsNoTracking()
+            .Include(ur => ur.Role)
+                .ThenInclude(r => r.RolePermissions!)
+                    .ThenInclude(rp => rp.Permission)
+            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role!.RolePermissions!)
+            .AnyAsync(rp => rp.Permission!.Name == permission);
+    }
+
+    public async Task<bool> HasPermissionByModuleAsync(
+        Guid userId,
+        Guid tenantId,
+        string module)
+    {
+        return await _db.UserRoles
+            .AsNoTracking()
+            .Include(ur => ur.Role)
+                .ThenInclude(r => r.RolePermissions!)
+                    .ThenInclude(rp => rp.Permission)
+            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role!.RolePermissions!)
+            .AnyAsync(rp => rp.Permission!.Name.StartsWith(module + "."));
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantAccessService.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+
+public class TenantAccessService : ITenantAccessService
+{
+    private readonly SaaSPlatformDbContext _db;
+
+    public TenantAccessService(
+        SaaSPlatformDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task<bool> TenantExistsAsync(Guid tenantId)
+    {
+        return await _db.Tenants
+            .AsNoTracking()
+            .AnyAsync(x =>
+                x.Id == tenantId &&
+                x.IsActive);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantRegistrationService.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Services/TenantServices/Service/TenantRegistrationService.cs
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+using TenantEntity = SaaSPlatform.Core.Tenant.Entities.Tenant;
+
+namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+
+public class TenantRegistrationService : ITenantRegistrationService
+{
+    private readonly SaaSPlatformDbContext _db;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IJwtTokenService _jwtTokenService;
+
+    public TenantRegistrationService(
+        SaaSPlatformDbContext db,
+        IPasswordHasher passwordHasher,
+        IJwtTokenService jwtTokenService)
+    {
+        _db = db;
+        _passwordHasher = passwordHasher;
+        _jwtTokenService = jwtTokenService;
+    }
+
+    public async Task<(Guid tenantId, string message)> RegisterAsync(
+        string restaurantName,
+        List<Guid> cuisineIds,
+        List<Guid> zoneIds,
+        string? address,
+        int minPrepTime,
+        int maxPrepTime,
+        string firstName,
+        string lastName,
+        string phone,
+        string email,
+        string password,
+        string cnic,
+        string? ntn,
+        bool hasFoodLicense,
+        string? cnicFrontUrl,
+        string? cnicBackUrl)
+    {
+        using var transaction = await _db.Database.BeginTransactionAsync();
+
+        try
+        {
+            var slug = GenerateSlug(restaurantName);
+
+            // 1. Tenant – inactive, pending approval
+            var tenant = new TenantEntity
+            {
+                Name = restaurantName,
+                Slug = slug,
+                IsActive = false,
+                RegistrationStatus = RegistrationStatus.Pending
+            };
+            _db.Tenants.Add(tenant);
+            await _db.SaveChangesAsync();
+
+            // 2. Store
+            var store = new Store
+            {
+                TenantId = tenant.Id,
+                Name = restaurantName,
+                Slug = slug,
+                Address = address,
+                MinPreparingTime = minPrepTime,
+                MaxPreparingTime = maxPrepTime,
+                IsOnline = false
+            };
+            _db.Stores.Add(store);
+            await _db.SaveChangesAsync();
+
+            // 3. Cuisines & Zones
+            foreach (var cuisineId in cuisineIds)
+                _db.StoreCuisines.Add(new StoreCuisine { StoreId = store.Id, CuisineId = cuisineId });
+            foreach (var zoneId in zoneIds)
+                _db.StoreDeliveryZones.Add(new StoreDeliveryZone { StoreId = store.Id, ZoneId = zoneId });
+
+            // 4. Owner User
+            var user = new User
+            {
+                Name = $"{firstName} {lastName}",
+                Phone = phone,
+                Email = email,
+                PasswordHash = _passwordHasher.Hash(password),
+                IsActive = true       // user is active, but tenant is not
+            };
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync();
+
+            // 5. Tenant-specific Owner role with all permissions
+            var ownerRole = new Role
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenant.Id,
+                Name = "Owner",
+                Description = "Tenant owner – full access",
+                IsSystem = false
+            };
+            _db.Roles.Add(ownerRole);
+            await _db.SaveChangesAsync();
+
+            var allPermissions = await _db.Permissions.ToListAsync();
+            foreach (var permission in allPermissions)
+                _db.RolePermissions.Add(new RolePermission { RoleId = ownerRole.Id, PermissionId = permission.Id });
+
+            // 6. Link user to tenant as owner
+            _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = ownerRole.Id, TenantId = tenant.Id });
+            _db.TenantUsers.Add(new TenantUser { TenantId = tenant.Id, UserId = user.Id, IsOwner = true, IsActive = true });
+
+            // 7. Legal info
+            _db.TenantLegalInfos.Add(new TenantLegalInfo
+            {
+                TenantId = tenant.Id,
+                CnicNumber = cnic,
+                NtnNumber = ntn,
+                HasFoodLicense = hasFoodLicense,
+                CnicFrontImageUrl = cnicFrontUrl,
+                CnicBackImageUrl = cnicBackUrl
+            });
+
+            // 8. Subscription – Starter plan, trialing
+            var starterPlan = await _db.Plans.FirstAsync(p => p.Name == "Starter");
+            _db.Subscriptions.Add(new Subscription
+            {
+                TenantId = tenant.Id,
+                PlanId = starterPlan.Id,
+                Status = SubscriptionStatus.Trialing,
+                StartDate = DateTime.UtcNow,
+                TrialEndsAt = DateTime.UtcNow.AddDays(14),
+                NextBillingDate = DateTime.UtcNow.AddDays(14),
+                PriceSnapshot = 0
+            });
+
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // No token generation – owner must wait for approval
+            return (tenant.Id, "Registration submitted successfully. Awaiting approval.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    private static string GenerateSlug(string name)
+    {
+        return name.ToLowerInvariant()
+                   .Replace(" ", "-")
+                   .Replace("'", "")
+                   .Replace("\"", "");
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantStoreService.cs
+==================================================
+
+// SaaSPlatform.Infrastructure/Services/Tenant/TenantStoreService.cs
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+
+public class TenantStoreService : ITenantStoreService
+{
+    private readonly SaaSPlatformDbContext _db;
+
+    public TenantStoreService(SaaSPlatformDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request)
+    {
+        var store = await _db.Stores
+            .Include(s => s.StoreCuisines)
+            .Include(s => s.DeliveryZones)
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+        if (store is null)
+            throw new InvalidOperationException("Store not found for this tenant.");
+
+        // Scalars
+        if (request.Name != null) store.Name = request.Name;
+        if (request.Address != null) store.Address = request.Address;
+        if (request.MinPreparingTime.HasValue) store.MinPreparingTime = request.MinPreparingTime.Value;
+        if (request.MaxPreparingTime.HasValue) store.MaxPreparingTime = request.MaxPreparingTime.Value;
+        if (request.IsOnline.HasValue) store.IsOnline = request.IsOnline.Value;
+        if (request.SupportsDelivery.HasValue) store.SupportsDelivery = request.SupportsDelivery.Value;
+        if (request.SupportsPickup.HasValue) store.SupportsPickup = request.SupportsPickup.Value;
+        if (request.SupportsDineIn.HasValue) store.SupportsDineIn = request.SupportsDineIn.Value;
+        if (request.CoverPhotoUrl != null) store.CoverPhotoUrl = request.CoverPhotoUrl;
+        if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
+
+        // Cuisines – full replacement
+        if (request.CuisineIds != null)
+        {
+            _db.StoreCuisines.RemoveRange(store.StoreCuisines);
+            foreach (var cuisineId in request.CuisineIds)
+                _db.StoreCuisines.Add(new StoreCuisine { StoreId = store.Id, CuisineId = cuisineId });
+        }
+
+        // Delivery zones – full replacement
+        if (request.ZoneIds != null)
+        {
+            _db.StoreDeliveryZones.RemoveRange(store.DeliveryZones);
+            foreach (var zoneId in request.ZoneIds)
+                _db.StoreDeliveryZones.Add(new StoreDeliveryZone { StoreId = store.Id, ZoneId = zoneId });
+        }
+
+        await _db.SaveChangesAsync();
+    }
+}
+

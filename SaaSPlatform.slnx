@@ -1,14 +1,11 @@
 <Solution>
   <Project Path="SaaSPlateform.Api.Host/SaaSPlatform.Api.Host.csproj" Id="5bb9c653-c8fb-4e89-9a08-308fc5ce13f4" />
+  <Project Path="SaaSPlatform.Application/SaaSPlatform.Application.csproj" Id="6dc30ffc-84e9-44da-8cdc-319eb8efcf29" />
   <Project Path="SaaSPlatform.Core.Agents/SaaSPlatform.Core.Agents.csproj" Id="b0da19ae-484b-4966-b6de-5fe952c1073d" />
   <Project Path="SaaSPlatform.Core.Billing/SaaSPlatform.Core.Billing.csproj" Id="14f8c526-27a3-437d-986a-341d56249000" />
   <Project Path="SaaSPlatform.Core.Catalog/SaaSPlatform.Core.Catalog.csproj" />
-  <Project Path="SaaSPlatform.Core.Common/SaaSPlatform.Core.Common.csproj" Id="b62ff1a1-c0bb-49bd-926a-dd65629b97b6" />
-  <Project Path="SaaSPlatform.Core.Communication/SaaSPlatform.Core.Communication.csproj" />
   <Project Path="SaaSPlatform.Core.IAM/SaaSPlatform.Core.IAM.csproj" />
   <Project Path="SaaSPlatform.Core.Orders/SaaSPlatform.Core.Orders.csproj" />
-  <Project Path="SaaSPlatform.Core.Security/SaaSPlatform.Core.Security.csproj" />
-  <Project Path="SaaSPlatform.Core.Settings/SaaSPlatform.Core.Settings.csproj" />
   <Project Path="SaaSPlatform.Core.Tenant/SaaSPlatform.Core.Tenant.csproj" />
   <Project Path="SaaSPlatform.Infrastructure/SaaSPlatform.Infrastructure.csproj" />
   <Project Path="SaaSPlatform.SharedKernel/SaaSPlatform.SharedKernel.csproj" />

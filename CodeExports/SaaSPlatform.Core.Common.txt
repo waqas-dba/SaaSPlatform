@@ -1,4 +1,9 @@
-﻿namespace SaaSPlatform.Core.Common.Responses;
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Common\Responses\ApiResponse.cs
+==================================================
+
+namespace SaaSPlatform.Core.Common.Responses;
 
 public class ApiResponse<T>
 {
@@ -52,3 +57,4 @@ public class ApiResponse<T>
 
     #endregion
 }
+

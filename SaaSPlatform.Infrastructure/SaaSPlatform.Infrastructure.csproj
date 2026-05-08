@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SaaSPlatform.Application\SaaSPlatform.Application.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Agents\SaaSPlatform.Core.Agents.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Billing\SaaSPlatform.Core.Billing.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Catalog\SaaSPlatform.Core.Catalog.csproj" />

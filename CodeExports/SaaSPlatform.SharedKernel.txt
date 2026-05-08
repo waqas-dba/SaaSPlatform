@@ -1,0 +1,99 @@
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base auditable entity.
+/// </summary>
+public abstract class AuditableEntity : BaseEntity
+{
+    /// <summary>
+    /// Created date UTC.
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Created by user id.
+    /// </summary>
+    public Guid? CreatedBy { get; set; }
+
+    /// <summary>
+    /// Updated date UTC.
+    /// </summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Updated by user id.
+    /// </summary>
+    public Guid? UpdatedBy { get; set; }
+
+    /// <summary>
+    /// Soft delete flag.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for all entities.
+/// </summary>
+public abstract class BaseEntity
+{
+    /// <summary>
+    /// Primary key.
+    /// </summary>
+    public Guid Id { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
+
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for tenant scoped entities.
+/// </summary>
+public abstract class BaseTenantEntity
+    : AuditableEntity,
+      ITenantScoped
+{
+    /// <summary>
+    /// Tenant identifier.
+    /// </summary>
+    public Guid TenantId { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
+
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces
+{
+    public class IAggregateRoot
+    {
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+public interface ITenantScoped
+{
+    Guid TenantId { get; set; }
+}
+

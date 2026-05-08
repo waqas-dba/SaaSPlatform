@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
 using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.Common.Responses;
 
 namespace SaaSPlatform.Api.Host.Middleware;
 

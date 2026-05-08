@@ -4,7 +4,7 @@ using SaaSPlatform.Core.Tenant.Enums;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 
-public class Tenant : AuditableEntity
+public class TenantAccount : AuditableEntity
 {
     public string Name { get; set; } = default!;
 

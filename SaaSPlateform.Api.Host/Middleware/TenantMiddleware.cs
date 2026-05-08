@@ -1,4 +1,4 @@
-﻿using SaaSPlatform.Core.Common.Responses;
+﻿using SaaSPlatform.Api.Host.Responses;
 using SaaSPlatform.Core.Tenant.Constants;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using System.Security.Claims;

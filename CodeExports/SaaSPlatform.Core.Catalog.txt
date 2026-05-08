@@ -1,0 +1,235 @@
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Entities/Addon.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class Addon : BaseTenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+
+    public string Name { get; set; } = default!;
+    public decimal Price { get; set; }
+
+    public bool IsActive { get; set; } = true;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class AddonGroup : BaseTenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public string Name { get; set; } = default!;          // e.g. "Choose your sauce"
+    public string? Description { get; set; }
+    public bool IsRequired { get; set; } = false;         // customer must pick one?
+    public int MinSelect { get; set; } = 0;               // for multi-select groups
+    public int MaxSelect { get; set; } = 1;               // 1 = single choice, >1 = multiple
+    public bool IsActive { get; set; } = true;
+    public int DisplayOrder { get; set; }
+
+    public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class AddonGroupItem : BaseEntity
+{
+    public Guid AddonGroupId { get; set; }
+    public AddonGroup AddonGroup { get; set; } = default!;
+
+    public Guid AddonId { get; set; }
+    public Addon Addon { get; set; } = default!;
+
+    public decimal PriceAdjustment { get; set; } = 0;   // override price in this group (default = addon's price)
+    public bool IsDefault { get; set; } = false;         // pre-selected in UI
+    public int DisplayOrder { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Entities/Category.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class Category : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public string Name { get; set; } = default!;
+    public Guid? ParentCategoryId { get; set; }
+
+    // New fields
+    public string? PhotoUrl { get; set; }
+    public string? Icon { get; set; }
+    public int DisplayOrder { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Entities/Cuisine.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class Cuisine : BaseEntity
+{
+    public string Name { get; set; } = default!;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs
+==================================================
+
+using SaaSPlatform.Core.Catalog.Enums;
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class FeaturedProduct : BaseEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }               // NEW
+    public Guid ProductId { get; set; }
+    public Product Product { get; set; } = default!;
+
+    public ProductFeatureSection Section { get; set; }
+    public Guid? CategoryId { get; set; }
+
+    public int DisplayOrder { get; set; }
+    public DateTime FeaturedFrom { get; set; }
+    public DateTime? FeaturedUntil { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Entities/Product.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class Product : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid CategoryId { get; set; }
+
+    public Guid StoreId { get; set; }
+
+    public string Name { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal Price { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    // New
+    public int DisplayOrder { get; set; }
+    public string? MainImageUrl { get; set; }
+
+    public ICollection<ProductImage>? Images { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class ProductAddon : BaseEntity
+{
+    public Guid ProductId { get; set; }
+    public Guid AddonId { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class ProductAddonGroup : BaseEntity
+{
+    public Guid ProductId { get; set; }
+    public Product Product { get; set; } = default!;
+
+    public Guid AddonGroupId { get; set; }
+    public AddonGroup AddonGroup { get; set; } = default!;
+
+    public bool IsRequired { get; set; } = true;          // override group's IsRequired per product
+    public int DisplayOrder { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Entities/ProductImage.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class ProductImage : BaseEntity
+{
+    public Guid ProductId { get; set; }
+    public string ImageUrl { get; set; } = default!;
+    public int DisplayOrder { get; set; }
+    public bool IsPrimary { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Catalog.Entities;
+
+public class ProductVariant : BaseEntity
+{
+    public Guid ProductId { get; set; }
+
+    public string Name { get; set; } = default!; // Small, Medium, Large
+    public decimal Price { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs
+==================================================
+
+// SaaSPlatform.Core/Catalog/Enums/ProductFeatureSection.cs
+namespace SaaSPlatform.Core.Catalog.Enums;
+
+public enum ProductFeatureSection
+{
+    MainPage,
+    Category
+}
+

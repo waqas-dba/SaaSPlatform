@@ -1,0 +1,316 @@
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs
+==================================================
+
+// SaaSPlatform.Core/Billing/Entities/Payment.cs
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Billing.Entities;
+
+public class Payment : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid SubscriptionId { get; set; }
+
+    // NEW – optional store association (null = tenant‑level payment)
+    public Guid? StoreId { get; set; }
+
+    public decimal Amount { get; set; }
+    public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+    public string Provider { get; set; } = "Cash";
+    public DateTime? PaidAt { get; set; }
+    public DateTime? StatusUpdatedAt { get; set; }
+    public string? Notes { get; set; }
+    public string? ReferenceNumber { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Billing.Entities;
+
+public class Plan : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+
+    // ===== PRICING =====
+    public decimal PriceMonthly { get; set; }
+    public decimal PriceYearly { get; set; }
+
+    // ===== LIMITS =====
+    public int MaxStores { get; set; }
+    public int MaxUsers { get; set; }
+    public int MaxCategories { get; set; }
+    public int MaxProducts { get; set; }
+    public int MaxOrdersPerMonth { get; set; }
+
+    // ===== BILLING RULES =====
+    public int GraceDays { get; set; } = 7;
+    public int TrialDays { get; set; } = 0;
+
+    // ===== FEATURES =====
+    public bool AllowOrders { get; set; } = true;
+    public bool AllowProductCreation { get; set; } = true;
+    public bool AllowAdminAccess { get; set; } = true;
+
+    public bool IsActive { get; set; } = true;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Billing.Entities;
+
+public class Subscription : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid PlanId { get; set; }
+
+    // --- NEW: Navigation to Plan ---
+    public Plan Plan { get; set; } = default!;
+    // -------------------------------
+
+    public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Trialing;
+
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+
+    public DateTime? TrialEndsAt { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+    public DateTime? PaymentFailedAt { get; set; }
+
+    public DateTime NextBillingDate { get; set; }
+
+    public decimal PriceSnapshot { get; set; }
+
+    public bool IsAutoRenew { get; set; } = true;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Billing.Entities;
+
+public class TenantUsage : BaseEntity
+{
+    public Guid TenantId { get; set; }
+
+    public int CategoryCount { get; set; }
+    public int ProductCount { get; set; }
+    public int OrderCountThisMonth { get; set; }
+
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Billing.Entities;
+
+public class TenantUsageLedger : BaseEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+
+    // Example: 202605
+    public int UsageMonthYear { get; set; }
+
+    public int ProductCount { get; set; }
+
+    public int CategoryCount { get; set; }
+
+    public int OrderCount { get; set; }
+
+    public int StoreCount { get; set; }
+
+    public int UserCount { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs
+==================================================
+
+namespace SaaSPlatform.Core.Billing.Enums;
+
+public enum PaymentStatus
+{
+    Pending,
+    Paid
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs
+==================================================
+
+namespace SaaSPlatform.Core.Billing.Enums;
+
+public enum SubscriptionStatus
+{
+    Trialing,
+    Active,
+    PastDue,
+    Suspended,
+    Canceled,
+    Expired,
+    GracePeriod
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs
+==================================================
+
+namespace SaaSPlatform.Core.Billing.Interfaces;
+
+public interface IPaymentService
+{
+    Task MarkAsPaidAsync(Guid paymentId);
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs
+==================================================
+
+namespace SaaSPlatform.Core.Billing.Interfaces;
+
+public interface ISubscriptionAccessService
+{
+    Task<bool> IsTenantAllowedAsync(Guid tenantId);
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
+
+namespace SaaSPlatform.Core.Billing.Interfaces;
+
+public interface ISubscriptionRuleEngine
+{
+    Task<bool> CanAccessAsync(
+        Subscription subscription,
+        Plan plan);
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+
+namespace SaaSPlatform.Core.Billing.Services;
+
+public class SubscriptionRuleEngine : ISubscriptionRuleEngine
+{
+    public Task<bool> CanAccessAsync(
+        Subscription subscription,
+        Plan plan)
+    {
+        var now = DateTime.UtcNow;
+
+        // ===== ACTIVE =====
+        if (subscription.Status == SubscriptionStatus.Active)
+        {
+            return Task.FromResult(true);
+        }
+
+        // ===== TRIAL =====
+        if (subscription.Status == SubscriptionStatus.Trialing)
+        {
+            if (subscription.TrialEndsAt.HasValue &&
+                subscription.TrialEndsAt.Value > now)
+            {
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
+        }
+
+        // ===== GRACE PERIOD =====
+        if (subscription.Status == SubscriptionStatus.GracePeriod)
+        {
+            var graceEndDate =
+                subscription.NextBillingDate
+                    .AddDays(plan.GraceDays);
+
+            if (graceEndDate > now)
+            {
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
+        }
+
+        // ===== DEFAULT BLOCK =====
+        return Task.FromResult(false);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+
+namespace SaaSPlatform.Core.Billing.Services;
+
+public class SubscriptionService
+{
+    public void HandlePaymentFailed(
+        Subscription subscription)
+    {
+        subscription.PaymentFailedAt = DateTime.UtcNow;
+
+        subscription.Status =
+            SubscriptionStatus.GracePeriod;
+    }
+
+    public void EvaluateSubscription(
+        Subscription subscription,
+        Plan plan)
+    {
+        if (subscription.Status != SubscriptionStatus.GracePeriod)
+            return;
+
+        if (!subscription.PaymentFailedAt.HasValue)
+            return;
+
+        var graceEndDate =
+            subscription.NextBillingDate
+                .AddDays(plan.GraceDays);
+
+        if (DateTime.UtcNow > graceEndDate)
+        {
+            subscription.Status =
+                SubscriptionStatus.Suspended;
+        }
+    }
+
+    public bool IsTenantActive(
+        Subscription subscription)
+    {
+        return subscription.Status is
+            SubscriptionStatus.Active
+            or SubscriptionStatus.Trialing
+            or SubscriptionStatus.GracePeriod;
+    }
+}
+

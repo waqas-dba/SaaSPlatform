@@ -1,0 +1,42 @@
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Agents.Entities;
+
+public class Agent : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+    public string Phone { get; set; } = default!;
+    public string? Email { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    // commission model
+    public decimal CommissionRate { get; set; } // e.g. 10%
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Agents.Entities;
+
+public class AgentCommission : AuditableEntity
+{
+    public Guid AgentId { get; set; }
+    public Guid TenantId { get; set; }
+
+    public decimal Amount { get; set; }
+    public string Type { get; set; } = default!; // Signup / Subscription / Order
+
+    public bool IsPaid { get; set; } = false;
+
+    public DateTime? PaidAt { get; set; }
+}
+

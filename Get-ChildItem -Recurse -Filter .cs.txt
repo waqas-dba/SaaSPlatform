@@ -1,20 +1,59 @@
-Get-ChildItem -Recurse -File *.cs |
-Where-Object {
-    $_.FullName -notmatch '\\bin\\' -and
-    $_.FullName -notmatch '\\obj\\' -and
-    $_.FullName -notmatch '\\.vs\\' -and
-    $_.FullName -notmatch '\\node_modules\\' -and
-    $_.FullName -notmatch '\\.git\\'
-} |
-ForEach-Object {
-    "=================================================="
-    "FILE: $($_.FullName)"
-    "=================================================="
-    Get-Content $_.FullName
-    ""
-} |
-Out-File -FilePath "AllCode.txt" -Encoding utf8
+$Root = Get-Location
 
+$ExportFolder = Join-Path $Root "CodeExports"
+New-Item -ItemType Directory -Force -Path $ExportFolder | Out-Null
+
+$AllFile = Join-Path $ExportFolder "AllProjectsCode.txt"
+
+# Reset main file
+"" | Out-File $AllFile -Encoding utf8 -Force
+
+Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
+
+    $ProjectDir  = $_.Directory.FullName
+    $ProjectName = $_.BaseName
+
+    $ProjectFile = Join-Path $ExportFolder "$ProjectName.txt"
+
+    # Reset per-project file
+    "" | Out-File $ProjectFile -Encoding utf8 -Force
+
+    Write-Host "Processing: $ProjectName"
+
+    $Files = Get-ChildItem $ProjectDir -Recurse -File -Filter *.cs |
+    Where-Object {
+        $_.FullName -notmatch '\\bin\\' -and
+        $_.FullName -notmatch '\\obj\\' -and
+        $_.FullName -notmatch '\\.vs\\' -and
+        $_.FullName -notmatch '\\node_modules\\' -and
+        $_.FullName -notmatch '\\.git\\' -and
+        $_.FullName -notmatch '\\Migrations\\'
+    }
+
+    foreach ($File in $Files) {
+
+        $Header = @"
+==================================================
+FILE: $($File.FullName)
+==================================================
+
+"@
+
+        # Write to PROJECT file
+        Add-Content $ProjectFile $Header
+        Get-Content $File.FullName | Add-Content $ProjectFile
+        Add-Content $ProjectFile ""
+
+        # Write to GLOBAL file
+        Add-Content $AllFile $Header
+        Get-Content $File.FullName | Add-Content $AllFile
+        Add-Content $AllFile ""
+    }
+
+    Write-Host "Saved project: $ProjectFile"
+}
+
+Write-Host "DONE. Global file + per-project files created."
 
 
 

@@ -5,7 +5,6 @@ namespace SaaSPlatform.Core.Catalog.Entities;
 
 public class Addon : BaseTenantEntity
 {
-    public Guid TenantId { get; set; }
     public Guid StoreId { get; set; }
 
     public string Name { get; set; } = default!;

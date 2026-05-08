@@ -5,11 +5,11 @@ using SaaSPlatform.Core.Tenant.Entities;
 
 namespace SaaSPlatform.Infrastructure.Persistence.Configurations.TenantConfig;
 
-public class TenantConfiguration
-    : IEntityTypeConfiguration<Tenant>
+public class TenantAccountConfiguration
+    : IEntityTypeConfiguration<TenantAccount>
 {
     public void Configure(
-        EntityTypeBuilder<Tenant> builder)
+        EntityTypeBuilder<TenantAccount> builder)
     {
         builder.Property(x => x.Latitude)
             .HasPrecision(9, 6);

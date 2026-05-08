@@ -1,6 +1,6 @@
-﻿using System.Net;
+﻿using SaaSPlatform.Api.Host.Responses;
+using System.Net;
 using System.Text.Json;
-using SaaSPlatform.Core.Common.Responses;
 
 namespace SaaSPlatform.Api.Host.Middleware;
 
