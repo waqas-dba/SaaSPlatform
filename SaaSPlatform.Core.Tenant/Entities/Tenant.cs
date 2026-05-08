@@ -1,4 +1,6 @@
-﻿using SaaSPlatform.Core.SharedKernel.Common;
+﻿using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.Core.Tenant.Enums;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 
@@ -19,6 +21,8 @@ public class Tenant : AuditableEntity
 
     public bool IsActive { get; set; } = true;
 
+    public RegistrationStatus RegistrationStatus { get; set; } = RegistrationStatus.Pending;
+
     // Branding
     public string? LogoUrl { get; set; }
 
@@ -34,4 +38,6 @@ public class Tenant : AuditableEntity
     public DateTime? OnboardedAt { get; set; }
 
     public ICollection<TenantDomain>? Domains { get; set; }
+
+    public ICollection<Subscription>? Subscriptions { get; set; }
 }

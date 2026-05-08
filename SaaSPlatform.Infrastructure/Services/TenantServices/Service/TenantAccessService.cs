@@ -3,7 +3,7 @@
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
 
-namespace SaaSPlatform.Infrastructure.Services;
+namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
 
 public class TenantAccessService : ITenantAccessService
 {

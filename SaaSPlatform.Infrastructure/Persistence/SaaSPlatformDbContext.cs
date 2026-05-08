@@ -32,6 +32,7 @@ public class SaaSPlatformDbContext : DbContext
     public DbSet<PermissionModule> PermissionModules => Set<PermissionModule>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
 
     // ========== CATALOG ==========
     public DbSet<Cuisine> Cuisines => Set<Cuisine>();
