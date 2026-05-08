@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SaaSPlatform.Infrastructure.Persistence;
 namespace SaaSPlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(SaaSPlatformDbContext))]
-    partial class SaaSPlatformDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260508070945_updatetheseeddatasrequired")]
+    partial class updatetheseeddatasrequired
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -148,9 +151,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Property<DateTime?>("StatusUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid?>("StoreId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("SubscriptionId")
                         .HasColumnType("uuid");
 
@@ -165,11 +165,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StoreId");
-
                     b.HasIndex("TenantId", "Status");
-
-                    b.HasIndex("TenantId", "StoreId");
 
                     b.ToTable("Payments");
                 });
@@ -1445,13 +1441,6 @@ namespace SaaSPlatform.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Zones");
-                });
-
-            modelBuilder.Entity("SaaSPlatform.Core.Billing.Entities.Payment", b =>
-                {
-                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.Store", null)
-                        .WithMany()
-                        .HasForeignKey("StoreId");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Billing.Entities.Subscription", b =>
