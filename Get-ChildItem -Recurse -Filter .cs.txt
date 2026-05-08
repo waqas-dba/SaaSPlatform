@@ -1,0 +1,3 @@
+Get-ChildItem -Recurse -Filter *.cs | 
+Get-Content | 
+Set-Content AllCode.txt

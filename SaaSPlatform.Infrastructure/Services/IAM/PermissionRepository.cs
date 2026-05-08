@@ -18,13 +18,10 @@ public class PermissionRepository : IPermissionRepository
         Guid tenantId,
         string permission)
     {
-        return await _db.UserRoles
-            .AsNoTracking()
-            .Include(ur => ur.Role)
-                .ThenInclude(r => r.RolePermissions!)
-                    .ThenInclude(rp => rp.Permission)
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
+        if (string.IsNullOrWhiteSpace(permission))
+            throw new ArgumentNullException(nameof(permission));
+
+        return await BuildRolePermissionsQuery(userId, tenantId)
             .AnyAsync(rp => rp.Permission!.Name == permission);
     }
 
@@ -33,13 +30,22 @@ public class PermissionRepository : IPermissionRepository
         Guid tenantId,
         string module)
     {
-        return await _db.UserRoles
+        if (string.IsNullOrWhiteSpace(module))
+            throw new ArgumentNullException(nameof(module));
+
+        return await BuildRolePermissionsQuery(userId, tenantId)
+            .AnyAsync(rp => rp.Permission!.Name.StartsWith(module + "."));
+    }
+
+    // Extracted query to keep methods DRY and make it easier to mock/override in tests
+    protected virtual IQueryable<Core.IAM.Entities.RolePermission> BuildRolePermissionsQuery(Guid userId, Guid tenantId)
+    {
+        return _db.UserRoles
             .AsNoTracking()
             .Include(ur => ur.Role)
                 .ThenInclude(r => r.RolePermissions!)
                     .ThenInclude(rp => rp.Permission)
             .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .AnyAsync(rp => rp.Permission!.Name.StartsWith(module + "."));
+            .SelectMany(ur => ur.Role!.RolePermissions!);
     }
 }
