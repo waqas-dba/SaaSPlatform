@@ -19,60 +19,56 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
 // ======================================================
 // SERVICES
 // ======================================================
 
 builder.Services.AddControllers();
-
 builder.Services.AddEndpointsApiExplorer();
-
 builder.Services.AddSwaggerGen();
-
 builder.Services.AddHttpContextAccessor();
-
 builder.Services.AddMemoryCache();
 
-
 // ======================================================
-// JWT
+// JWT (FIXED - SAFE & PRODUCTION READY)
 // ======================================================
 
 builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection("Jwt"));
 
-var jwtSettings =
-    builder.Configuration
-        .GetSection("Jwt")
-        .Get<JwtSettings>()
-    ?? throw new Exception("JWT settings missing");
+var jwtSettings = new JwtSettings();
+builder.Configuration.GetSection("Jwt").Bind(jwtSettings);
+
+// SAFE VALIDATION (prevents startup crash)
+if (string.IsNullOrWhiteSpace(jwtSettings.Secret) ||
+    string.IsNullOrWhiteSpace(jwtSettings.Issuer) ||
+    string.IsNullOrWhiteSpace(jwtSettings.Audience))
+{
+    throw new Exception("JWT settings missing or invalid in appsettings.json / appsettings.Development.json");
+}
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.TokenValidationParameters =
-            new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
 
-                ValidIssuer = jwtSettings.Issuer,
-                ValidAudience = jwtSettings.Audience,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidAudience = jwtSettings.Audience,
 
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtSettings.Secret)),
 
-                ClockSkew = TimeSpan.Zero
-            };
+            ClockSkew = TimeSpan.Zero
+        };
     });
 
 builder.Services.AddAuthorization();
-
 
 // ======================================================
 // RATE LIMITING (.NET 10)
@@ -80,43 +76,32 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter(
-        "default",
-        config =>
-        {
-            config.Window = TimeSpan.FromMinutes(1);
-            config.PermitLimit = 100;
-            config.QueueLimit = 0;
-        });
+    options.AddFixedWindowLimiter("default", config =>
+    {
+        config.Window = TimeSpan.FromMinutes(1);
+        config.PermitLimit = 100;
+        config.QueueLimit = 0;
+    });
 });
-
 
 // ======================================================
 // APPLICATION SERVICES
 // ======================================================
 
 builder.Services.AddScoped<ITenantContext, TenantContext>();
-
 builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
-
 builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
-
 builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
 
 builder.Services.AddScoped<IPaymentService, PaymentService>();
-
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
-
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
-
 builder.Services.AddScoped<IPermissionService, PermissionService>();
-
 
 // ======================================================
 // DATABASE
@@ -129,43 +114,33 @@ builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
     switch (provider)
     {
         case "Postgres":
-
             options.UseNpgsql(
                 builder.Configuration.GetConnectionString("Postgres"));
-
             break;
 
         default:
-
-            throw new Exception(
-                $"Unsupported database provider: {provider}");
+            throw new Exception($"Unsupported database provider: {provider}");
     }
 });
 
-
 // ======================================================
-// APP
+// BUILD APP
 // ======================================================
 
 var app = builder.Build();
 
-
 // ======================================================
-// SEED
+// SEED DATABASE
 // ======================================================
 
 using (var scope = app.Services.CreateScope())
 {
-    var db =
-        scope.ServiceProvider
-            .GetRequiredService<SaaSPlatformDbContext>();
-
+    var db = scope.ServiceProvider.GetRequiredService<SaaSPlatformDbContext>();
     await DbSeeder.SeedAsync(db);
 }
 
-
 // ======================================================
-// MIDDLEWARE
+// MIDDLEWARE PIPELINE
 // ======================================================
 
 if (app.Environment.IsDevelopment())
@@ -174,18 +149,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
+
 app.UseRateLimiter();
 
 app.UseMiddleware<ExceptionMiddleware>();
-
 app.UseMiddleware<TenantMiddleware>();
 
 app.UseAuthentication();
-
 app.UseAuthorization();
 
 app.UseMiddleware<SubscriptionMiddleware>();
-
 
 app.MapControllers();
 

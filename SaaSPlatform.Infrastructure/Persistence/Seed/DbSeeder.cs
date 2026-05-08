@@ -3,7 +3,7 @@ using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Infrastructure.Services.IAM;   // for PasswordHasher
+using SaaSPlatform.Infrastructure.Services.IAM;
 
 namespace SaaSPlatform.Infrastructure.Persistence.Seed;
 
@@ -11,13 +11,17 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(SaaSPlatformDbContext db)
     {
-        // 1. Apply pending migrations
+        // ======================================================
+        // 1. APPLY MIGRATIONS
+        // ======================================================
         await db.Database.MigrateAsync();
 
-        // 2. System tenant & store (must exist before any tenant‑scoped entity)
-        if (!await db.Tenants.AnyAsync(t => t.Id == SeedData.SystemTenantId))
+        // ======================================================
+        // 2. SYSTEM TENANT
+        // ======================================================
+        if (!await db.Tenants.AnyAsync(x => x.Id == SeedData.SystemTenantId))
         {
-            db.Tenants.Add(new Tenant
+            await db.Tenants.AddAsync(new Tenant
             {
                 Id = SeedData.SystemTenantId,
                 Name = "System",
@@ -25,11 +29,19 @@ public static class DbSeeder
                 IsActive = true,
                 RegistrationStatus = RegistrationStatus.Approved
             });
+
+            await db.SaveChangesAsync();
         }
 
-        if (!await db.Stores.AnyAsync(s => s.Id == SeedData.SystemStoreId))
+        // ======================================================
+        // 3. SYSTEM STORE (FIXED DUPLICATE ISSUE)
+        // ======================================================
+        var storeExists = await db.Stores
+            .AnyAsync(x => x.Id == SeedData.SystemStoreId);
+
+        if (!storeExists)
         {
-            db.Stores.Add(new Store
+            await db.Stores.AddAsync(new Store
             {
                 Id = SeedData.SystemStoreId,
                 TenantId = SeedData.SystemTenantId,
@@ -37,11 +49,13 @@ public static class DbSeeder
                 Slug = "system-store",
                 IsOnline = false
             });
+
+            await db.SaveChangesAsync();
         }
 
-        await db.SaveChangesAsync();
-
-        // 3. Modules, permissions, plans, super admin role
+        // ======================================================
+        // 4. MODULES / PERMISSIONS / PLANS / ROLES
+        // ======================================================
         if (!await db.PermissionModules.AnyAsync())
             await db.PermissionModules.AddRangeAsync(SeedData.Modules);
 
@@ -54,18 +68,26 @@ public static class DbSeeder
         if (!await db.Roles.AnyAsync(x => x.Name == "SuperAdmin"))
             await db.Roles.AddAsync(SeedData.SuperAdminRole);
 
+        await db.SaveChangesAsync();
+
+        // ======================================================
+        // 5. ROLE PERMISSIONS (SAFE INSERT)
+        // ======================================================
         if (!await db.RolePermissions.AnyAsync())
         {
-            var rolePermissions = SeedData.Permissions
-                .Select(permission => new RolePermission
-                {
-                    RoleId = SeedData.SuperAdminRoleId,
-                    PermissionId = permission.Id
-                });
+            var rolePermissions = SeedData.Permissions.Select(p => new RolePermission
+            {
+                RoleId = SeedData.SuperAdminRoleId,
+                PermissionId = p.Id
+            });
+
             await db.RolePermissions.AddRangeAsync(rolePermissions);
+            await db.SaveChangesAsync();
         }
 
-        // 4. Cuisines, zones, addons, addon groups
+        // ======================================================
+        // 6. CUISINES / ZONES / ADDONS / GROUPS
+        // ======================================================
         if (!await db.Cuisines.AnyAsync())
             await db.Cuisines.AddRangeAsync(SeedData.Cuisines);
 
@@ -83,9 +105,14 @@ public static class DbSeeder
 
         await db.SaveChangesAsync();
 
-        // 5. Super admin user (depends on system tenant & super admin role)
+        // ======================================================
+        // 7. SUPER ADMIN USER (SAFE)
+        // ======================================================
         const string superAdminPhone = "0000000000";
-        if (!await db.Users.AnyAsync(u => u.Phone == superAdminPhone))
+
+        var userExists = await db.Users.AnyAsync(x => x.Phone == superAdminPhone);
+
+        if (!userExists)
         {
             var adminUser = new User
             {
@@ -96,17 +123,18 @@ public static class DbSeeder
                 PasswordHash = new PasswordHasher().Hash("Admin@123"),
                 IsActive = true
             };
-            db.Users.Add(adminUser);
+
+            await db.Users.AddAsync(adminUser);
             await db.SaveChangesAsync();
 
-            db.UserRoles.Add(new UserRole
+            await db.UserRoles.AddAsync(new UserRole
             {
                 UserId = adminUser.Id,
                 RoleId = SeedData.SuperAdminRoleId,
                 TenantId = SeedData.SystemTenantId
             });
 
-            db.TenantUsers.Add(new TenantUser
+            await db.TenantUsers.AddAsync(new TenantUser
             {
                 TenantId = SeedData.SystemTenantId,
                 UserId = adminUser.Id,
