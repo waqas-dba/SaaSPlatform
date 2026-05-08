@@ -21,23 +21,3 @@ public class TenantConfiguration
             .IsUnique();
     }
 }
-
-public class StoreConfiguration
-    : IEntityTypeConfiguration<Store>
-{
-    public void Configure(
-        EntityTypeBuilder<Store> builder)
-    {
-        builder.Property(x => x.Latitude)
-            .HasPrecision(9, 6);
-
-        builder.Property(x => x.Longitude)
-            .HasPrecision(9, 6);
-
-        builder.HasIndex(x => new
-        {
-            x.TenantId,
-            x.Slug
-        });
-    }
-}

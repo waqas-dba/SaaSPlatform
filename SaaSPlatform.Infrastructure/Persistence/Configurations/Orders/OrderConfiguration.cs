@@ -39,5 +39,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(x => x.TotalAmount)
             .HasPrecision(18, 2);
+
+        builder.Property(x => x.OrderType).IsRequired();
+        builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
     }
 }

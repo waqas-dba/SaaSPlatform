@@ -31,8 +31,4 @@
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\SaaSPlatform.SharedKernel.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Services\Tenant\Interface\" />
-  </ItemGroup>
-
 </Project>

@@ -8,6 +8,10 @@ public class Subscription : AuditableEntity, ITenantScoped
     public Guid TenantId { get; set; }
     public Guid PlanId { get; set; }
 
+    // --- NEW: Navigation to Plan ---
+    public Plan Plan { get; set; } = default!;
+    // -------------------------------
+
     public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Trialing;
 
     public DateTime StartDate { get; set; }
@@ -20,7 +24,6 @@ public class Subscription : AuditableEntity, ITenantScoped
 
     public DateTime NextBillingDate { get; set; }
 
-    // snapshot for billing consistency
     public decimal PriceSnapshot { get; set; }
 
     public bool IsAutoRenew { get; set; } = true;

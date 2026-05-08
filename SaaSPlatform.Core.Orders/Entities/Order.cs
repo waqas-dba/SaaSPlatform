@@ -33,4 +33,8 @@ public class Order : AuditableEntity, ITenantScoped
     public Guid? CreatedByUserId { get; set; }
 
     public ICollection<OrderItem>? Items { get; set; }
+
+    // In the original Order class, add:
+    public OrderType OrderType { get; set; } = OrderType.Pickup;
+    public string? DeliveryAddress { get; set; }
 }
