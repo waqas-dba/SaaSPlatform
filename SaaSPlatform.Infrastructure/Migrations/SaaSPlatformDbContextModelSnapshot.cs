@@ -200,6 +200,9 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("TenantAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -217,6 +220,8 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.HasIndex("NextBillingDate");
 
                     b.HasIndex("PlanId");
+
+                    b.HasIndex("TenantAccountId");
 
                     b.HasIndex("TenantId", "Status");
 
@@ -1129,7 +1134,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.ToTable("StoreDeliveryZones");
                 });
 
-            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Tenant", b =>
+            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.TenantAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1197,7 +1202,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.HasIndex("Slug")
                         .IsUnique();
 
-                    b.ToTable("Tenants");
+                    b.ToTable("TenantAccounts");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.TenantDomain", b =>
@@ -1225,6 +1230,9 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Property<bool>("IsVerified")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("TenantAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -1239,7 +1247,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantAccountId");
 
                     b.ToTable("TenantDomain");
                 });
@@ -1329,11 +1337,9 @@ namespace SaaSPlatform.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.Tenant", null)
+                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.TenantAccount", null)
                         .WithMany("Subscriptions")
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("TenantAccountId");
 
                     b.Navigation("Plan");
                 });
@@ -1545,11 +1551,9 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
             modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.TenantDomain", b =>
                 {
-                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.Tenant", null)
+                    b.HasOne("SaaSPlatform.Core.Tenant.Entities.TenantAccount", null)
                         .WithMany("Domains")
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("TenantAccountId");
                 });
 
             modelBuilder.Entity("SaaSPlatform.Core.Catalog.Entities.AddonGroup", b =>
@@ -1601,7 +1605,7 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Navigation("StoreCuisines");
                 });
 
-            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.Tenant", b =>
+            modelBuilder.Entity("SaaSPlatform.Core.Tenant.Entities.TenantAccount", b =>
                 {
                     b.Navigation("Domains");
 

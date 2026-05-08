@@ -3,21 +3,22 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SaaSPlatform.Api.Host.Middleware;
-using SaaSPlatform.Application.Services;
+using SaaSPlatform.Application.Services;                                  // ADDED
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Billing.Services;
-using SaaSPlatform.Core.Catalog.Interfaces;
 using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.IAM.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Infrastructure.Persistence.Repositories;
+using SaaSPlatform.Infrastructure.Persistence.Repositories;             // ADDED
 using SaaSPlatform.Infrastructure.Persistence.Seed;
 using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.Common;                       // ADDED
 using SaaSPlatform.Infrastructure.Services.IAM;
 using SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+using SaaSPlatform.SharedKernel.Interfaces;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -88,14 +89,33 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // ======================================================
-// APPLICATION SERVICES
+// APPLICATION SERVICES (original, now some are wrappers)
 // ======================================================
 
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
+
+// ---------- NEW: Repository registrations ----------
+builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
+builder.Services.AddScoped<IStoreRepository, StoreRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+
+// ---------- NEW: Unit of Work & Utilities ----------
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
+
+// ---------- NEW: Application Services ----------
+builder.Services.AddScoped<TenantApprovalService>();
+builder.Services.AddScoped<TenantRegistrationAppService>();
+
+// ---------- Original interfaces, now wrapping new app services ----------
 builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
 builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
 
+// ---------- Unchanged ----------
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
@@ -105,9 +125,6 @@ builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
-
-builder.Services.AddScoped<IProductRepository, ProductRepository>();
-builder.Services.AddScoped<ProductManagementService>();
 
 // ======================================================
 // DATABASE
