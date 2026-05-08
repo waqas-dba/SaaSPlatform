@@ -1,5 +1,7 @@
 ﻿using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.Tenant.Entities;
 
 namespace SaaSPlatform.Infrastructure.Persistence.Seed;
 
@@ -164,4 +166,46 @@ public static class SeedData
         Description = "System Super Administrator",
         IsSystem = true
     };
+
+    // ===== NEW: CUISINES =====
+    public static readonly List<Cuisine> Cuisines = new()
+{
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000001"), Name = "Fast Food" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000002"), Name = "Dessert" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000003"), Name = "BBQ" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000004"), Name = "Sea Food" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000005"), Name = "Hot Beverages" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000006"), Name = "Continental" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000007"), Name = "Drinks & Beverages" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000008"), Name = "Broast" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000009"), Name = "Chinese" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000A"), Name = "Karahi and Handi" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000B"), Name = "Pizza" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000C"), Name = "Steak" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000D"), Name = "Vegetarian" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000E"), Name = "Middle Eastern" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000F"), Name = "Ice Cream" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000010"), Name = "Savouries" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000011"), Name = "Biryani" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000012"), Name = "Pulao" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000013"), Name = "Rice" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000014"), Name = "Sandwiches" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000015"), Name = "Street Food" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000016"), Name = "Desi" },
+    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000017"), Name = "Breakfast" }
+};
+
+    // ===== NEW: ZONES (sample for Islamabad) =====
+    public static readonly List<Zone> Zones = new()
+{
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000001"), Name = "H-Sectors", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000002"), Name = "F-Sectors", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000003"), Name = "G-Sectors", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000004"), Name = "I-Sectors", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000005"), Name = "Blue Area", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000006"), Name = "Bahria Town", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000007"), Name = "DHA", City = "Islamabad" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000008"), Name = "Saddar", City = "Rawalpindi" },
+    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
+};
 }
