@@ -48,6 +48,19 @@ public static class DbSeeder
         if (!await db.Zones.AnyAsync())
             await db.Zones.AddRangeAsync(SeedData.Zones);
 
+
+        // ===== NEW: ADDONS =====
+        if (!await db.Addons.AnyAsync())
+            await db.Addons.AddRangeAsync(SeedData.Addons);
+
+        // ===== NEW: ADDON GROUPS =====
+        if (!await db.AddonGroups.AnyAsync())
+            await db.AddonGroups.AddRangeAsync(SeedData.AddonGroups);
+
+        // ===== NEW: ADDON GROUP ITEMS =====
+        if (!await db.AddonGroupItems.AnyAsync())
+            await db.AddonGroupItems.AddRangeAsync(SeedData.AddonGroupItems);
+
         // Final save
         await db.SaveChangesAsync();
     }
