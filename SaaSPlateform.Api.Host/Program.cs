@@ -38,7 +38,7 @@ builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
-
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 var provider = builder.Configuration["DatabaseProvider"];
 
 builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>

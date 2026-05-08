@@ -9,26 +9,20 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(SaaSPlatformDbContext db)
     {
-        // APPLY MIGRATIONS
         await db.Database.MigrateAsync();
 
-        // MODULES
         if (!await db.PermissionModules.AnyAsync())
             await db.PermissionModules.AddRangeAsync(SeedData.Modules);
 
-        // PERMISSIONS
         if (!await db.Permissions.AnyAsync())
             await db.Permissions.AddRangeAsync(SeedData.Permissions);
 
-        // PLANS
         if (!await db.Plans.AnyAsync())
             await db.Plans.AddRangeAsync(SeedData.Plans);
 
-        // SUPER ADMIN ROLE
         if (!await db.Roles.AnyAsync(x => x.Name == "SuperAdmin"))
             await db.Roles.AddAsync(SeedData.SuperAdminRole);
 
-        // ROLE PERMISSIONS
         if (!await db.RolePermissions.AnyAsync())
         {
             var rolePermissions = SeedData.Permissions
@@ -40,28 +34,21 @@ public static class DbSeeder
             await db.RolePermissions.AddRangeAsync(rolePermissions);
         }
 
-        // ===== NEW: CUISINES =====
         if (!await db.Cuisines.AnyAsync())
             await db.Cuisines.AddRangeAsync(SeedData.Cuisines);
 
-        // ===== NEW: ZONES =====
         if (!await db.Zones.AnyAsync())
             await db.Zones.AddRangeAsync(SeedData.Zones);
 
-
-        // ===== NEW: ADDONS =====
         if (!await db.Addons.AnyAsync())
             await db.Addons.AddRangeAsync(SeedData.Addons);
 
-        // ===== NEW: ADDON GROUPS =====
         if (!await db.AddonGroups.AnyAsync())
             await db.AddonGroups.AddRangeAsync(SeedData.AddonGroups);
 
-        // ===== NEW: ADDON GROUP ITEMS =====
         if (!await db.AddonGroupItems.AnyAsync())
             await db.AddonGroupItems.AddRangeAsync(SeedData.AddonGroupItems);
 
-        // Final save
         await db.SaveChangesAsync();
     }
 }

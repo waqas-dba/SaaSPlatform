@@ -24,21 +24,18 @@ public static class SeedData
             Name = "Catalog",
             Code = "catalog"
         },
-
         new()
         {
             Id = Guid.Parse("30000000-0000-0000-0000-000000000002"),
             Name = "Orders",
             Code = "orders"
         },
-
         new()
         {
             Id = Guid.Parse("30000000-0000-0000-0000-000000000003"),
             Name = "Billing",
             Code = "billing"
         },
-
         new()
         {
             Id = Guid.Parse("30000000-0000-0000-0000-000000000004"),
@@ -50,21 +47,19 @@ public static class SeedData
     // PERMISSIONS
     public static readonly List<Permission> Permissions =
     [
-        // CATALOG
+        // ---------- CATALOG ----------
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000001"),
             Name = "catalog.view",
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001")
         },
-
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000002"),
             Name = "catalog.create",
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001")
         },
-
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000003"),
@@ -72,14 +67,13 @@ public static class SeedData
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001")
         },
 
-        // ORDERS
+        // ---------- ORDERS ----------
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000004"),
             Name = "orders.view",
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002")
         },
-
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000005"),
@@ -87,14 +81,13 @@ public static class SeedData
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002")
         },
 
-        // BILLING
+        // ---------- BILLING ----------
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000006"),
             Name = "billing.view",
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003")
         },
-
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000007"),
@@ -102,11 +95,31 @@ public static class SeedData
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003")
         },
 
-        // IAM
+        // ---------- IAM ----------
         new()
         {
             Id = Guid.Parse("40000000-0000-0000-0000-000000000008"),
             Name = "users.manage",
+            PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004")
+        },
+
+        // ===== NEW PERMISSIONS FOR TENANT / STORE ADMIN =====
+        new()
+        {
+            Id = Guid.Parse("40000000-0000-0000-0000-000000000009"),
+            Name = "tenant.view",
+            PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004")
+        },
+        new()
+        {
+            Id = Guid.Parse("40000000-0000-0000-0000-00000000000A"),
+            Name = "store.update",
+            PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004")
+        },
+        new()
+        {
+            Id = Guid.Parse("40000000-0000-0000-0000-00000000000B"),
+            Name = "tenant.approve",
             PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004")
         }
     ];
@@ -127,7 +140,6 @@ public static class SeedData
             MaxOrdersPerMonth = 1000,
             IsActive = true
         },
-
         new()
         {
             Id = Guid.Parse("50000000-0000-0000-0000-000000000002"),
@@ -141,7 +153,6 @@ public static class SeedData
             MaxOrdersPerMonth = 50000,
             IsActive = true
         },
-
         new()
         {
             Id = Guid.Parse("50000000-0000-0000-0000-000000000003"),
@@ -167,48 +178,49 @@ public static class SeedData
         IsSystem = true
     };
 
-    // ===== NEW: CUISINES =====
+    // ===== CUISINES =====
     public static readonly List<Cuisine> Cuisines = new()
-{
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000001"), Name = "Fast Food" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000002"), Name = "Dessert" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000003"), Name = "BBQ" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000004"), Name = "Sea Food" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000005"), Name = "Hot Beverages" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000006"), Name = "Continental" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000007"), Name = "Drinks & Beverages" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000008"), Name = "Broast" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000009"), Name = "Chinese" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000A"), Name = "Karahi and Handi" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000B"), Name = "Pizza" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000C"), Name = "Steak" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000D"), Name = "Vegetarian" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000E"), Name = "Middle Eastern" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000F"), Name = "Ice Cream" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000010"), Name = "Savouries" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000011"), Name = "Biryani" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000012"), Name = "Pulao" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000013"), Name = "Rice" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000014"), Name = "Sandwiches" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000015"), Name = "Street Food" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000016"), Name = "Desi" },
-    new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000017"), Name = "Breakfast" }
-};
+    {
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000001"), Name = "Fast Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000002"), Name = "Dessert" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000003"), Name = "BBQ" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000004"), Name = "Sea Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000005"), Name = "Hot Beverages" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000006"), Name = "Continental" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000007"), Name = "Drinks & Beverages" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000008"), Name = "Broast" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000009"), Name = "Chinese" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000A"), Name = "Karahi and Handi" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000B"), Name = "Pizza" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000C"), Name = "Steak" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000D"), Name = "Vegetarian" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000E"), Name = "Middle Eastern" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000F"), Name = "Ice Cream" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000010"), Name = "Savouries" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000011"), Name = "Biryani" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000012"), Name = "Pulao" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000013"), Name = "Rice" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000014"), Name = "Sandwiches" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000015"), Name = "Street Food" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000016"), Name = "Desi" },
+        new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000017"), Name = "Breakfast" }
+    };
 
-    // ===== NEW: ZONES (sample for Islamabad) =====
+    // ===== ZONES =====
     public static readonly List<Zone> Zones = new()
-{
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000001"), Name = "H-Sectors", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000002"), Name = "F-Sectors", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000003"), Name = "G-Sectors", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000004"), Name = "I-Sectors", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000005"), Name = "Blue Area", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000006"), Name = "Bahria Town", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000007"), Name = "DHA", City = "Islamabad" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000008"), Name = "Saddar", City = "Rawalpindi" },
-    new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
-};
+    {
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000001"), Name = "H-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000002"), Name = "F-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000003"), Name = "G-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000004"), Name = "I-Sectors", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000005"), Name = "Blue Area", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000006"), Name = "Bahria Town", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000007"), Name = "DHA", City = "Islamabad" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000008"), Name = "Saddar", City = "Rawalpindi" },
+        new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
+    };
 
+    // ===== ADDONS =====
     public static readonly List<Addon> Addons = new()
     {
         new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000001"), Name = "Extra Cheese", Price = 1.50m },
@@ -220,7 +232,7 @@ public static class SeedData
         new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000007"), Name = "Hot Sauce",      Price = 0.50m }
     };
 
-    // ===== NEW: ADDON GROUPS =====
+    // ===== ADDON GROUPS =====
     public static readonly Guid ToppingsGroupId = Guid.Parse("90000000-0000-0000-0000-000000000001");
     public static readonly Guid SaucesGroupId = Guid.Parse("90000000-0000-0000-0000-000000000002");
 
@@ -244,7 +256,7 @@ public static class SeedData
         }
     };
 
-    // ===== NEW: ADDON GROUP ITEMS =====
+    // ===== ADDON GROUP ITEMS =====
     public static readonly List<AddonGroupItem> AddonGroupItems = new()
     {
         // Toppings
