@@ -6,6 +6,7 @@ namespace SaaSPlatform.Core.Catalog.Entities;
 public class Category : AuditableEntity, ITenantScoped
 {
     public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
     public string Name { get; set; } = default!;
     public Guid? ParentCategoryId { get; set; }
 
