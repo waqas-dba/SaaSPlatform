@@ -1,6 +1,12 @@
-﻿namespace SaaSPlatform.Core.SharedKernel.Common;
+﻿namespace SaaSPlatform.SharedKernel.Common;
 
+/// <summary>
+/// Base entity for all entities.
+/// </summary>
 public abstract class BaseEntity
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>
+    /// Primary key.
+    /// </summary>
+    public Guid Id { get; set; }
 }

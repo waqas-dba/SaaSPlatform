@@ -1,6 +1,6 @@
 ﻿// SaaSPlatform.Core/Billing/Entities/Payment.cs
 using SaaSPlatform.Core.Billing.Enums;
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Billing.Entities;
 

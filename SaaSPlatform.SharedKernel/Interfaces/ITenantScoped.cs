@@ -1,4 +1,4 @@
-﻿namespace SaaSPlatform.Core.SharedKernel.Common;
+﻿namespace SaaSPlatform.SharedKernel.Common;
 
 public interface ITenantScoped
 {

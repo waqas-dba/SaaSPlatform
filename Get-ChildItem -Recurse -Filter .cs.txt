@@ -1,3 +1,23 @@
-Get-ChildItem -Recurse -Filter *.cs | 
-Get-Content | 
-Set-Content AllCode.txt
+Get-ChildItem -Recurse -File *.cs |
+Where-Object {
+    $_.FullName -notmatch '\\bin\\' -and
+    $_.FullName -notmatch '\\obj\\' -and
+    $_.FullName -notmatch '\\.vs\\' -and
+    $_.FullName -notmatch '\\node_modules\\' -and
+    $_.FullName -notmatch '\\.git\\'
+} |
+ForEach-Object {
+    "=================================================="
+    "FILE: $($_.FullName)"
+    "=================================================="
+    Get-Content $_.FullName
+    ""
+} |
+Out-File -FilePath "AllCode.txt" -Encoding utf8
+
+
+
+
+Get-ChildItem -Recurse -Directory -Force |
+Where-Object { $_.Name -in @("bin", "obj") } |
+Remove-Item -Recurse -Force

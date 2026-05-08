@@ -1,4 +1,4 @@
-﻿using SaaSPlatform.Core.SharedKernel.Common;
+﻿using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
 

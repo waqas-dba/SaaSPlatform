@@ -1,8 +1,8 @@
-﻿using SaaSPlatform.Core.SharedKernel.Common;
+﻿using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
 
-public class AddonGroup : AuditableEntity, ITenantScoped
+public class AddonGroup : BaseTenantEntity
 {
     public Guid TenantId { get; set; }
     public Guid StoreId { get; set; }

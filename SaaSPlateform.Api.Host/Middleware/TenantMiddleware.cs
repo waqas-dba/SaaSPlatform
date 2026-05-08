@@ -1,82 +1,138 @@
-﻿// SaaSPlatform.Api.Host/Middleware/TenantMiddleware.cs
+﻿using SaaSPlatform.Core.Common.Responses;
+using SaaSPlatform.Core.Tenant.Constants;
 using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Common.Responses;
+using System.Security.Claims;
 using System.Text.Json;
 
-namespace SaaSPlateform.Api.Host.Middleware;
+namespace SaaSPlatform.Api.Host.Middleware;
 
+/// <summary>
+/// Resolves tenant from request header.
+/// </summary>
 public class TenantMiddleware
 {
     private readonly RequestDelegate _next;
-
-    // Paths that don’t require tenant header
-    private static readonly string[] PublicPaths =
-    {
-        "/api/tenants/register",
-        "/api/auth/login",          // adjust if your auth endpoint differs
-        "/api/auth/refresh",
-        "/api/auth/admin-login",    // if you create admin login later
-        "/api/marketplace"          // future marketplace (starts with)
-    };
 
     public TenantMiddleware(RequestDelegate next)
     {
         _next = next;
     }
 
-    public async Task Invoke(
+    public async Task InvokeAsync(
         HttpContext context,
         ITenantAccessService tenantAccessService,
         ITenantContext tenantContext)
     {
-        // ---- Skip tenant validation for public endpoints ----
-        if (IsPublicPath(context.Request.Path))
+        // =============================================
+        // Skip swagger
+        // =============================================
+
+        if (context.Request.Path.StartsWithSegments("/swagger"))
         {
             await _next(context);
             return;
         }
 
-        // ---- Normal tenant resolution ----
-        var tenantHeader = context.Request.Headers["X-Tenant-ID"].FirstOrDefault();
+        // =============================================
+        // Read tenant header
+        // =============================================
+
+        var tenantHeader =
+            context.Request.Headers[
+                TenantConstants.TenantHeader]
+            .FirstOrDefault();
+
         if (string.IsNullOrWhiteSpace(tenantHeader))
         {
-            await WriteError(context, 400, "Tenant header missing", "TENANT_HEADER_MISSING");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status400BadRequest,
+                "Tenant header missing");
+
             return;
         }
+
+        // =============================================
+        // Validate Guid
+        // =============================================
 
         if (!Guid.TryParse(tenantHeader, out var tenantId))
         {
-            await WriteError(context, 400, "Invalid tenant id", "TENANT_INVALID_ID");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status400BadRequest,
+                "Invalid tenant id");
+
             return;
         }
 
-        var exists = await tenantAccessService.TenantExistsAsync(tenantId);
+        // =============================================
+        // Validate tenant exists
+        // =============================================
+
+        var exists =
+            await tenantAccessService
+                .TenantExistsAsync(tenantId);
+
         if (!exists)
         {
-            await WriteError(context, 404, "Tenant not found", "TENANT_NOT_FOUND");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status404NotFound,
+                "Tenant not found");
+
             return;
         }
 
+        // =============================================
+        // SECURITY CHECK
+        // Prevent cross tenant access
+        // =============================================
+
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            var tokenTenant =
+                context.User.FindFirstValue("tenantId");
+
+            if (tokenTenant != tenantId.ToString())
+            {
+                await WriteErrorAsync(
+                    context,
+                    StatusCodes.Status403Forbidden,
+                    "Tenant mismatch");
+
+                return;
+            }
+        }
+
+        // =============================================
+        // Store tenant context
+        // =============================================
+
         tenantContext.TenantId = tenantId;
+
+        context.Items[
+            TenantConstants.TenantContextKey]
+            = tenantId;
+
         await _next(context);
     }
 
-    private static bool IsPublicPath(string path)
+    private static async Task WriteErrorAsync(
+        HttpContext context,
+        int statusCode,
+        string message)
     {
-        foreach (var publicPath in PublicPaths)
-        {
-            if (path.StartsWith(publicPath, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+        context.Response.StatusCode = statusCode;
 
-    private static async Task WriteError(HttpContext context, int status, string message, string code)
-    {
-        context.Response.StatusCode = status;
         context.Response.ContentType = "application/json";
 
-        var response = ApiResponse<object>.FailResponse(message, code);
-        await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+        var response =
+            ApiResponse<object>.FailResponse(
+                message,
+                statusCode.ToString());
+
+        await context.Response.WriteAsync(
+            JsonSerializer.Serialize(response));
     }
 }

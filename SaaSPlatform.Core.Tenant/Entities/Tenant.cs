@@ -1,5 +1,5 @@
 ﻿using SaaSPlatform.Core.Billing.Entities;
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 using SaaSPlatform.Core.Tenant.Enums;
 
 namespace SaaSPlatform.Core.Tenant.Entities;

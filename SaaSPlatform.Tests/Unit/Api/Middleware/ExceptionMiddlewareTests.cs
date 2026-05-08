@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
-using SaaSPlateform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Middleware;
 
 
 namespace SaaSPlatform.Tests.Unit.Api.Middleware;

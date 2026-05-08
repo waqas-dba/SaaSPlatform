@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
-using SaaSPlateform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Middleware;
 using SaaSPlatform.Core.Billing.Interfaces;
 using System;
 using System.Threading.Tasks;

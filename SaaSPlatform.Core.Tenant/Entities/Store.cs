@@ -1,5 +1,5 @@
 ﻿using SaaSPlatform.Core.Catalog.Entities;   // only needed if Cuisine referenced elsewhere
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 

@@ -1,90 +1,6 @@
-using Microsoft.EntityFrameworkCore;
-using SaaSPlateform.Api.Host.Middleware;
-using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.Billing.Services;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.IAM.Services;
-using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
-using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Infrastructure.Persistence.Seed;
-using SaaSPlatform.Infrastructure.Services;
-using SaaSPlatform.Infrastructure.Services.Billing;
-using SaaSPlatform.Infrastructure.Services.IAM;
-using SaaSPlatform.Infrastructure.Services.TenantServices.Service;
-
-
-var builder = WebApplication.CreateBuilder(args);
-
-
-
-// Services
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(); // ‚úÖ REQUIRED
-builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
-builder.Services.AddScoped<IPaymentService, PaymentService>();
-
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
-
-builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
-builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
-builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();  
-
-builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
-builder.Services.AddScoped<IPermissionService, PermissionService>();
-builder.Services.AddMemoryCache();
-builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
-builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-var provider = builder.Configuration["DatabaseProvider"];
-
-builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
-{
-    if (provider == "Postgres")
-    {
-        options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
-    }
-    else if (provider == "SqlServer")
-    {
-        throw new NotImplementedException("SQL Server support is not implemented yet");
-    }
-    else
-    {
-        throw new Exception("Invalid database provider");
-    }
-});
-
-
-
-
-var app = builder.Build();
-
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider
-        .GetRequiredService<SaaSPlatformDbContext>();
-
-    await DbSeeder.SeedAsync(db);
-}
-
-// Middleware
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseMiddleware<ExceptionMiddleware>();
-app.UseMiddleware<TenantMiddleware>();
-app.UseMiddleware<SubscriptionMiddleware>();
-
-app.UseAuthorization();
-app.MapControllers();
-
-app.Run();
+Ôªø==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Authorization\TenantPermissionAttribute.cs
+==================================================
 // SaaSPlatform.Api.Host/Authorization/TenantPermissionAttribute.cs
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -128,6 +44,10 @@ public class TenantPermissionAttribute : Attribute, IAsyncAuthorizationFilter
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\AdminController.cs
+==================================================
 // SaaSPlatform.Api.Host/Controllers/Admin/AdminController.cs
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -187,6 +107,10 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Tenant rejected." });
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\StoresController.cs
+==================================================
 // SaaSPlatform.Api.Host/Controllers/Tenant/StoresController.cs
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -250,6 +174,10 @@ public class StoresController : ControllerBase
         return NoContent();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\TenantsController.cs
+==================================================
 // SaaSPlatform.Api.Host/Controllers/Tenant/TenantsController.cs
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -319,6 +247,10 @@ public class TenantsController : ControllerBase
         return HttpContext.Items["TenantId"] as Guid?;
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\ExceptionMiddleware.cs
+==================================================
 using System.Net;
 using System.Text.Json;
 using SaaSPlatform.Core.Common.Responses;
@@ -364,6 +296,10 @@ public class ExceptionMiddleware
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\SubscriptionMiddleware.cs
+==================================================
 using System.Text.Json;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Common.Responses;
@@ -448,206 +384,348 @@ public class SubscriptionMiddleware
         }
     }
 }
-// SaaSPlatform.Api.Host/Middleware/TenantMiddleware.cs
-using SaaSPlatform.Core.Tenant.Interfaces;
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\TenantMiddleware.cs
+==================================================
 using SaaSPlatform.Core.Common.Responses;
+using SaaSPlatform.Core.Tenant.Constants;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace SaaSPlateform.Api.Host.Middleware;
 
+/// <summary>
+/// Resolves tenant from request header.
+/// </summary>
 public class TenantMiddleware
 {
     private readonly RequestDelegate _next;
-
-    // Paths that donít require tenant header
-    private static readonly string[] PublicPaths =
-    {
-        "/api/tenants/register",
-        "/api/auth/login",          // adjust if your auth endpoint differs
-        "/api/auth/refresh",
-        "/api/auth/admin-login",    // if you create admin login later
-        "/api/marketplace"          // future marketplace (starts with)
-    };
 
     public TenantMiddleware(RequestDelegate next)
     {
         _next = next;
     }
 
-    public async Task Invoke(
+    public async Task InvokeAsync(
         HttpContext context,
         ITenantAccessService tenantAccessService,
         ITenantContext tenantContext)
     {
-        // ---- Skip tenant validation for public endpoints ----
-        if (IsPublicPath(context.Request.Path))
+        // =============================================
+        // Skip swagger
+        // =============================================
+
+        if (context.Request.Path.StartsWithSegments("/swagger"))
         {
             await _next(context);
             return;
         }
 
-        // ---- Normal tenant resolution ----
-        var tenantHeader = context.Request.Headers["X-Tenant-ID"].FirstOrDefault();
+        // =============================================
+        // Read tenant header
+        // =============================================
+
+        var tenantHeader =
+            context.Request.Headers[
+                TenantConstants.TenantHeader]
+            .FirstOrDefault();
+
         if (string.IsNullOrWhiteSpace(tenantHeader))
         {
-            await WriteError(context, 400, "Tenant header missing", "TENANT_HEADER_MISSING");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status400BadRequest,
+                "Tenant header missing");
+
             return;
         }
+
+        // =============================================
+        // Validate Guid
+        // =============================================
 
         if (!Guid.TryParse(tenantHeader, out var tenantId))
         {
-            await WriteError(context, 400, "Invalid tenant id", "TENANT_INVALID_ID");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status400BadRequest,
+                "Invalid tenant id");
+
             return;
         }
 
-        var exists = await tenantAccessService.TenantExistsAsync(tenantId);
+        // =============================================
+        // Validate tenant exists
+        // =============================================
+
+        var exists =
+            await tenantAccessService
+                .TenantExistsAsync(tenantId);
+
         if (!exists)
         {
-            await WriteError(context, 404, "Tenant not found", "TENANT_NOT_FOUND");
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status404NotFound,
+                "Tenant not found");
+
             return;
         }
 
+        // =============================================
+        // SECURITY CHECK
+        // Prevent cross tenant access
+        // =============================================
+
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            var tokenTenant =
+                context.User.FindFirstValue("tenantId");
+
+            if (tokenTenant != tenantId.ToString())
+            {
+                await WriteErrorAsync(
+                    context,
+                    StatusCodes.Status403Forbidden,
+                    "Tenant mismatch");
+
+                return;
+            }
+        }
+
+        // =============================================
+        // Store tenant context
+        // =============================================
+
         tenantContext.TenantId = tenantId;
+
+        context.Items[
+            TenantConstants.TenantContextKey]
+            = tenantId;
+
         await _next(context);
     }
 
-    private static bool IsPublicPath(string path)
+    private static async Task WriteErrorAsync(
+        HttpContext context,
+        int statusCode,
+        string message)
     {
-        foreach (var publicPath in PublicPaths)
-        {
-            if (path.StartsWith(publicPath, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+        context.Response.StatusCode = statusCode;
 
-    private static async Task WriteError(HttpContext context, int status, string message, string code)
-    {
-        context.Response.StatusCode = status;
         context.Response.ContentType = "application/json";
 
-        var response = ApiResponse<object>.FailResponse(message, code);
-        await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+        var response =
+            ApiResponse<object>.FailResponse(
+                message,
+                statusCode.ToString());
+
+        await context.Response.WriteAsync(
+            JsonSerializer.Serialize(response));
     }
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs
+==================================================
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using SaaSPlateform.Api.Host.Middleware;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Billing.Services;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.IAM.Services;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Infrastructure.Persistence.Seed;
+using SaaSPlatform.Infrastructure.Services;
+using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.IAM;
+using SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+using System.Text;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlateform.Api.Host")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0572c8fb4d6a961965d31d93e54f029a29279b4f")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlateform.Api.Host")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlateform.Api.Host")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+var builder = WebApplication.CreateBuilder(args);
 
-// Generated by the MSBuild WriteCodeFragment class.
 
-// <auto-generated/>
-global using Microsoft.AspNetCore.Builder;
-global using Microsoft.AspNetCore.Hosting;
-global using Microsoft.AspNetCore.Http;
-global using Microsoft.AspNetCore.Routing;
-global using Microsoft.Extensions.Configuration;
-global using Microsoft.Extensions.DependencyInjection;
-global using Microsoft.Extensions.Hosting;
-global using Microsoft.Extensions.Logging;
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Net.Http.Json;
-global using System.Threading;
-global using System.Threading.Tasks;
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
+// ======================================================
+// SERVICES
+// ======================================================
 
-using System;
-using System.Reflection;
+builder.Services.AddControllers();
 
-[assembly: Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartAttribute("Swashbuckle.AspNetCore.SwaggerGen")]
+builder.Services.AddEndpointsApiExplorer();
 
-// Generated by the MSBuild WriteCodeFragment class.
+builder.Services.AddSwaggerGen();
 
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
+builder.Services.AddHttpContextAccessor();
 
-using System;
-using System.Reflection;
+builder.Services.AddMemoryCache();
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Api.Host")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Api.Host")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Api.Host")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
 
-// Generated by the MSBuild WriteCodeFragment class.
+// ======================================================
+// JWT
+// ======================================================
 
-// <auto-generated/>
-global using Microsoft.AspNetCore.Builder;
-global using Microsoft.AspNetCore.Hosting;
-global using Microsoft.AspNetCore.Http;
-global using Microsoft.AspNetCore.Routing;
-global using Microsoft.Extensions.Configuration;
-global using Microsoft.Extensions.DependencyInjection;
-global using Microsoft.Extensions.Hosting;
-global using Microsoft.Extensions.Logging;
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Net.Http.Json;
-global using System.Threading;
-global using System.Threading.Tasks;
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
+builder.Services.Configure<JwtSettings>(
+    builder.Configuration.GetSection("Jwt"));
 
-using System;
-using System.Reflection;
+var jwtSettings =
+    builder.Configuration
+        .GetSection("Jwt")
+        .Get<JwtSettings>()
+    ?? throw new Exception("JWT settings missing");
 
-[assembly: Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartAttribute("Swashbuckle.AspNetCore.SwaggerGen")]
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
 
-// Generated by the MSBuild WriteCodeFragment class.
+                ValidIssuer = jwtSettings.Issuer,
+                ValidAudience = jwtSettings.Audience,
 
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+
+                ClockSkew = TimeSpan.Zero
+            };
+    });
+
+builder.Services.AddAuthorization();
+
+
+// ======================================================
+// RATE LIMITING (.NET 10)
+// ======================================================
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter(
+        "default",
+        config =>
+        {
+            config.Window = TimeSpan.FromMinutes(1);
+            config.PermitLimit = 100;
+            config.QueueLimit = 0;
+        });
+});
+
+
+// ======================================================
+// APPLICATION SERVICES
+// ======================================================
+
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+
+builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
+
+builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
+
+builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+
+builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+
+builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
+
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+
+builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
+
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+
+// ======================================================
+// DATABASE
+// ======================================================
+
+var provider = builder.Configuration["DatabaseProvider"];
+
+builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
+{
+    switch (provider)
+    {
+        case "Postgres":
+
+            options.UseNpgsql(
+                builder.Configuration.GetConnectionString("Postgres"));
+
+            break;
+
+        default:
+
+            throw new Exception(
+                $"Unsupported database provider: {provider}");
+    }
+});
+
+
+// ======================================================
+// APP
+// ======================================================
+
+var app = builder.Build();
+
+
+// ======================================================
+// SEED
+// ======================================================
+
+using (var scope = app.Services.CreateScope())
+{
+    var db =
+        scope.ServiceProvider
+            .GetRequiredService<SaaSPlatformDbContext>();
+
+    await DbSeeder.SeedAsync(db);
+}
+
+
+// ======================================================
+// MIDDLEWARE
+// ======================================================
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseRateLimiter();
+
+app.UseMiddleware<ExceptionMiddleware>();
+
+app.UseMiddleware<TenantMiddleware>();
+
+app.UseAuthentication();
+
+app.UseAuthorization();
+
+app.UseMiddleware<SubscriptionMiddleware>();
+
+
+app.MapControllers();
+
+app.Run();
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.BuildingBlocks\Abstractions\IModule.cs
+==================================================
 namespace SaaSPlatform.BuildingBlocks.Abstractions;
 
 public interface IModule
@@ -658,6 +736,10 @@ public interface IModule
 
     void MapEndpoints(IEndpointRouteBuilder endpoints);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.BuildingBlocks\Abstractions\IPlugin.cs
+==================================================
 namespace SaaSPlatform.BuildingBlocks.Abstractions;
 
 public interface IPlugin
@@ -666,6 +748,10 @@ public interface IPlugin
 
     void Register(IServiceCollection services);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.BuildingBlocks\Abstractions\IRepository.cs
+==================================================
 namespace SaaSPlatform.BuildingBlocks.Abstractions;
 
 public interface IRepository<T> where T : class
@@ -674,12 +760,20 @@ public interface IRepository<T> where T : class
     Task AddAsync(T entity);
     IQueryable<T> Query();
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.BuildingBlocks\MultiTenancy\ITenantProvider.cs
+==================================================
 namespace SaaSPlatform.BuildingBlocks.MultiTenancy;
 
 public interface ITenantProvider
 {
     Guid GetTenantId();
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.BuildingBlocks\MultiTenancy\TenantProvider.cs
+==================================================
 using Microsoft.AspNetCore.Http;
 
 namespace SaaSPlatform.BuildingBlocks.MultiTenancy;
@@ -698,6 +792,10 @@ public class TenantProvider : ITenantProvider
         return (Guid)_http.HttpContext!.Items["TenantId"];
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Agents.Entities;
@@ -713,6 +811,10 @@ public class Agent : AuditableEntity
     // commission model
     public decimal CommissionRate { get; set; } // e.g. 10%
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Agents.Entities;
@@ -729,41 +831,10 @@ public class AgentCommission : AuditableEntity
 
     public DateTime? PaidAt { get; set; }
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Agents")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Agents")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Agents")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs
+==================================================
 // SaaSPlatform.Core/Billing/Entities/Payment.cs
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.SharedKernel.Common;
@@ -775,7 +846,7 @@ public class Payment : AuditableEntity, ITenantScoped
     public Guid TenantId { get; set; }
     public Guid SubscriptionId { get; set; }
 
-    // NEW ñ optional store association (null = tenant-level payment)
+    // NEW ‚Äì optional store association (null = tenant‚Äëlevel payment)
     public Guid? StoreId { get; set; }
 
     public decimal Amount { get; set; }
@@ -786,6 +857,10 @@ public class Payment : AuditableEntity, ITenantScoped
     public string? Notes { get; set; }
     public string? ReferenceNumber { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Billing.Entities;
@@ -816,6 +891,10 @@ public class Plan : AuditableEntity
 
     public bool IsActive { get; set; } = true;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs
+==================================================
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -846,6 +925,10 @@ public class Subscription : AuditableEntity, ITenantScoped
 
     public bool IsAutoRenew { get; set; } = true;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Billing.Entities;
@@ -860,6 +943,10 @@ public class TenantUsage : BaseEntity
 
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Billing.Entities;
@@ -881,6 +968,10 @@ public class TenantUsageLedger : BaseEntity, ITenantScoped
 
     public int UserCount { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs
+==================================================
 namespace SaaSPlatform.Core.Billing.Enums;
 
 public enum PaymentStatus
@@ -888,6 +979,10 @@ public enum PaymentStatus
     Pending,
     Paid
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs
+==================================================
 namespace SaaSPlatform.Core.Billing.Enums;
 
 public enum SubscriptionStatus
@@ -900,18 +995,30 @@ public enum SubscriptionStatus
     Expired,
     GracePeriod
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs
+==================================================
 namespace SaaSPlatform.Core.Billing.Interfaces;
 
 public interface IPaymentService
 {
     Task MarkAsPaidAsync(Guid paymentId);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs
+==================================================
 namespace SaaSPlatform.Core.Billing.Interfaces;
 
 public interface ISubscriptionAccessService
 {
     Task<bool> IsTenantAllowedAsync(Guid tenantId);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 
 namespace SaaSPlatform.Core.Billing.Interfaces;
@@ -922,41 +1029,10 @@ public interface ISubscriptionRuleEngine
         Subscription subscription,
         Plan plan);
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Billing")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Billing")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Billing")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -1008,6 +1084,10 @@ public class SubscriptionRuleEngine : ISubscriptionRuleEngine
         return Task.FromResult(false);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 
@@ -1054,12 +1134,16 @@ public class SubscriptionService
             or SubscriptionStatus.GracePeriod;
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Entities/Addon.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
 
-public class Addon : AuditableEntity, ITenantScoped
+public class Addon : BaseTenantEntity
 {
     public Guid TenantId { get; set; }
     public Guid StoreId { get; set; }
@@ -1069,11 +1153,15 @@ public class Addon : AuditableEntity, ITenantScoped
 
     public bool IsActive { get; set; } = true;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
 
-public class AddonGroup : AuditableEntity, ITenantScoped
+public class AddonGroup : BaseTenantEntity
 {
     public Guid TenantId { get; set; }
     public Guid StoreId { get; set; }
@@ -1087,6 +1175,10 @@ public class AddonGroup : AuditableEntity, ITenantScoped
 
     public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
@@ -1103,6 +1195,10 @@ public class AddonGroupItem : BaseEntity
     public bool IsDefault { get; set; } = false;         // pre-selected in UI
     public int DisplayOrder { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Entities/Category.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -1121,6 +1217,10 @@ public class Category : AuditableEntity, ITenantScoped
     public int DisplayOrder { get; set; }
     public bool IsActive { get; set; } = true;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Entities/Cuisine.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -1130,6 +1230,10 @@ public class Cuisine : BaseEntity
 {
     public string Name { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs
+==================================================
 using SaaSPlatform.Core.Catalog.Enums;
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -1149,6 +1253,10 @@ public class FeaturedProduct : BaseEntity, ITenantScoped
     public DateTime FeaturedFrom { get; set; }
     public DateTime? FeaturedUntil { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Entities/Product.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -1173,6 +1281,10 @@ public class Product : AuditableEntity, ITenantScoped
 
     public ICollection<ProductImage>? Images { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
@@ -1182,6 +1294,10 @@ public class ProductAddon : BaseEntity
     public Guid ProductId { get; set; }
     public Guid AddonId { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
@@ -1197,6 +1313,10 @@ public class ProductAddonGroup : BaseEntity
     public bool IsRequired { get; set; } = true;          // override group's IsRequired per product
     public int DisplayOrder { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Entities/ProductImage.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -1209,6 +1329,10 @@ public class ProductImage : BaseEntity
     public int DisplayOrder { get; set; }
     public bool IsPrimary { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
@@ -1220,6 +1344,10 @@ public class ProductVariant : BaseEntity
     public string Name { get; set; } = default!; // Small, Medium, Large
     public decimal Price { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs
+==================================================
 // SaaSPlatform.Core/Catalog/Enums/ProductFeatureSection.cs
 namespace SaaSPlatform.Core.Catalog.Enums;
 
@@ -1228,76 +1356,10 @@ public enum ProductFeatureSection
     MainPage,
     Category
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Catalog")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Catalog")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Catalog")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
-
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Common")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Common")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Common")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Common\Responses\ApiResponse.cs
+==================================================
 namespace SaaSPlatform.Core.Common.Responses;
 
 public class ApiResponse<T>
@@ -1352,41 +1414,32 @@ public class ApiResponse<T>
 
     #endregion
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\ClaimConstants.cs
+==================================================
+namespace SaaSPlatform.Core.IAM.Constants;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Communication")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Communication")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Communication")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+/// <summary>
+/// JWT claim names.
+/// Prevents magic strings.
+/// </summary>
+public static class ClaimConstants
+{
+    public const string UserId = "userId";
 
-// Generated by the MSBuild WriteCodeFragment class.
+    public const string TenantId = "tenantId";
 
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+    public const string Email = "email";
+
+    public const string Role = "role";
+
+    public const string Permission = "permission";
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Permission.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1403,6 +1456,10 @@ public class Permission : BaseEntity
 
     public ICollection<RolePermission>? RolePermissions { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\PermissionModule.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1414,6 +1471,10 @@ public class PermissionModule : BaseEntity
 
     public ICollection<Permission>? Permissions { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RefreshToken.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1432,6 +1493,10 @@ public class RefreshToken : AuditableEntity
 
     public string? ReplacedByToken { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Role.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1448,6 +1513,10 @@ public class Role : BaseEntity, ITenantScoped
     public ICollection<UserRole>? UserRoles { get; set; }
     public ICollection<RolePermission>? RolePermissions { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RolePermission.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Entities;
 
 public class RolePermission
@@ -1458,6 +1527,10 @@ public class RolePermission
     public Guid PermissionId { get; set; }
     public Permission Permission { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\TenantUser.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1470,6 +1543,10 @@ public class TenantUser : BaseEntity
     public bool IsOwner { get; set; }
     public bool IsActive { get; set; } = true;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\User.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
@@ -1487,6 +1564,10 @@ public class User : BaseEntity
 
     public ICollection<UserRole>? Roles { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\UserRole.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Entities;
 
 public class UserRole
@@ -1499,6 +1580,10 @@ public class UserRole
 
     public Guid TenantId { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IAuthService.cs
+==================================================
 using SaaSPlatform.Core.IAM.Models;
 
 namespace SaaSPlatform.Core.IAM.Interfaces;
@@ -1509,6 +1594,10 @@ public interface IAuthService
     Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId);
     Task LogoutAsync(string refreshToken);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IJwtTokenService.cs
+==================================================
 using SaaSPlatform.Core.IAM.Entities;
 
 namespace SaaSPlatform.Core.IAM.Interfaces;
@@ -1520,6 +1609,10 @@ public interface IJwtTokenService
         Guid tenantId,
         IEnumerable<string> roles);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPasswordHasher.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Interfaces;
 
 public interface IPasswordHasher
@@ -1527,6 +1620,10 @@ public interface IPasswordHasher
     string Hash(string password);
     bool Verify(string password, string passwordHash);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionRepository.cs
+==================================================
 
 namespace SaaSPlatform.Core.IAM.Interfaces;
 
@@ -1536,6 +1633,10 @@ public interface IPermissionRepository
 
     Task<bool> HasPermissionByModuleAsync(Guid userId, Guid tenantId, string module);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionService.cs
+==================================================
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -1548,6 +1649,10 @@ namespace SaaSPlatform.Core.IAM.Interfaces
         Task<bool> HasModuleAccessAsync(Guid userId, Guid tenantId, string module);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs
+==================================================
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -1563,6 +1668,10 @@ namespace SaaSPlatform.Core.Tenant.Models
         public int RefreshTokenDays { get; set; } = 7;
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginRequest.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Models;
 
 public class LoginRequest
@@ -1570,6 +1679,10 @@ public class LoginRequest
     public string Email { get; set; } = default!;
     public string Password { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginResponse.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Models;
 
 public class LoginResponse
@@ -1577,47 +1690,20 @@ public class LoginResponse
     public string AccessToken { get; set; } = default!;
     public string RefreshToken { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\RefreshTokenRequest.cs
+==================================================
 namespace SaaSPlatform.Core.IAM.Models;
 
 public class RefreshTokenRequest
 {
     public string RefreshToken { get; set; } = default!;
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.IAM")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.IAM")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.IAM")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\JwtTokenService.cs
+==================================================
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SaaSPlatform.Core.IAM.Entities;
@@ -1655,7 +1741,7 @@ public class JwtTokenService : IJwtTokenService
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
-        // roles ? claims
+        // roles ‚Üí claims
         claims.AddRange(
             roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
@@ -1679,6 +1765,10 @@ public class JwtTokenService : IJwtTokenService
         return (jwt, expiresAt);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PasswordHasher.cs
+==================================================
 using SaaSPlatform.Core.IAM.Interfaces;
 using System.Security.Cryptography;
 using System.Text;
@@ -1720,6 +1810,10 @@ public class PasswordHasher : IPasswordHasher
         return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PermissionService.cs
+==================================================
 using SaaSPlatform.Core.IAM.Interfaces;
 
 namespace SaaSPlatform.Core.IAM.Services;
@@ -1750,6 +1844,10 @@ public class PermissionService : IPermissionService
         return await _repo.HasPermissionByModuleAsync(userId, tenantId, module);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs
+==================================================
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Orders.Enums;
 using SaaSPlatform.Core.SharedKernel.Common;
@@ -1790,6 +1888,10 @@ public class Order : AuditableEntity, ITenantScoped
     public OrderType OrderType { get; set; } = OrderType.Pickup;
     public string? DeliveryAddress { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Orders.Entities;
@@ -1814,6 +1916,10 @@ public class OrderItem : BaseEntity
 
     public ICollection<OrderItemAddon>? Addons { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Orders.Entities;
@@ -1825,6 +1931,10 @@ public class OrderItemAddon : BaseEntity
     public string Name { get; set; } = default!;
     public decimal Price { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Orders.Entities;
@@ -1843,6 +1953,10 @@ public class RestaurantTable : AuditableEntity, ITenantScoped
 
     public string? QRCode { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs
+==================================================
 namespace SaaSPlatform.Core.Orders.Enums;
 
 public enum OrderChannel
@@ -1851,6 +1965,10 @@ public enum OrderChannel
     MobileApp,
     QRMenu
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs
+==================================================
 namespace SaaSPlatform.Core.Orders.Enums;
 
 public enum OrderStatus
@@ -1861,6 +1979,10 @@ public enum OrderStatus
     Delivered,
     Cancelled
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs
+==================================================
 namespace SaaSPlatform.Core.Orders.Enums;
 
 public enum OrderType
@@ -1869,111 +1991,32 @@ public enum OrderType
     Pickup,
     DineIn
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs
+==================================================
+namespace SaaSPlatform.Core.Tenant.Constants;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Orders")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Orders")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Orders")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+/// <summary>
+/// Centralized tenant-related constants.
+/// Avoids magic strings across the application.
+/// </summary>
+public static class TenantConstants
+{
+    /// <summary>
+    /// Request header used for tenant identification.
+    /// </summary>
+    public const string TenantHeader = "X-Tenant-ID";
 
-// Generated by the MSBuild WriteCodeFragment class.
+    /// <summary>
+    /// HttpContext.Items key used for storing current tenant.
+    /// </summary>
+    public const string TenantContextKey = "TenantId";
+}
 
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
-
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Security")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Security")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Security")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
-
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Settings")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Settings")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Settings")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs
+==================================================
 using SaaSPlatform.Core.Catalog.Entities;   // only needed if Cuisine referenced elsewhere
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -2009,6 +2052,10 @@ public class Store : AuditableEntity, ITenantScoped
 
     public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs
+==================================================
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -2021,6 +2068,10 @@ public class StoreCuisine : BaseEntity
     public Guid CuisineId { get; set; }
     public Cuisine Cuisine { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Entities/StoreDeliveryZone.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -2034,6 +2085,10 @@ public class StoreDeliveryZone : BaseEntity
     public Guid ZoneId { get; set; }
     public Zone Zone { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Tenant.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.SharedKernel.Common;
 using SaaSPlatform.Core.Tenant.Enums;
@@ -2077,6 +2132,10 @@ public class Tenant : AuditableEntity
 
     public ICollection<Subscription>? Subscriptions { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs
+==================================================
 using SaaSPlatform.Core.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
@@ -2092,6 +2151,10 @@ public class TenantDomain : AuditableEntity
 
     public DateTime? VerifiedAt { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Entities/TenantLegalInfo.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -2106,6 +2169,10 @@ public class TenantLegalInfo : AuditableEntity
     public string? CnicFrontImageUrl { get; set; }
     public string? CnicBackImageUrl { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Entities/Zone.cs
 using SaaSPlatform.Core.SharedKernel.Common;
 
@@ -2117,6 +2184,10 @@ public class Zone : BaseEntity
     public string City { get; set; } = default!;
     // Future: polygon field for geofencing
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Enums/RegistrationStatus.cs
 namespace SaaSPlatform.Core.Tenant.Enums;
 
@@ -2126,18 +2197,30 @@ public enum RegistrationStatus
     Approved,
     Rejected
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs
+==================================================
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
 public interface ITenantAccessService
 {
     Task<bool> TenantExistsAsync(Guid tenantId);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs
+==================================================
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
 public interface ITenantContext
 {
     Guid TenantId { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Interfaces/ITenantRegistrationService.cs
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
@@ -2161,6 +2244,10 @@ public interface ITenantRegistrationService
         string? cnicFrontUrl,
         string? cnicBackUrl);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Interfaces/ITenantStoreService.cs
 using SaaSPlatform.Core.Tenant.Models;
 
@@ -2170,6 +2257,10 @@ public interface ITenantStoreService
 {
     Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Models/TenantRegistrationRequest.cs
 namespace SaaSPlatform.Core.Tenant.Models;
 
@@ -2194,6 +2285,10 @@ public class TenantRegistrationRequest
     public string? CnicFrontImageUrl { get; set; }
     public string? CnicBackImageUrl { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Models/TenantRegistrationResponse.cs
 namespace SaaSPlatform.Core.Tenant.Models;
 
@@ -2202,6 +2297,10 @@ public class TenantRegistrationResponse
     public Guid TenantId { get; set; }
     public string Message { get; set; } = default!;
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs
+==================================================
 // SaaSPlatform.Core/Tenant/Models/UpdateStoreRequest.cs
 namespace SaaSPlatform.Core.Tenant.Models;
 
@@ -2220,41 +2319,10 @@ public class UpdateStoreRequest
     public string? CoverPhotoUrl { get; set; }
     public string? LogoUrl { get; set; }
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Core.Tenant")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Core.Tenant")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Core.Tenant")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs
+==================================================
 using SaaSPlatform.Core.Tenant.Interfaces;
 
 namespace SaaSPlatform.Infrastructure.Services;
@@ -2263,6 +2331,10 @@ public class TenantContext : ITenantContext
 {
     public Guid TenantId { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260506173328_InitialCreate.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -2873,6 +2945,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260506173328_InitialCreate.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -3735,6 +3811,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507033850_initcreated.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -3757,6 +3837,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507033850_initcreated.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -4619,6 +4703,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507042850_createnewefandindexes.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -5046,6 +5134,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507042850_createnewefandindexes.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -6122,6 +6214,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507043335_moduleidtopermissionmoduleid.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6184,6 +6280,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507043335_moduleidtopermissionmoduleid.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -7260,6 +7360,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507050218_seedsetup.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -7487,6 +7591,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507050218_seedsetup.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -8643,6 +8751,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507073424_updatethefieldsinsubscriptionmodule.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -8767,6 +8879,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507073424_updatethefieldsinsubscriptionmodule.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -9930,6 +10046,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507073542_updatethefieldsinsubscriptionmodule2.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -9959,6 +10079,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507073542_updatethefieldsinsubscriptionmodule2.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -11125,6 +11249,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507092218_updatedb.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11147,6 +11275,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507092218_updatedb.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -12313,6 +12445,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507093857_updatedb2.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -12398,6 +12534,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507093857_updatedb2.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -13585,6 +13725,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507095921_updatesubscriptionandtests.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -13607,6 +13751,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507095921_updatesubscriptionandtests.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -14794,6 +14942,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507113201_updatedb3.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -14848,6 +15000,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260507113201_updatedb3.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -16035,6 +16191,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508051427_HybridMarketplaceModel.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -16569,6 +16729,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508051427_HybridMarketplaceModel.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -18068,6 +18232,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508054933_addonsgroup-entrymakeiteasy.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -18467,6 +18635,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508054933_addonsgroup-entrymakeiteasy.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -20168,6 +20340,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508055917_seeddata.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -20190,6 +20366,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508055917_seeddata.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -21891,6 +22071,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508065329_addedregistrationcontrollsanditsfuc.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -21951,6 +22135,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508065329_addedregistrationcontrollsanditsfuc.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -23686,6 +23874,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508070945_updatetheseeddatasrequired.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -23708,6 +23900,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508070945_updatetheseeddatasrequired.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -25443,6 +25639,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508071125_updatethepaymententityandconf.cs
+==================================================
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -25501,6 +25701,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508071125_updatethepaymententityandconf.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -27250,6 +27454,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508071812_seeddata1.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -27272,6 +27480,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508071812_seeddata1.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -29021,6 +29233,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508072728_seeddb.cs
+==================================================
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -29043,6 +29259,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\20260508072728_seeddb.Designer.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -30792,6 +31012,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Migrations\SaaSPlatformDbContextModelSnapshot.cs
+==================================================
 // <auto-generated />
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -32538,162 +32762,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
         }
     }
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Infrastructure")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Infrastructure")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Infrastructure")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Design;
-using Microsoft.Extensions.Configuration;
-using SaaSPlatform.Infrastructure.Persistence;
-
-public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
-{
-    public SaaSPlatformDbContext CreateDbContext(string[] args)
-    {
-        var config = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())   // <-- add this
-            .AddJsonFile("appsettings.json", optional: false)
-            .Build();
-
-        var provider = config["DatabaseProvider"];
-
-        var optionsBuilder = new DbContextOptionsBuilder<SaaSPlatformDbContext>();
-
-        if (provider == "Postgres")
-            optionsBuilder.UseNpgsql(config.GetConnectionString("Postgres"));
-        else
-            throw new Exception("Unsupported database provider");
-
-        return new SaaSPlatformDbContext(optionsBuilder.Options);
-    }
-}
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.Agents.Entities;
-using SaaSPlatform.Core.Billing.Entities;
-using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.Orders.Entities;
-using SaaSPlatform.Core.Tenant.Entities;
-using System.Linq.Expressions;
-
-namespace SaaSPlatform.Infrastructure.Persistence;
-
-public class SaaSPlatformDbContext : DbContext
-{
-    public SaaSPlatformDbContext(DbContextOptions<SaaSPlatformDbContext> options) : base(options)
-    {
-    }
-
-    // ========== TENANT ==========
-    public DbSet<Tenant> Tenants => Set<Tenant>();
-    public DbSet<TenantDomain> TenantDomains => Set<TenantDomain>();
-    public DbSet<Store> Stores => Set<Store>();
-    public DbSet<Zone> Zones => Set<Zone>();
-    public DbSet<StoreDeliveryZone> StoreDeliveryZones => Set<StoreDeliveryZone>();
-    public DbSet<StoreCuisine> StoreCuisines => Set<StoreCuisine>();
-    public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
-
-    // ========== IAM ==========
-    public DbSet<User> Users => Set<User>();
-    public DbSet<Role> Roles => Set<Role>();
-    public DbSet<UserRole> UserRoles => Set<UserRole>();
-    public DbSet<Permission> Permissions => Set<Permission>();
-    public DbSet<PermissionModule> PermissionModules => Set<PermissionModule>();
-    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
-    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
-    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
-
-    // ========== CATALOG ==========
-    public DbSet<Cuisine> Cuisines => Set<Cuisine>();
-    public DbSet<Category> Categories => Set<Category>();
-    public DbSet<Product> Products => Set<Product>();
-    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
-    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
-    public DbSet<FeaturedProduct> FeaturedProducts => Set<FeaturedProduct>();
-
-    // ========== ADDONS (Groups) ==========
-    public DbSet<Addon> Addons => Set<Addon>();
-    public DbSet<AddonGroup> AddonGroups => Set<AddonGroup>();
-    public DbSet<AddonGroupItem> AddonGroupItems => Set<AddonGroupItem>();
-    public DbSet<ProductAddonGroup> ProductAddonGroups => Set<ProductAddonGroup>();
-
-    // ========== ORDERS ==========
-    public DbSet<Order> Orders => Set<Order>();
-    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
-    public DbSet<OrderItemAddon> OrderItemAddons => Set<OrderItemAddon>();
-    public DbSet<RestaurantTable> RestaurantTables => Set<RestaurantTable>();
-
-    // ========== BILLING ==========
-    public DbSet<Subscription> Subscriptions => Set<Subscription>();
-    public DbSet<Plan> Plans => Set<Plan>();
-    public DbSet<Payment> Payments => Set<Payment>();
-    public DbSet<TenantUsageLedger> TenantUsageLedgers => Set<TenantUsageLedger>();
-
-    // ========== AGENTS ==========
-    public DbSet<Agent> Agents => Set<Agent>();
-    public DbSet<AgentCommission> AgentCommissions => Set<AgentCommission>();
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        base.OnModelCreating(modelBuilder);
-
-        // Auto-discover all configuration classes in the Infrastructure assembly
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(SaaSPlatformDbContext).Assembly);
-
-        // Global soft-delete filter for all entities that implement AuditableEntity (IsDeleted)
-        ApplySoftDeleteFilter(modelBuilder);
-    }
-
-    private static void ApplySoftDeleteFilter(ModelBuilder modelBuilder)
-    {
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            // Only apply to entities that have an 'IsDeleted' property
-            if (entityType.ClrType.GetProperty("IsDeleted") == null)
-                continue;
-
-            var parameter = Expression.Parameter(entityType.ClrType, "x");
-            var property = Expression.Property(parameter, "IsDeleted");
-            var filter = Expression.Lambda(
-                Expression.Equal(property, Expression.Constant(false)),
-                parameter);
-
-            modelBuilder.Entity(entityType.ClrType).HasQueryFilter(filter);
-        }
-    }
-}
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Billing.Entities;
@@ -32716,6 +32788,10 @@ public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
         builder.HasIndex(x => x.NextBillingDate);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Billing/PaymentConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32728,7 +32804,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
     public void Configure(EntityTypeBuilder<Payment> builder)
     {
         builder.HasIndex(x => new { x.TenantId, x.Status });
-        builder.HasIndex(x => new { x.TenantId, x.StoreId });   // new index for store-scoped queries
+        builder.HasIndex(x => new { x.TenantId, x.StoreId });   // new index for store‚Äëscoped queries
 
         builder.Property(x => x.Amount).HasPrecision(18, 2);
 
@@ -32739,6 +32815,10 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
                .IsRequired(false);    // because StoreId is nullable
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Billing.Entities;
@@ -32756,6 +32836,10 @@ public class TenantUsageLedgerConfiguration : IEntityTypeConfiguration<TenantUsa
         }).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32777,6 +32861,10 @@ public class AddonConfiguration : IEntityTypeConfiguration<Addon>
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonGroupConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32797,6 +32885,10 @@ public class AddonGroupConfiguration : IEntityTypeConfiguration<AddonGroup>
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/AddonGroupItemConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32822,6 +32914,10 @@ public class AddonGroupItemConfiguration : IEntityTypeConfiguration<AddonGroupIt
                .OnDelete(DeleteBehavior.Restrict);  // don't delete addon if group item exists
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -32850,6 +32946,10 @@ public class CategoryConfiguration : IEntityTypeConfiguration<Category>
 }
 
 
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/CuisineConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32864,6 +32964,10 @@ public class CuisineConfiguration : IEntityTypeConfiguration<Cuisine>
         builder.HasIndex(c => c.Name).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -32893,6 +32997,10 @@ public class FeaturedProductConfiguration : IEntityTypeConfiguration<FeaturedPro
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/Catalog/ProductAddonGroupConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32917,6 +33025,10 @@ public class ProductAddonGroupConfiguration : IEntityTypeConfiguration<ProductAd
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -32945,6 +33057,10 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -32962,6 +33078,10 @@ namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -32979,6 +33099,10 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -32993,6 +33117,10 @@ public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
         builder.HasIndex(x => x.PermissionModuleId);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionModuleConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33006,6 +33134,10 @@ public class PermissionModuleConfiguration : IEntityTypeConfiguration<Permission
         builder.HasIndex(x => x.Code).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RefreshTokenConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33026,6 +33158,10 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         });
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RoleConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33039,6 +33175,10 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.HasIndex(x => new { x.TenantId, x.Name });
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RolePermissionConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33052,6 +33192,10 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
         builder.HasKey(x => new { x.RoleId, x.PermissionId });
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33065,6 +33209,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(x => x.Email).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserRoleConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33080,6 +33228,10 @@ public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
         builder.HasIndex(x => new { x.UserId, x.TenantId });
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Orders.Entities;
@@ -33126,6 +33278,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -33146,6 +33302,10 @@ public class StoreConfiguration : IEntityTypeConfiguration<Store>
         // Removed CuisineId index
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreCuisineConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -33169,6 +33329,10 @@ public class StoreCuisineConfiguration : IEntityTypeConfiguration<StoreCuisine>
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreDeliveryZoneConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/StoreDeliveryZoneConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -33185,6 +33349,10 @@ public class StoreDeliveryZoneConfiguration : IEntityTypeConfiguration<StoreDeli
         builder.HasOne(x => x.Zone).WithMany().HasForeignKey(x => x.ZoneId);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantConfiguration.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -33208,6 +33376,10 @@ public class TenantConfiguration
             .IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantLegalInfoConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/TenantLegalInfoConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -33222,6 +33394,10 @@ public class TenantLegalInfoConfiguration : IEntityTypeConfiguration<TenantLegal
         builder.HasIndex(x => x.TenantId).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\ZoneConfiguration.cs
+==================================================
 // SaaSPlatform.Infrastructure/Persistence/Configurations/TenantConfig/ZoneConfiguration.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -33236,6 +33412,63 @@ public class ZoneConfiguration : IEntityTypeConfiguration<Zone>
         builder.HasIndex(z => new { z.City, z.Name }).IsUnique();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Extensions\QueryFilterExtensions.cs
+==================================================
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.Core.Tenant.Interfaces;
+
+namespace SaaSPlatform.Infrastructure.Persistence.Extensions;
+
+public static class QueryFilterExtensions
+{
+    public static void ApplyTenantFilters(
+        this ModelBuilder modelBuilder,
+        ITenantContext tenantContext)
+    {
+        var entityTypes =
+            modelBuilder.Model.GetEntityTypes()
+                .Where(x =>
+                    typeof(ITenantScoped)
+                        .IsAssignableFrom(x.ClrType));
+
+        foreach (var entityType in entityTypes)
+        {
+            var method =
+                typeof(QueryFilterExtensions)
+                    .GetMethod(
+                        nameof(SetTenantFilter),
+                        System.Reflection.BindingFlags.Static |
+                        System.Reflection.BindingFlags.NonPublic)!
+                    .MakeGenericMethod(entityType.ClrType);
+
+            method.Invoke(
+                null,
+                new object[]
+                {
+                    modelBuilder,
+                    tenantContext
+                });
+        }
+    }
+
+    private static void SetTenantFilter<TEntity>(
+        ModelBuilder builder,
+        ITenantContext tenantContext)
+        where TEntity : class, ITenantScoped
+    {
+        builder.Entity<TEntity>()
+            .HasQueryFilter(
+                e => e.TenantId ==
+                     tenantContext.TenantId);
+    }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\DbSeeder.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33252,7 +33485,7 @@ public static class DbSeeder
         // 1. Apply pending migrations
         await db.Database.MigrateAsync();
 
-        // 2. System tenant & store (must exist before any tenant-scoped entity)
+        // 2. System tenant & store (must exist before any tenant‚Äëscoped entity)
         if (!await db.Tenants.AnyAsync(t => t.Id == SeedData.SystemTenantId))
         {
             db.Tenants.Add(new Tenant
@@ -33356,6 +33589,10 @@ public static class DbSeeder
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\SeedData.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.IAM.Entities;
@@ -33520,51 +33757,229 @@ public static class SeedData
         new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000007"), PriceAdjustment = 0, DisplayOrder = 3 }
     };
 }
-// SaaSPlatform.Infrastructure/Services/SubscriptionAccessService.cs
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\AuditableDbContext.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
-using SaaSPlatform.Core.Billing.Enums;
-using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.Infrastructure.Services;
 
-namespace SaaSPlatform.Infrastructure.Services;
+namespace SaaSPlatform.Infrastructure.Persistence;
 
-public class SubscriptionAccessService : ISubscriptionAccessService
+/// <summary>
+/// Handles automatic audit tracking.
+/// </summary>
+public abstract class AuditableDbContext : DbContext
 {
-    private readonly SaaSPlatformDbContext _db;
-    private readonly IMemoryCache _cache;
+    private readonly CurrentUserService? _currentUser;
 
-    public SubscriptionAccessService(SaaSPlatformDbContext db, IMemoryCache cache)
+    protected AuditableDbContext(
+        DbContextOptions options,
+        CurrentUserService? currentUser = null)
+        : base(options)
     {
-        _db = db;
-        _cache = cache;
+        _currentUser = currentUser;
     }
 
-    public async Task<bool> IsTenantAllowedAsync(Guid tenantId)
+    public override async Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"tenant_subscription_{tenantId}";
+        var entries =
+            ChangeTracker
+                .Entries<AuditableEntity>();
 
-        if (_cache.TryGetValue(cacheKey, out bool cachedValue))
-            return cachedValue;
-
-        var subscription = await _db.Subscriptions
-            .AsNoTracking()
-            .Include(s => s.Plan)
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-        bool allowed = false;
-        if (subscription?.Plan != null)
+        foreach (var entry in entries)
         {
-            allowed = subscription.Status == SubscriptionStatus.Active
-                      || subscription.Status == SubscriptionStatus.Trialing
-                      || (subscription.Status == SubscriptionStatus.GracePeriod
-                          && DateTime.UtcNow < subscription.NextBillingDate.AddDays(subscription.Plan.GraceDays));
+            switch (entry.State)
+            {
+                case EntityState.Added:
+
+                    entry.Entity.CreatedAt = DateTime.UtcNow;
+
+                    entry.Entity.CreatedBy =
+                        _currentUser?.UserId;
+
+                    break;
+
+                case EntityState.Modified:
+
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+
+                    entry.Entity.UpdatedBy =
+                        _currentUser?.UserId;
+
+                    break;
+            }
         }
 
-        _cache.Set(cacheKey, allowed, TimeSpan.FromSeconds(60));
-        return allowed;
+        return await base.SaveChangesAsync(
+            cancellationToken);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\DbContextFactory.cs
+==================================================
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+using SaaSPlatform.Infrastructure.Persistence;
+
+public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
+{
+    public SaaSPlatformDbContext CreateDbContext(string[] args)
+    {
+        var config = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())   // <-- add this
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+        var provider = config["DatabaseProvider"];
+
+        var optionsBuilder = new DbContextOptionsBuilder<SaaSPlatformDbContext>();
+
+        if (provider == "Postgres")
+            optionsBuilder.UseNpgsql(config.GetConnectionString("Postgres"));
+        else
+            throw new Exception("Unsupported database provider");
+
+        return new SaaSPlatformDbContext(optionsBuilder.Options);
+    }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\SaaSPlatformDbContext.cs
+==================================================
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.IAM.Entities;
+
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence.Extensions;
+using SaaSPlatform.Infrastructure.Services;
+
+namespace SaaSPlatform.Infrastructure.Persistence;
+
+/// <summary>
+/// Main database context.
+/// </summary>
+public class SaaSPlatformDbContext : AuditableDbContext
+{
+    private readonly ITenantContext? _tenantContext;
+
+    public SaaSPlatformDbContext(
+        DbContextOptions<SaaSPlatformDbContext> options,
+        ITenantContext? tenantContext = null,
+        CurrentUserService? currentUser = null)
+        : base(options, currentUser)
+    {
+        _tenantContext = tenantContext;
+    }
+
+    // =========================================================
+    // TENANT
+    // =========================================================
+
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+
+    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
+
+    public DbSet<TenantLegalInfo> TenantLegalInfos =>
+        Set<TenantLegalInfo>();
+
+    // =========================================================
+    // STORE
+    // =========================================================
+
+    public DbSet<Store> Stores => Set<Store>();
+
+    public DbSet<StoreCuisine> StoreCuisines =>
+        Set<StoreCuisine>();
+
+    public DbSet<StoreDeliveryZone> StoreDeliveryZones =>
+        Set<StoreDeliveryZone>();
+
+    // =========================================================
+    // IAM
+    // =========================================================
+
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<Role> Roles => Set<Role>();
+
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
+
+    public DbSet<Permission> Permissions =>
+        Set<Permission>();
+
+    public DbSet<RolePermission> RolePermissions =>
+        Set<RolePermission>();
+
+    public DbSet<PermissionModule> PermissionModules =>
+        Set<PermissionModule>();
+
+    public DbSet<RefreshToken> RefreshTokens =>
+        Set<RefreshToken>();
+
+    // =========================================================
+    // BILLING
+    // =========================================================
+
+    public DbSet<Plan> Plans => Set<Plan>();
+
+    public DbSet<Subscription> Subscriptions =>
+        Set<Subscription>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
+
+    // =========================================================
+    // LOCATION
+    // =========================================================
+
+    public DbSet<Zone> Zones => Set<Zone>();
+
+    public DbSet<Cuisine> Cuisines => Set<Cuisine>();
+
+    // =========================================================
+    // MENU
+    // =========================================================
+
+    public DbSet<Product> Products => Set<Product>();
+
+    public DbSet<Addon> Addons => Set<Addon>();
+
+    public DbSet<AddonGroup> AddonGroups =>
+        Set<AddonGroup>();
+
+    public DbSet<AddonGroupItem> AddonGroupItems =>
+        Set<AddonGroupItem>();
+
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(SaaSPlatformDbContext).Assembly);
+
+        // =====================================================
+        // Apply tenant filters ONLY when available
+        // =====================================================
+
+        if (_tenantContext is not null)
+        {
+            modelBuilder.ApplyTenantFilters(
+                _tenantContext);
+        }
+    }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Billing\PaymentService.cs
+==================================================
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -33595,6 +34010,10 @@ public class PaymentService : IPaymentService
         await _db.SaveChangesAsync();
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\AuthService.cs
+==================================================
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -33630,7 +34049,7 @@ public class AuthService : IAuthService
             .Include(ur => ur.User)
             .FirstOrDefaultAsync(ur =>
                 ur.TenantId == tenantId &&
-                ur.User!.Phone == request.Email);   // ? phone is the login identifier
+                ur.User!.Phone == request.Email);   // ‚Üê phone is the login identifier
 
         if (userRole?.User is null)
             throw new UnauthorizedAccessException("Invalid credentials.");
@@ -33723,6 +34142,10 @@ public class AuthService : IAuthService
         return token;
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\PermissionRepository.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -33774,6 +34197,10 @@ public class PermissionRepository : IPermissionRepository
             .SelectMany(ur => ur.Role!.RolePermissions!);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantAccessService.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -33800,6 +34227,10 @@ public class TenantAccessService : ITenantAccessService
                 x.IsActive);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantRegistrationService.cs
+==================================================
 // SaaSPlatform.Infrastructure/Services/TenantServices/Service/TenantRegistrationService.cs
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Billing.Entities;
@@ -33854,7 +34285,7 @@ public class TenantRegistrationService : ITenantRegistrationService
         {
             var slug = GenerateSlug(restaurantName);
 
-            // 1. Tenant ñ inactive, pending approval
+            // 1. Tenant ‚Äì inactive, pending approval
             var tenant = new TenantEntity
             {
                 Name = restaurantName,
@@ -33903,7 +34334,7 @@ public class TenantRegistrationService : ITenantRegistrationService
                 Id = Guid.NewGuid(),
                 TenantId = tenant.Id,
                 Name = "Owner",
-                Description = "Tenant owner ñ full access",
+                Description = "Tenant owner ‚Äì full access",
                 IsSystem = false
             };
             _db.Roles.Add(ownerRole);
@@ -33928,7 +34359,7 @@ public class TenantRegistrationService : ITenantRegistrationService
                 CnicBackImageUrl = cnicBackUrl
             });
 
-            // 8. Subscription ñ Starter plan, trialing
+            // 8. Subscription ‚Äì Starter plan, trialing
             var starterPlan = await _db.Plans.FirstAsync(p => p.Name == "Starter");
             _db.Subscriptions.Add(new Subscription
             {
@@ -33944,7 +34375,7 @@ public class TenantRegistrationService : ITenantRegistrationService
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            // No token generation ñ owner must wait for approval
+            // No token generation ‚Äì owner must wait for approval
             return (tenant.Id, "Registration submitted successfully. Awaiting approval.");
         }
         catch
@@ -33962,6 +34393,10 @@ public class TenantRegistrationService : ITenantRegistrationService
                    .Replace("\"", "");
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\Service\TenantStoreService.cs
+==================================================
 // SaaSPlatform.Infrastructure/Services/Tenant/TenantStoreService.cs
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -34002,7 +34437,7 @@ public class TenantStoreService : ITenantStoreService
         if (request.CoverPhotoUrl != null) store.CoverPhotoUrl = request.CoverPhotoUrl;
         if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
 
-        // Cuisines ñ full replacement
+        // Cuisines ‚Äì full replacement
         if (request.CuisineIds != null)
         {
             _db.StoreCuisines.RemoveRange(store.StoreCuisines);
@@ -34010,7 +34445,7 @@ public class TenantStoreService : ITenantStoreService
                 _db.StoreCuisines.Add(new StoreCuisine { StoreId = store.Id, CuisineId = cuisineId });
         }
 
-        // Delivery zones ñ full replacement
+        // Delivery zones ‚Äì full replacement
         if (request.ZoneIds != null)
         {
             _db.StoreDeliveryZones.RemoveRange(store.DeliveryZones);
@@ -34021,24 +34456,182 @@ public class TenantStoreService : ITenantStoreService
         await _db.SaveChangesAsync();
     }
 }
-namespace SaaSPlatform.Core.SharedKernel.Common;
 
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\CurrentUserService.cs
+==================================================
+using Microsoft.AspNetCore.Http;
+using SaaSPlatform.Core.IAM.Constants;
+
+namespace SaaSPlatform.Infrastructure.Services;
+
+public class CurrentUserService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public CurrentUserService(
+        IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public Guid? UserId
+    {
+        get
+        {
+            var value =
+                _httpContextAccessor.HttpContext?
+                    .User
+                    .FindFirst(ClaimConstants.UserId)?
+                    .Value;
+
+            return Guid.TryParse(value, out var id)
+                ? id
+                : null;
+        }
+    }
+
+    public Guid? TenantId
+    {
+        get
+        {
+            var value =
+                _httpContextAccessor.HttpContext?
+                    .User
+                    .FindFirst(ClaimConstants.TenantId)?
+                    .Value;
+
+            return Guid.TryParse(value, out var id)
+                ? id
+                : null;
+        }
+    }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\SubscriptionAccessService.cs
+==================================================
+// SaaSPlatform.Infrastructure/Services/SubscriptionAccessService.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+
+namespace SaaSPlatform.Infrastructure.Services;
+
+public class SubscriptionAccessService : ISubscriptionAccessService
+{
+    private readonly SaaSPlatformDbContext _db;
+    private readonly IMemoryCache _cache;
+
+    public SubscriptionAccessService(SaaSPlatformDbContext db, IMemoryCache cache)
+    {
+        _db = db;
+        _cache = cache;
+    }
+
+    public async Task<bool> IsTenantAllowedAsync(Guid tenantId)
+    {
+        var cacheKey = $"tenant_subscription_{tenantId}";
+
+        if (_cache.TryGetValue(cacheKey, out bool cachedValue))
+            return cachedValue;
+
+        var subscription = await _db.Subscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+        bool allowed = false;
+        if (subscription?.Plan != null)
+        {
+            allowed = subscription.Status == SubscriptionStatus.Active
+                      || subscription.Status == SubscriptionStatus.Trialing
+                      || (subscription.Status == SubscriptionStatus.GracePeriod
+                          && DateTime.UtcNow < subscription.NextBillingDate.AddDays(subscription.Plan.GraceDays));
+        }
+
+        _cache.Set(cacheKey, allowed, TimeSpan.FromSeconds(60));
+        return allowed;
+    }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base auditable entity.
+/// </summary>
 public abstract class AuditableEntity : BaseEntity
 {
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>
+    /// Created date UTC.
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Created by user id.
+    /// </summary>
     public Guid? CreatedBy { get; set; }
 
+    /// <summary>
+    /// Updated date UTC.
+    /// </summary>
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Updated by user id.
+    /// </summary>
     public Guid? UpdatedBy { get; set; }
 
-    public bool IsDeleted { get; set; } = false;
+    /// <summary>
+    /// Soft delete flag.
+    /// </summary>
+    public bool IsDeleted { get; set; }
 }
-namespace SaaSPlatform.Core.SharedKernel.Common;
 
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for all entities.
+/// </summary>
 public abstract class BaseEntity
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>
+    /// Primary key.
+    /// </summary>
+    public Guid Id { get; set; }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
+using SaaSPlatform.Core.SharedKernel.Common;
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for tenant scoped entities.
+/// </summary>
+public abstract class BaseTenantEntity
+    : AuditableEntity,
+      ITenantScoped
+{
+    /// <summary>
+    /// Tenant identifier.
+    /// </summary>
+    public Guid TenantId { get; set; }
+}
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
 
 
 namespace SaaSPlatform.SharedKernel.Interfaces
@@ -34047,83 +34640,20 @@ namespace SaaSPlatform.SharedKernel.Interfaces
     {
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
+==================================================
 namespace SaaSPlatform.Core.SharedKernel.Common;
 
 public interface ITenantScoped
 {
     Guid TenantId { get; set; }
 }
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
 
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.SharedKernel")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.SharedKernel")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.SharedKernel")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-// <autogenerated />
-using System;
-using System.Reflection;
-[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute(".NETCoreApp,Version=v10.0", FrameworkDisplayName = ".NET 10.0")]
-//------------------------------------------------------------------------------
-// <auto-generated>
-//     This code was generated by a tool.
-//     Runtime Version:4.0.30319.42000
-//
-//     Changes to this file may cause incorrect behavior and will be lost if
-//     the code is regenerated.
-// </auto-generated>
-//------------------------------------------------------------------------------
-
-using System;
-using System.Reflection;
-
-[assembly: System.Reflection.AssemblyCompanyAttribute("SaaSPlatform.Tests")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46154daa47f5ff1b0f9467c6f94d1b84f386b742")]
-[assembly: System.Reflection.AssemblyProductAttribute("SaaSPlatform.Tests")]
-[assembly: System.Reflection.AssemblyTitleAttribute("SaaSPlatform.Tests")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
-
-// Generated by the MSBuild WriteCodeFragment class.
-
-// <auto-generated/>
-global using System;
-global using System.Collections.Generic;
-global using System.IO;
-global using System.Linq;
-global using System.Net.Http;
-global using System.Threading;
-global using System.Threading.Tasks;
-global using Xunit;
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Api\Middleware\ExceptionMiddlewareTests.cs
+==================================================
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -34182,6 +34712,10 @@ public class ExceptionMiddlewareTests
         Assert.True(nextCalled);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Api\Middleware\SubscriptionMiddlewareTests.cs
+==================================================
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -34223,6 +34757,10 @@ namespace SaaSPlatform.UnitTests.Middleware
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Api\Middleware\TenantMiddlewareTests.cs
+==================================================
 using Microsoft.AspNetCore.Http;
 using Moq;
 using SaaSPlateform.Api.Host.Middleware;
@@ -34329,6 +34867,10 @@ public class TenantMiddlewareTests
         tenantContext.VerifySet(x => x.TenantId = tenantId);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Billing\PaymentServiceTests.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
@@ -34383,6 +34925,10 @@ namespace SaaSPlatform.UnitTests.Billing
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Billing\SubscriptionLifecycleTests.cs
+==================================================
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Services;
@@ -34637,6 +35183,10 @@ public class SubscriptionLifecycleTests
         Assert.False(result);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\Billing\SubscriptionRuleEngineTests.cs
+==================================================
 using System;
 using System.Threading.Tasks;
 using SaaSPlatform.Core.Billing.Entities;
@@ -34664,6 +35214,10 @@ namespace SaaSPlatform.UnitTests.Billing
         }
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\IAM\AuthServiceTests.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SaaSPlatform.Core.IAM.Entities;
@@ -34711,7 +35265,7 @@ public class AuthServiceTests
         var user = new User
         {
             Id = Guid.NewGuid(),
-            Name = "Test User",                 // ? required
+            Name = "Test User",                 // ‚Üê required
             Email = null,
             Phone = "123456789",
             PasswordHash = _passwordHasher.Hash("Password123"),
@@ -34818,6 +35372,10 @@ public class AuthServiceTests
         Assert.NotNull(token.RevokedAt);
     }
 }
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tests\Unit\IAM\PermissionRepositoryTests.cs
+==================================================
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.IAM.Interfaces;
@@ -34910,7 +35468,7 @@ public class PermissionRepositoryTests
 
         var repo = new PermissionRepository(db);
 
-        // Act ñ request a permission the user does not have
+        // Act ‚Äì request a permission the user does not have
         var hasPerm = await repo.HasPermissionAsync(userId, tenantId, "orders.delete");
 
         // Assert
@@ -34988,10 +35546,11 @@ public class PermissionRepositoryTests
 
         var repo = new PermissionRepository(db);
 
-        // Act ñ request a different module
+        // Act ‚Äì request a different module
         var hasModuleAccess = await repo.HasPermissionByModuleAsync(userId, tenantId, "billing");
 
         // Assert
         Assert.False(hasModuleAccess);
     }
 }
+

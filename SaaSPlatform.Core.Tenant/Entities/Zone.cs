@@ -1,5 +1,5 @@
 ﻿// SaaSPlatform.Core/Tenant/Entities/Zone.cs
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 

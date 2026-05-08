@@ -1,5 +1,5 @@
 ﻿// SaaSPlatform.Core/Catalog/Entities/ProductImage.cs
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
 

@@ -2,7 +2,7 @@
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Common.Responses;
 
-namespace SaaSPlateform.Api.Host.Middleware;
+namespace SaaSPlatform.Api.Host.Middleware;
 
 public class SubscriptionMiddleware
 {

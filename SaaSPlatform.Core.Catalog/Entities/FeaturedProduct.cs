@@ -1,5 +1,5 @@
 ﻿using SaaSPlatform.Core.Catalog.Enums;
-using SaaSPlatform.Core.SharedKernel.Common;
+using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.Catalog.Entities;
 

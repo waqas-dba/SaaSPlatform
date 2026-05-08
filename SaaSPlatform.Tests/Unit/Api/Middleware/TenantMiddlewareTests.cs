@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Moq;
-using SaaSPlateform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Middleware;
 using SaaSPlatform.Core.Tenant.Interfaces;
 
 
@@ -20,7 +20,7 @@ public class TenantMiddlewareTests
         var middleware = new TenantMiddleware(_ => Task.CompletedTask);
 
         // Act
-        await middleware.Invoke(context, tenantService.Object, tenantContext.Object);
+        await middleware.InvokeAsync(context, tenantService.Object, tenantContext.Object);
 
         // Assert
         Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
@@ -39,7 +39,7 @@ public class TenantMiddlewareTests
         var middleware = new TenantMiddleware(_ => Task.CompletedTask);
 
         // Act
-        await middleware.Invoke(context, tenantService.Object, tenantContext.Object);
+        await middleware.InvokeAsync(context, tenantService.Object, tenantContext.Object);
 
         // Assert
         Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
@@ -64,7 +64,7 @@ public class TenantMiddlewareTests
         var middleware = new TenantMiddleware(_ => Task.CompletedTask);
 
         // Act
-        await middleware.Invoke(context, tenantService.Object, tenantContext.Object);
+        await middleware.InvokeAsync(context, tenantService.Object, tenantContext.Object);
 
         // Assert
         Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
@@ -97,7 +97,7 @@ public class TenantMiddlewareTests
         var middleware = new TenantMiddleware(next);
 
         // Act
-        await middleware.Invoke(context, tenantService.Object, tenantContext.Object);
+        await middleware.InvokeAsync(context, tenantService.Object, tenantContext.Object);
 
         // Assert
         Assert.True(nextCalled);
