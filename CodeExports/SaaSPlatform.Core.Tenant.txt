@@ -98,7 +98,7 @@ public class StoreDeliveryZone : BaseEntity
 }
 
 ==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Tenant.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs
 ==================================================
 
 using SaaSPlatform.Core.Billing.Entities;
@@ -107,7 +107,7 @@ using SaaSPlatform.Core.Tenant.Enums;
 
 namespace SaaSPlatform.Core.Tenant.Entities;
 
-public class Tenant : AuditableEntity
+public class TenantAccount : AuditableEntity
 {
     public string Name { get; set; } = default!;
 
@@ -215,6 +215,19 @@ public enum RegistrationStatus
 }
 
 ==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface IStoreRepository
+{
+    void Add(Store store);
+}
+
+==================================================
 FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs
 ==================================================
 
@@ -226,6 +239,21 @@ public interface ITenantAccessService
 }
 
 ==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantAccountRepository
+{
+    Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+    void Add(TenantAccount tenant);
+    void Update(TenantAccount tenant);
+}
+
+==================================================
 FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs
 ==================================================
 
@@ -234,6 +262,19 @@ namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantContext
 {
     Guid TenantId { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantLegalInfoRepository
+{
+    void Add(TenantLegalInfo info);
 }
 
 ==================================================
@@ -262,6 +303,23 @@ public interface ITenantRegistrationService
         bool hasFoodLicense,
         string? cnicFrontUrl,
         string? cnicBackUrl);
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Interfaces/ITenantRepository.cs
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantRepository
+{
+    Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+    void Update(TenantAccount tenant);
+    // Add any other needed methods
 }
 
 ==================================================

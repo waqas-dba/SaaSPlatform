@@ -87,6 +87,18 @@ namespace SaaSPlatform.SharedKernel.Interfaces
 }
 
 ==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+==================================================
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces;
+
+public interface ISlugGenerator
+{
+    string Generate(string input);
+}
+
+==================================================
 FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
 ==================================================
 
@@ -95,5 +107,21 @@ namespace SaaSPlatform.SharedKernel.Common;
 public interface ITenantScoped
 {
     Guid TenantId { get; set; }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+==================================================
+
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces;
+
+public interface IUnitOfWork : IDisposable
+{
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitAsync(CancellationToken cancellationToken = default);
+    Task RollbackAsync(CancellationToken cancellationToken = default);
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
 

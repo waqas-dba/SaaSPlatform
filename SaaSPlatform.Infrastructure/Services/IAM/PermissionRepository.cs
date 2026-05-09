@@ -20,12 +20,14 @@ public class PermissionRepository : IPermissionRepository
     {
         return await _db.UserRoles
             .AsNoTracking()
-            .Include(ur => ur.Role)
-                .ThenInclude(r => r.RolePermissions!)
-                    .ThenInclude(rp => rp.Permission)
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .AnyAsync(rp => rp.Permission!.Name == permission);
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.UserId == userId &&
+                x.TenantId == tenantId)
+            .SelectMany(x => x.Role!.RolePermissions!)
+            .AnyAsync(x =>
+                x.Permission != null &&
+                x.Permission.Name == permission);
     }
 
     public async Task<bool> HasPermissionByModuleAsync(
@@ -33,13 +35,34 @@ public class PermissionRepository : IPermissionRepository
         Guid tenantId,
         string module)
     {
+        var prefix = module + ".";
+
         return await _db.UserRoles
             .AsNoTracking()
-            .Include(ur => ur.Role)
-                .ThenInclude(r => r.RolePermissions!)
-                    .ThenInclude(rp => rp.Permission)
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .AnyAsync(rp => rp.Permission!.Name.StartsWith(module + "."));
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.UserId == userId &&
+                x.TenantId == tenantId)
+            .SelectMany(x => x.Role!.RolePermissions!)
+            .AnyAsync(x =>
+                x.Permission != null &&
+                x.Permission.Name.StartsWith(prefix));
+    }
+
+    public async Task<List<string>> GetPermissionsAsync(
+        Guid userId,
+        Guid tenantId)
+    {
+        return await _db.UserRoles
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.UserId == userId &&
+                x.TenantId == tenantId)
+            .SelectMany(x => x.Role!.RolePermissions!)
+            .Where(x => x.Permission != null)
+            .Select(x => x.Permission!.Name)
+            .Distinct()
+            .ToListAsync();
     }
 }

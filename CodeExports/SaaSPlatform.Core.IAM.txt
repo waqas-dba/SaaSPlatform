@@ -249,6 +249,36 @@ namespace SaaSPlatform.Core.IAM.Interfaces
 }
 
 ==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRoleRepository.cs
+==================================================
+
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Core.IAM.Interfaces;
+
+public interface IRoleRepository
+{
+    void Add(Role role);
+    Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
+    void AddRolePermission(RolePermission rolePermission);
+    void AddUserRole(UserRole userRole);
+    void AddTenantUser(TenantUser tenantUser);
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IUserRepository.cs
+==================================================
+
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Core.IAM.Interfaces;
+
+public interface IUserRepository
+{
+    void Add(User user);
+}
+
+==================================================
 FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs
 ==================================================
 

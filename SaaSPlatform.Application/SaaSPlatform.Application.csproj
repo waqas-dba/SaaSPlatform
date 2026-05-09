@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SaaSPlatform.Core.Agents\SaaSPlatform.Core.Agents.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Billing\SaaSPlatform.Core.Billing.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Catalog\SaaSPlatform.Core.Catalog.csproj" />

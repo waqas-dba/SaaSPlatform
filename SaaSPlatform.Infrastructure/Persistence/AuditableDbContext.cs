@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
+using SaaSPlatform.Infrastructure.Services.IAM;
 using SaaSPlatform.Infrastructure.Services;
 
 namespace SaaSPlatform.Infrastructure.Persistence;

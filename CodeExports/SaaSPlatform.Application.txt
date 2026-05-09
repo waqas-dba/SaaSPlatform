@@ -1,4 +1,108 @@
-﻿using SaaSPlatform.Core.Billing.Entities;
+﻿
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs
+==================================================
+
+
+
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.Catalog.Interfaces;
+
+namespace SaaSPlatform.Application.Services;
+
+public class ProductManagementService
+{
+    private readonly IProductRepository _productRepo;
+
+    public ProductManagementService(IProductRepository productRepo) => _productRepo = productRepo;
+
+    public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
+        => await _productRepo.GetByStoreAsync(storeId);
+
+    public async Task<Product?> GetProductAsync(Guid productId)
+        => await _productRepo.GetByIdAsync(productId);
+
+    public async Task<Product> CreateProductAsync(Product product)
+    {
+        _productRepo.Add(product);
+        // If you're not inside a unit-of-work, you'll need to save here.
+        // The best practice is to inject IUnitOfWork and call SaveChangesAsync().
+        return product;
+    }
+
+    public async Task UpdateProductAsync(Product product)
+    {
+        _productRepo.Update(product);
+    }
+
+    public async Task DeleteProductAsync(Guid productId)
+    {
+        var product = await _productRepo.GetByIdAsync(productId);
+        if (product != null)
+            _productRepo.Delete(product);
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Billing.Enums;
+
+namespace SaaSPlatform.Application.Services;
+
+public class TenantApprovalService
+{
+    private readonly ITenantAccountRepository _tenantRepo;
+    private readonly ISubscriptionRepository _subRepo;
+
+    public TenantApprovalService(ITenantAccountRepository tenantRepo, ISubscriptionRepository subRepo)
+    {
+        _tenantRepo = tenantRepo;
+        _subRepo = subRepo;
+    }
+
+    public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+        if (tenant is null) return (false, "Tenant not found.");
+        if (tenant.RegistrationStatus == RegistrationStatus.Approved)
+            return (false, "Tenant is already approved.");
+
+        tenant.RegistrationStatus = RegistrationStatus.Approved;
+        tenant.IsActive = true;
+        _tenantRepo.Update(tenant);
+
+        var subscription = await _subRepo.GetActiveByTenantIdAsync(tenantId);
+        if (subscription is not null && subscription.Status == SubscriptionStatus.Trialing)
+        {
+            subscription.Status = SubscriptionStatus.Active;
+            subscription.TrialEndsAt = DateTime.UtcNow.AddDays(14);
+            subscription.NextBillingDate = DateTime.UtcNow.AddDays(14);
+            _subRepo.Update(subscription);
+        }
+
+        return (true, "Tenant approved successfully.");
+    }
+
+    public async Task<(bool Success, string Message)> RejectAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+        if (tenant is null) return (false, "Tenant not found.");
+        tenant.RegistrationStatus = RegistrationStatus.Rejected;
+        _tenantRepo.Update(tenant);
+        return (true, "Tenant rejected.");
+    }
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.IAM.Entities;
@@ -95,7 +199,6 @@ public class TenantRegistrationAppService
     {
         var store = new Store
         {
-            Id = Guid.NewGuid(),
             TenantId = tenantId,
             Name = request.RestaurantName,
             Slug = _slugGenerator.Generate(request.RestaurantName),
@@ -150,28 +253,16 @@ public class TenantRegistrationAppService
         return ownerRole;
     }
 
-    //private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
-    //{
-    //    _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-    //    _roleRepo.AddTenantUser(new TenantUser { TenantId = tenantId, UserId = userId, IsOwner = true, IsActive = true });
-    //}
     private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
     {
-        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId }); // no extra GUID needed, it's a join with composite key
-        _roleRepo.AddTenantUser(new TenantUser
-        {
-            Id = Guid.NewGuid(),          // <-- ADD
-            TenantId = tenantId,
-            UserId = userId,
-            IsOwner = true,
-            IsActive = true
-        });
+        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+        _roleRepo.AddTenantUser(new TenantUser { TenantId = tenantId, UserId = userId, IsOwner = true, IsActive = true });
     }
+
     private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
     {
         _legalRepo.Add(new TenantLegalInfo
         {
-            Id = Guid.NewGuid(),
             TenantId = tenantId,
             CnicNumber = request.CnicNumber,
             NtnNumber = request.NtnNumber,
@@ -188,7 +279,6 @@ public class TenantRegistrationAppService
 
         _subscriptionRepo.Add(new Subscription
         {
-            Id = Guid.NewGuid(),
             TenantId = tenantId,
             PlanId = starterPlan.Id,
             Status = SubscriptionStatus.Trialing,
@@ -198,6 +288,5 @@ public class TenantRegistrationAppService
             PriceSnapshot = 0
         });
     }
-
-
 }
+

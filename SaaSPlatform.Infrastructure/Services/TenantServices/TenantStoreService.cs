@@ -5,7 +5,7 @@ using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
 
-namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+namespace SaaSPlatform.Infrastructure.Services.TenantServices;
 
 public class TenantStoreService : ITenantStoreService
 {

@@ -5,11 +5,9 @@ using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.IAM.Models;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.IAM;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using Xunit;
+
 
 namespace SaaSPlatform.UnitTests.IAM;
 
@@ -82,7 +80,7 @@ public class AuthServiceTests
 
         var request = new LoginRequest
         {
-            Email = "123456789",
+            Phone = "123456789",
             Password = "Password123"
         };
 
@@ -103,7 +101,7 @@ public class AuthServiceTests
         var authService = new AuthService(db, _passwordHasher, CreateJwtService());
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => authService.LoginAsync(new LoginRequest { Email = "123456789", Password = "Wrong" }, tenantId));
+            () => authService.LoginAsync(new LoginRequest { Phone = "123456789", Password = "Wrong" }, tenantId));
     }
 
     [Fact]
@@ -113,7 +111,7 @@ public class AuthServiceTests
         var authService = new AuthService(db, _passwordHasher, CreateJwtService());
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => authService.LoginAsync(new LoginRequest { Email = "0000", Password = "x" }, Guid.NewGuid()));
+            () => authService.LoginAsync(new LoginRequest { Phone = "0000", Password = "x" }, Guid.NewGuid()));
     }
 
     [Fact]
@@ -123,7 +121,7 @@ public class AuthServiceTests
         var authService = new AuthService(db, _passwordHasher, CreateJwtService());
 
         var loginResponse = await authService.LoginAsync(
-            new LoginRequest { Email = "123456789", Password = "Password123" }, tenantId);
+            new LoginRequest { Phone = "123456789", Password = "Password123" }, tenantId);
 
         var refreshResponse = await authService.RefreshAsync(
             new RefreshTokenRequest { RefreshToken = loginResponse.RefreshToken }, tenantId);
@@ -143,7 +141,7 @@ public class AuthServiceTests
         var authService = new AuthService(db, _passwordHasher, CreateJwtService());
 
         var loginResponse = await authService.LoginAsync(
-            new LoginRequest { Email = "123456789", Password = "Password123" }, tenantId);
+            new LoginRequest { Phone = "123456789", Password = "Password123" }, tenantId);
 
         await authService.LogoutAsync(loginResponse.RefreshToken);
 

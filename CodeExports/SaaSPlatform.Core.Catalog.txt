@@ -10,7 +10,6 @@ namespace SaaSPlatform.Core.Catalog.Entities;
 
 public class Addon : BaseTenantEntity
 {
-    public Guid TenantId { get; set; }
     public Guid StoreId { get; set; }
 
     public string Name { get; set; } = default!;
@@ -231,5 +230,22 @@ public enum ProductFeatureSection
 {
     MainPage,
     Category
+}
+
+==================================================
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Core.Catalog.Interfaces;
+
+public interface IProductRepository
+{
+    Task<Product?> GetByIdAsync(Guid productId, CancellationToken ct = default);
+    Task<List<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
+    void Add(Product product);
+    void Update(Product product);
+    void Delete(Product product);
 }
 

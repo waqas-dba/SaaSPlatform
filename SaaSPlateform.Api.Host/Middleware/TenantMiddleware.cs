@@ -1,4 +1,5 @@
 ﻿using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Core.IAM.Constants;
 using SaaSPlatform.Core.Tenant.Constants;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using System.Security.Claims;
@@ -6,12 +7,17 @@ using System.Text.Json;
 
 namespace SaaSPlatform.Api.Host.Middleware;
 
-/// <summary>
-/// Resolves tenant from request header.
-/// </summary>
 public class TenantMiddleware
 {
     private readonly RequestDelegate _next;
+
+    private static readonly string[] PublicPaths =
+    {
+        "/swagger",
+        "/api/auth/login",
+        "/api/auth/refresh",
+        "/api/tenants/register"
+    };
 
     public TenantMiddleware(RequestDelegate next)
     {
@@ -23,23 +29,17 @@ public class TenantMiddleware
         ITenantAccessService tenantAccessService,
         ITenantContext tenantContext)
     {
-        // =============================================
-        // Skip swagger
-        // =============================================
-
-        if (context.Request.Path.StartsWithSegments("/swagger"))
+        // Skip public paths
+        if (PublicPaths.Any(p =>
+            context.Request.Path.StartsWithSegments(p)))
         {
             await _next(context);
             return;
         }
 
-        // =============================================
         // Read tenant header
-        // =============================================
-
-        var tenantHeader =
-            context.Request.Headers[
-                TenantConstants.TenantHeader]
+        var tenantHeader = context.Request.Headers[
+            TenantConstants.TenantHeader]
             .FirstOrDefault();
 
         if (string.IsNullOrWhiteSpace(tenantHeader))
@@ -52,10 +52,6 @@ public class TenantMiddleware
             return;
         }
 
-        // =============================================
-        // Validate Guid
-        // =============================================
-
         if (!Guid.TryParse(tenantHeader, out var tenantId))
         {
             await WriteErrorAsync(
@@ -66,35 +62,43 @@ public class TenantMiddleware
             return;
         }
 
-        // =============================================
-        // Validate tenant exists
-        // =============================================
+        // IMPORTANT:
+        // STORE TENANT EARLY
+        tenantContext.TenantId = tenantId;
 
-        var exists =
-            await tenantAccessService
+        context.Items[TenantConstants.TenantContextKey] = tenantId;
+
+        // SuperAdmin bypass
+        var isSuperAdmin =
+            context.User.IsInRole("SuperAdmin");
+
+        // Tenant existence check
+        if (!isSuperAdmin &&
+            !context.Request.Path.StartsWithSegments("/api/admin"))
+        {
+            var exists = await tenantAccessService
                 .TenantExistsAsync(tenantId);
 
-        if (!exists)
-        {
-            await WriteErrorAsync(
-                context,
-                StatusCodes.Status404NotFound,
-                "Tenant not found");
+            if (!exists)
+            {
+                await WriteErrorAsync(
+                    context,
+                    StatusCodes.Status404NotFound,
+                    "Tenant not found");
 
-            return;
+                return;
+            }
         }
 
-        // =============================================
-        // SECURITY CHECK
-        // Prevent cross tenant access
-        // =============================================
-
-        if (context.User.Identity?.IsAuthenticated == true)
+        // Cross tenant validation
+        if (!isSuperAdmin &&
+            context.User.Identity?.IsAuthenticated == true)
         {
-            var tokenTenant =
-                context.User.FindFirstValue("tenantId");
+            var tokenTenant = context.User
+                .FindFirstValue(ClaimConstants.TenantId);
 
-            if (tokenTenant != tenantId.ToString())
+            if (!string.IsNullOrWhiteSpace(tokenTenant) &&
+                tokenTenant != tenantId.ToString())
             {
                 await WriteErrorAsync(
                     context,
@@ -104,16 +108,6 @@ public class TenantMiddleware
                 return;
             }
         }
-
-        // =============================================
-        // Store tenant context
-        // =============================================
-
-        tenantContext.TenantId = tenantId;
-
-        context.Items[
-            TenantConstants.TenantContextKey]
-            = tenantId;
 
         await _next(context);
     }
@@ -127,8 +121,8 @@ public class TenantMiddleware
 
         context.Response.ContentType = "application/json";
 
-        var response =
-            ApiResponse<object>.FailResponse(
+        var response = ApiResponse<object>
+            .FailResponse(
                 message,
                 statusCode.ToString());
 

@@ -7,5 +7,6 @@ public interface IJwtTokenService
     (string Token, DateTime ExpiresAt) GenerateAccessToken(
         User user,
         Guid tenantId,
-        IEnumerable<string> roles);
+        IEnumerable<string> roles,
+        IEnumerable<string>? permissions = null);
 }

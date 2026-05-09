@@ -2,7 +2,7 @@
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 
-namespace SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+namespace SaaSPlatform.Infrastructure.Services.TenantServices;
 
 public class TenantRegistrationService : ITenantRegistrationService
 {

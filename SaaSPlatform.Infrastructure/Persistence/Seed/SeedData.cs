@@ -19,6 +19,17 @@ public static class SeedData
     public static readonly Guid SuperAdminRoleId =
         Guid.Parse("22222222-2222-2222-2222-222222222222");
 
+    public static readonly Guid ApproverRoleId = Guid.Parse("22222222-2222-2222-2222-222222222223");
+
+    public static readonly Role ApproverRole = new()
+    {
+        Id = ApproverRoleId,
+        TenantId = SystemTenantId,
+        Name = "Approver",
+        Description = "Can approve new tenants",
+        IsSystem = true
+    };
+
     // MODULES
     public static readonly List<PermissionModule> Modules =
     [

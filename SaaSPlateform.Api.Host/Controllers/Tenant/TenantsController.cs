@@ -1,15 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Api.Host.Controllers;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
-using SaaSPlatform.Infrastructure.Persistence.Repositories;
-
-namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 
 [ApiController]
 [Route("api/tenants")]
-public class TenantsController : ControllerBase
+public class TenantsController : BaseApiController
 {
     private readonly ITenantRegistrationService _registrationService;
     private readonly ITenantAccountRepository _tenantRepo;
@@ -27,29 +24,47 @@ public class TenantsController : ControllerBase
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
         var (tenantId, message) = await _registrationService.RegisterAsync(
-            request.RestaurantName, request.CuisineIds, request.ZoneIds, request.Address,
-            request.MinPreparingTime, request.MaxPreparingTime,
-            request.FirstName, request.LastName, request.Phone, request.Email,
-            request.Password, request.CnicNumber, request.NtnNumber,
-            request.HasFoodLicense, request.CnicFrontImageUrl, request.CnicBackImageUrl);
+            request.RestaurantName,
+            request.CuisineIds,
+            request.ZoneIds,
+            request.Address,
+            request.MinPreparingTime,
+            request.MaxPreparingTime,
+            request.FirstName,
+            request.LastName,
+            request.Phone,
+            request.Email,
+            request.Password,
+            request.CnicNumber,
+            request.NtnNumber,
+            request.HasFoodLicense,
+            request.CnicFrontImageUrl,
+            request.CnicBackImageUrl);
 
-        return Ok(ApiResponse<TenantRegistrationResponse>.SuccessResponse(
-            new TenantRegistrationResponse { TenantId = tenantId, Message = message }));
+        return Success(new TenantRegistrationResponse
+        {
+            TenantId = tenantId,
+            Message = message
+        });
     }
 
     [HttpGet]
     public async Task<IActionResult> GetTenantInfo()
     {
-        var tenantId = GetTenantId();
-        if (tenantId is null)
-            return Unauthorized(ApiResponse<object>.FailResponse("Missing tenant context."));
+        if (TenantId is null)
+            return Fail("Missing tenant context", status: 401);
 
-        var tenant = await _tenantRepo.GetByIdAsync(tenantId.Value);
+        var tenant = await _tenantRepo.GetByIdAsync(TenantId.Value);
+
         if (tenant is null)
-            return NotFound(ApiResponse<object>.FailResponse("Tenant not found."));
+            return Fail("Tenant not found", status: 404);
 
-        return Ok(ApiResponse<object>.SuccessResponse(new { tenant.Id, tenant.Name, tenant.Slug, tenant.IsActive }));
+        return Success(new
+        {
+            tenant.Id,
+            tenant.Name,
+            tenant.Slug,
+            tenant.IsActive
+        });
     }
-
-    private Guid? GetTenantId() => HttpContext.Items["TenantId"] as Guid?;
 }

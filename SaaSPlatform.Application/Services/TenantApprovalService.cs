@@ -1,19 +1,23 @@
-﻿using SaaSPlatform.Core.Tenant.Interfaces;
+﻿using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Core.Billing.Enums;
-
-namespace SaaSPlatform.Application.Services;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
 
 public class TenantApprovalService
 {
     private readonly ITenantAccountRepository _tenantRepo;
     private readonly ISubscriptionRepository _subRepo;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public TenantApprovalService(ITenantAccountRepository tenantRepo, ISubscriptionRepository subRepo)
+    public TenantApprovalService(
+        ITenantAccountRepository tenantRepo,
+        ISubscriptionRepository subRepo,
+        IUnitOfWork unitOfWork)
     {
         _tenantRepo = tenantRepo;
         _subRepo = subRepo;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
@@ -36,6 +40,7 @@ public class TenantApprovalService
             _subRepo.Update(subscription);
         }
 
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
         return (true, "Tenant approved successfully.");
     }
 
@@ -45,6 +50,7 @@ public class TenantApprovalService
         if (tenant is null) return (false, "Tenant not found.");
         tenant.RegistrationStatus = RegistrationStatus.Rejected;
         _tenantRepo.Update(tenant);
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
         return (true, "Tenant rejected.");
     }
 }

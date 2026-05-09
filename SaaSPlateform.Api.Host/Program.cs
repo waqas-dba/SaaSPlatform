@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +7,7 @@ using SaaSPlatform.Api.Host.Middleware;
 using SaaSPlatform.Application.Services;                                  // ADDED
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Billing.Services;
+using SaaSPlatform.Core.Catalog.Interfaces;
 using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.IAM.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -17,9 +19,11 @@ using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.Billing;
 using SaaSPlatform.Infrastructure.Services.Common;                       // ADDED
 using SaaSPlatform.Infrastructure.Services.IAM;
-using SaaSPlatform.Infrastructure.Services.TenantServices.Service;
+using SaaSPlatform.Infrastructure.Services.Subscriptions;
+using SaaSPlatform.Infrastructure.Services.TenantServices;
 using SaaSPlatform.SharedKernel.Interfaces;
 using System.Text;
+using FluentValidation.LoginRequestValidator;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -117,7 +121,6 @@ builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
 
 // ---------- Unchanged ----------
 builder.Services.AddScoped<IPaymentService, PaymentService>();
-builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
@@ -125,6 +128,17 @@ builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 
 builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+
+builder.Services.AddHttpContextAccessor();  // already present
+builder.Services.AddScoped<ICurrentUserService,CurrentUserService>();  // <-- ADD
+
+builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<ProductManagementService>();
+
+builder.Services.AddValidatorsFromAssemblyContaining< FluentValidation.LoginRequestValidator > ();
 
 // ======================================================
 // DATABASE
