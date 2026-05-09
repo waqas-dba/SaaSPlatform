@@ -28,6 +28,7 @@ public class StoresController : BaseApiController         // <-- inherits Fail /
     {
         var tenantId = (Guid)HttpContext.Items["TenantId"]!;
         var store = await _db.Stores
+              .IgnoreQueryFilters()
             .Include(s => s.StoreCuisines).ThenInclude(sc => sc.Cuisine)
             .Include(s => s.DeliveryZones).ThenInclude(sz => sz.Zone)
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
@@ -62,4 +63,6 @@ public class StoresController : BaseApiController         // <-- inherits Fail /
         await _storeService.UpdateStoreAsync(tenantId, request);
         return NoContent();   // 204 is fine – no body needed after update
     }
+
+
 }

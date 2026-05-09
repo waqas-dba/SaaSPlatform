@@ -19,6 +19,7 @@ public class TenantStoreService : ITenantStoreService
     public async Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request)
     {
         var store = await _db.Stores
+              .IgnoreQueryFilters()
             .Include(s => s.StoreCuisines)
             .Include(s => s.DeliveryZones)
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
