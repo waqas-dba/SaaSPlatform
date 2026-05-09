@@ -1,7 +1,5 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
 
 // SaaSPlatform.Core/Catalog/Entities/Addon.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -17,10 +15,7 @@ public class Addon : BaseTenantEntity
 
     public bool IsActive { get; set; } = true;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -40,10 +35,7 @@ public class AddonGroup : BaseTenantEntity
 
     public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -61,10 +53,7 @@ public class AddonGroupItem : BaseEntity
     public bool IsDefault { get; set; } = false;         // pre-selected in UI
     public int DisplayOrder { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
 
 // SaaSPlatform.Core/Catalog/Entities/Category.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -84,10 +73,7 @@ public class Category : AuditableEntity, ITenantScoped
     public int DisplayOrder { get; set; }
     public bool IsActive { get; set; } = true;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
 
 // SaaSPlatform.Core/Catalog/Entities/Cuisine.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -98,10 +84,7 @@ public class Cuisine : BaseEntity
 {
     public string Name { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
 
 using SaaSPlatform.Core.Catalog.Enums;
 using SaaSPlatform.SharedKernel.Common;
@@ -122,10 +105,7 @@ public class FeaturedProduct : BaseEntity, ITenantScoped
     public DateTime FeaturedFrom { get; set; }
     public DateTime? FeaturedUntil { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
 
 // SaaSPlatform.Core/Catalog/Entities/Product.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -151,10 +131,7 @@ public class Product : AuditableEntity, ITenantScoped
 
     public ICollection<ProductImage>? Images { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -165,10 +142,7 @@ public class ProductAddon : BaseEntity
     public Guid ProductId { get; set; }
     public Guid AddonId { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -185,10 +159,7 @@ public class ProductAddonGroup : BaseEntity
     public bool IsRequired { get; set; } = true;          // override group's IsRequired per product
     public int DisplayOrder { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
 
 // SaaSPlatform.Core/Catalog/Entities/ProductImage.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -202,10 +173,7 @@ public class ProductImage : BaseEntity
     public int DisplayOrder { get; set; }
     public bool IsPrimary { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -218,10 +186,7 @@ public class ProductVariant : BaseEntity
     public string Name { get; set; } = default!; // Small, Medium, Large
     public decimal Price { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
 
 // SaaSPlatform.Core/Catalog/Enums/ProductFeatureSection.cs
 namespace SaaSPlatform.Core.Catalog.Enums;
@@ -231,10 +196,7 @@ public enum ProductFeatureSection
     MainPage,
     Category
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs
-==================================================
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
 
 using SaaSPlatform.Core.Catalog.Entities;
 
@@ -248,4 +210,3 @@ public interface IProductRepository
     void Update(Product product);
     void Delete(Product product);
 }
-

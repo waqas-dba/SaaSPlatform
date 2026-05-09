@@ -1,0 +1,599 @@
+﻿
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Authorization\TenantPermissionAttribute.cs =====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using SaaSPlatform.Core.IAM.Interfaces;
+namespace SaaSPlatform.Api.Host.Authorization;
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+public class TenantPermissionAttribute : Attribute, IAsyncAuthorizationFilter
+{
+private readonly string _permission;
+public TenantPermissionAttribute(string permission) => _permission = permission;
+public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+{
+if (context.HttpContext.User.IsInRole("SuperAdmin"))
+return;
+var tenantIdObj = context.HttpContext.Items["TenantId"];
+if (tenantIdObj is not Guid tenantId)
+{
+context.Result = new UnauthorizedObjectResult("Missing tenant context.");
+return;
+}
+var userIdClaim = context.HttpContext.User.FindFirst("userId")?.Value;
+if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+{
+context.Result = new UnauthorizedObjectResult("User not authenticated.");
+return;
+}
+var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
+var hasPerm = await permissionService.HasPermissionAsync(userId, tenantId, _permission);
+if (!hasPerm)
+{
+context.Result = new ForbidResult();
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\AuthController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.IAM.Models;
+[ApiController]
+[Route("api/auth")]
+public class AuthController : BaseApiController
+{
+private readonly IAuthService _authService;
+public AuthController(IAuthService authService)
+{
+_authService = authService;
+}
+[AllowAnonymous]
+[HttpPost("login")]
+public async Task<IActionResult> Login(LoginRequest request)
+{
+if (TenantId is null)
+return Fail("Missing tenant context");
+var result = await _authService.LoginAsync(request, TenantId.Value);
+return Success(result, "Login successful");
+}
+[AllowAnonymous]
+[HttpPost("refresh")]
+public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+{
+if (TenantId is null)
+return Fail("Missing tenant context");
+var result = await _authService.RefreshAsync(request, TenantId.Value);
+return Success(result, "Token refreshed");
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\TenantApprovalController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Authorization;
+using SaaSPlatform.Api.Host.Controllers;
+[ApiController]
+[Route("api/admin")]
+public class TenantApprovalController : BaseApiController
+{
+private readonly TenantApprovalService _approvalService;
+public TenantApprovalController(TenantApprovalService approvalService)
+=> _approvalService = approvalService;
+[TenantPermission("tenant.approve")]
+[HttpPost("tenants/{tenantId}/approve")]
+public async Task<IActionResult> ApproveTenant(Guid tenantId)
+{
+var (success, message) = await _approvalService.ApproveAsync(tenantId);
+if (!success)
+return Fail(message);
+return Success(new { }, message);
+}
+[TenantPermission("tenant.approve")]
+[HttpPost("tenants/{tenantId}/reject")]
+public async Task<IActionResult> RejectTenant(Guid tenantId)
+{
+var (success, message) = await _approvalService.RejectAsync(tenantId);
+if (!success)
+return Fail(message);
+return Success(new { }, message);
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Products\ProductsController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using SaaSPlatform.Application.Services;
+using SaaSPlatform.Core.Catalog.Entities;
+[ApiController]
+[Route("api/products")]
+public class ProductsController : BaseApiController
+{
+private readonly ProductManagementService _productService;
+public ProductsController(ProductManagementService productService)
+=> _productService = productService;
+[HttpGet]
+public async Task<IActionResult> GetProducts(Guid storeId)
+{
+var products = await _productService.GetStoreProductsAsync(storeId);
+return Success(products);
+}
+[HttpPost]
+public async Task<IActionResult> CreateProduct(Product product)
+{
+var created = await _productService.CreateProductAsync(product);
+return Success(created);
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\StoresController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Api.Host.Authorization;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+namespace SaaSPlatform.Api.Host.Controllers.Tenant;
+[Authorize]
+[ApiController]
+[Route("api/tenant")]
+public class StoresController : ControllerBase
+{
+private readonly ITenantStoreService _storeService;
+private readonly SaaSPlatformDbContext _db;
+public StoresController(ITenantStoreService storeService, SaaSPlatformDbContext db)
+{
+_storeService = storeService;
+_db = db;
+}
+[TenantPermission("store.update")]
+[HttpGet("store")]
+public async Task<IActionResult> GetStore()
+{
+var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+var store = await _db.Stores
+.Include(s => s.StoreCuisines).ThenInclude(sc => sc.Cuisine)
+.Include(s => s.DeliveryZones).ThenInclude(sz => sz.Zone)
+.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+if (store is null) return NotFound();
+return Ok(new
+{
+store.Id,
+store.Name,
+store.Address,
+store.IsOnline,
+store.MinPreparingTime,
+store.MaxPreparingTime,
+store.CoverPhotoUrl,
+store.LogoUrl,
+store.SupportsDelivery,
+store.SupportsPickup,
+store.SupportsDineIn,
+Cuisines = store.StoreCuisines.Select(sc => sc.Cuisine.Name),
+Zones = store.DeliveryZones.Select(sz => new { sz.Zone.City, sz.Zone.Name })
+});
+}
+[TenantPermission("store.update")]
+[HttpPut("store")]
+public async Task<IActionResult> UpdateStore(UpdateStoreRequest request)
+{
+var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+await _storeService.UpdateStoreAsync(tenantId, request);
+return NoContent();
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\TenantsController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+[ApiController]
+[Route("api/tenants")]
+public class TenantsController : BaseApiController
+{
+private readonly ITenantRegistrationService _registrationService;
+private readonly ITenantAccountRepository _tenantRepo;
+public TenantsController(
+ITenantRegistrationService registrationService,
+ITenantAccountRepository tenantRepo)
+{
+_registrationService = registrationService;
+_tenantRepo = tenantRepo;
+}
+[AllowAnonymous]
+[HttpPost("register")]
+public async Task<IActionResult> Register(TenantRegistrationRequest request)
+{
+var (tenantId, message) = await _registrationService.RegisterAsync(
+request.RestaurantName,
+request.CuisineIds,
+request.ZoneIds,
+request.Address,
+request.MinPreparingTime,
+request.MaxPreparingTime,
+request.FirstName,
+request.LastName,
+request.Phone,
+request.Email,
+request.Password,
+request.CnicNumber,
+request.NtnNumber,
+request.HasFoodLicense,
+request.CnicFrontImageUrl,
+request.CnicBackImageUrl);
+return Success(new TenantRegistrationResponse
+{
+TenantId = tenantId,
+Message = message
+});
+}
+[HttpGet]
+public async Task<IActionResult> GetTenantInfo()
+{
+if (TenantId is null)
+return Fail("Missing tenant context", status: 401);
+var tenant = await _tenantRepo.GetByIdAsync(TenantId.Value);
+if (tenant is null)
+return Fail("Tenant not found", status: 404);
+return Success(new
+{
+tenant.Id,
+tenant.Name,
+tenant.Slug,
+tenant.IsActive
+});
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\BaseApiController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Responses;
+namespace SaaSPlatform.Api.Host.Controllers;
+[ApiController]
+public abstract class BaseApiController : ControllerBase
+{
+protected IActionResult Success<T>(T data, string message = "")
+{
+return Ok(ApiResponse<T>.SuccessResponse(
+data,
+message,
+HttpContext.TraceIdentifier));
+}
+protected IActionResult Fail(
+string message,
+string? code = null,
+int status = 400,
+List<string>? errors = null)
+{
+return StatusCode(status,
+ApiResponse<object>.FailResponse(
+message,
+code,
+errors,
+HttpContext.TraceIdentifier));
+}
+protected Guid? TenantId =>
+HttpContext.Items["TenantId"] as Guid?;
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\ExceptionMiddleware.cs =====
+using System.Net;
+using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
+namespace SaaSPlatform.Api.Host.Middleware;
+public class ExceptionMiddleware
+{
+private readonly RequestDelegate _next;
+private readonly ILogger<ExceptionMiddleware> _logger;
+public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+{
+_next = next;
+_logger = logger;
+}
+public async Task InvokeAsync(HttpContext context)
+{
+try
+{
+await _next(context);
+}
+catch (Exception ex)
+{
+_logger.LogError(ex,
+"Unhandled exception | TraceId: {TraceId}",
+context.TraceIdentifier);
+await HandleExceptionAsync(context, ex);
+}
+}
+private static async Task HandleExceptionAsync(HttpContext context, Exception ex)
+{
+context.Response.ContentType = "application/json";
+context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+var response = ApiResponse<object>.FailResponse(
+message: "An unexpected error occurred",
+code: "SERVER_ERROR",
+errors: new List<string> { ex.Message },
+traceId: context.TraceIdentifier);
+await context.Response.WriteAsync(
+JsonSerializer.Serialize(response));
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\SubscriptionMiddleware.cs =====
+using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Core.Billing.Interfaces;
+namespace SaaSPlatform.Api.Host.Middleware;
+public class SubscriptionMiddleware
+{
+private readonly RequestDelegate _next;
+private readonly ILogger<SubscriptionMiddleware> _logger;
+private static readonly string[] PublicPaths =
+{
+"/api/auth",
+"/api/tenants/register",
+"/swagger"
+};
+private static readonly Guid SystemTenantId =
+Guid.Parse("11111111-1111-1111-1111-111111111111");
+public SubscriptionMiddleware(RequestDelegate next, ILogger<SubscriptionMiddleware> logger)
+{
+_next = next;
+_logger = logger;
+}
+public async Task InvokeAsync(HttpContext context, ISubscriptionAccessService subscriptionService)
+{
+if (PublicPaths.Any(p => context.Request.Path.StartsWithSegments(p)))
+{
+await _next(context);
+return;
+}
+var tenantIdObj = context.Items["TenantId"];
+if (tenantIdObj is not Guid tenantId)
+{
+await _next(context);
+return;
+}
+if (tenantId == SystemTenantId)
+{
+await _next(context);
+return;
+}
+if (context.User.IsInRole("SuperAdmin"))
+{
+await _next(context);
+return;
+}
+try
+{
+var isAllowed = await subscriptionService.IsTenantAllowedAsync(tenantId);
+if (!isAllowed)
+{
+_logger.LogWarning("Subscription blocked for tenant: {TenantId}", tenantId);
+context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
+context.Response.ContentType = "application/json";
+var response = ApiResponse<object>.FailResponse(
+message: "Subscription expired, suspended, or payment pending",
+code: "SUBSCRIPTION_BLOCKED",
+errors: new List<string> { "ACCESS_DENIED" },
+traceId: context.TraceIdentifier
+);
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+return;
+}
+await _next(context);
+}
+catch (Exception ex)
+{
+_logger.LogError(ex, "Error in SubscriptionMiddleware for tenant {TenantId}", tenantId);
+context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+context.Response.ContentType = "application/json";
+var response = ApiResponse<object>.FailResponse(
+message: "Internal subscription validation error",
+code: "SUBSCRIPTION_ERROR",
+errors: new List<string> { "INTERNAL_ERROR" },
+traceId: context.TraceIdentifier
+);
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\TenantMiddleware.cs =====
+using SaaSPlatform.Core.Tenant.Interfaces;
+namespace SaaSPlatform.Api.Host.Middleware;
+public class TenantMiddleware
+{
+private readonly RequestDelegate _next;
+public TenantMiddleware(RequestDelegate next)
+{
+_next = next;
+}
+public async Task InvokeAsync(
+HttpContext context,
+ITenantContext tenantContext)
+{
+var path = context.Request.Path.Value?.ToLower();
+if (path!.StartsWith("/api/auth/login") ||
+path.StartsWith("/api/auth/refresh") ||
+path.StartsWith("/api/tenants/register") ||
+path.StartsWith("/swagger"))
+{
+await _next(context);
+return;
+}
+var tenantHeader = context.Request.Headers["x-tenant-id"].FirstOrDefault();
+if (!Guid.TryParse(tenantHeader, out var tenantId))
+{
+context.Response.StatusCode = 400;
+await context.Response.WriteAsync("Missing tenant context");
+return;
+}
+tenantContext.SetTenantId(tenantId);
+context.Items["TenantId"] = tenantId;
+await _next(context);
+}
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Responses\ApiResponse.cs =====
+namespace SaaSPlatform.Api.Host.Responses;
+public class ApiResponse<T>
+{
+public bool Success { get; set; }
+public string Message { get; set; } = string.Empty;
+public string? Code { get; set; }
+public string? TraceId { get; set; }
+public T? Data { get; set; }
+public List<string>? Errors { get; set; }
+public static ApiResponse<T> SuccessResponse(T data, string message = "", string? traceId = null)
+=> new() { Success = true, Message = message, Data = data, TraceId = traceId };
+public static ApiResponse<T> FailResponse(string message, string? code = null,
+List<string>? errors = null, string? traceId = null)
+=> new() { Success = false, Message = message, Code = code, Errors = errors, TraceId = traceId };
+}
+
+===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs =====
+using FluentValidation;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using SaaSPlatform.Api.Host.Middleware;
+using SaaSPlatform.Application.Services;
+using SaaSPlatform.Application.Validators.Auth;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Billing.Services;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.IAM.Services;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Infrastructure.Persistence.Repositories;
+using SaaSPlatform.Infrastructure.Persistence.Seed;
+using SaaSPlatform.Infrastructure.Services;
+using SaaSPlatform.Infrastructure.Services.Auth;
+using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.Common;
+using SaaSPlatform.Infrastructure.Services.IAM;
+using SaaSPlatform.Infrastructure.Services.Subscriptions;
+using SaaSPlatform.Infrastructure.Services.TenantServices;
+using SaaSPlatform.SharedKernel.Interfaces;
+using System.Text;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
+builder.Services.Configure<JwtSettings>(
+builder.Configuration.GetSection("Jwt"));
+var jwtSettings = builder.Configuration
+.GetSection("Jwt")
+.Get<JwtSettings>();
+if (jwtSettings == null ||
+string.IsNullOrWhiteSpace(jwtSettings.Secret) ||
+string.IsNullOrWhiteSpace(jwtSettings.Issuer) ||
+string.IsNullOrWhiteSpace(jwtSettings.Audience))
+{
+throw new Exception(
+"Invalid JWT configuration");
+}
+builder.Services
+.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+.AddJwtBearer(options =>
+{
+options.TokenValidationParameters =
+new TokenValidationParameters
+{
+ValidateIssuer = true,
+ValidateAudience = true,
+ValidateLifetime = true,
+ValidateIssuerSigningKey = true,
+ValidIssuer = jwtSettings.Issuer,
+ValidAudience = jwtSettings.Audience,
+IssuerSigningKey =
+new SymmetricSecurityKey(
+Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+ClockSkew = TimeSpan.Zero
+};
+});
+builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+options.AddFixedWindowLimiter(
+"default",
+config =>
+{
+config.Window = TimeSpan.FromMinutes(1);
+config.PermitLimit = 100;
+config.QueueLimit = 0;
+});
+});
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
+builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
+builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
+builder.Services.AddScoped<IStoreRepository, StoreRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
+builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+builder.Services.AddScoped<TenantApprovalService>();
+builder.Services.AddScoped<TenantRegistrationAppService>();
+builder.Services.AddScoped<ProductManagementService>();
+var provider = builder.Configuration["DatabaseProvider"];
+builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
+{
+switch (provider)
+{
+case "Postgres":
+options.UseNpgsql(
+builder.Configuration.GetConnectionString("Postgres"));
+break;
+default:
+throw new Exception(
+$"Unsupported database provider: {provider}");
+}
+});
+var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+var db = scope.ServiceProvider
+.GetRequiredService<SaaSPlatformDbContext>();
+await DbSeeder.SeedAsync(db);
+}
+if (app.Environment.IsDevelopment())
+{
+app.UseSwagger();
+app.UseSwaggerUI();
+}
+app.UseRouting();
+app.UseRateLimiter();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseMiddleware<TenantMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<SubscriptionMiddleware>();
+app.MapControllers();
+app.Run();
+

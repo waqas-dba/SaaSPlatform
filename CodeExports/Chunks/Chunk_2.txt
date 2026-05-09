@@ -1,0 +1,607 @@
+﻿
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
+namespace SaaSPlatform.Application.DTOs.Auth;
+public class AuthTokenResponse
+{
+public string AccessToken { get; set; } = default!;
+public DateTime AccessTokenExpiresAtUtc { get; set; }
+public string RefreshToken { get; set; } = default!;
+public DateTime RefreshTokenExpiresAtUtc { get; set; }
+}
+
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+namespace SaaSPlatform.Application.Services;
+public class ProductManagementService
+{
+private readonly IProductRepository _productRepo;
+private readonly IUnitOfWork _unitOfWork;
+public ProductManagementService(IProductRepository productRepo, IUnitOfWork unitOfWork)
+{
+_productRepo = productRepo;
+_unitOfWork = unitOfWork;
+}
+public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
+=> await _productRepo.GetByStoreAsync(storeId);
+public async Task<Product?> GetProductAsync(Guid productId)
+=> await _productRepo.GetByIdAsync(productId);
+public async Task<Product> CreateProductAsync(Product product)
+{
+_productRepo.Add(product);
+await _unitOfWork.SaveChangesAsync();
+return product;
+}
+public async Task UpdateProductAsync(Product product)
+{
+_productRepo.Update(product);
+await _unitOfWork.SaveChangesAsync();
+}
+public async Task DeleteProductAsync(Guid productId)
+{
+var product = await _productRepo.GetByIdAsync(productId);
+if (product != null)
+{
+_productRepo.Delete(product);
+await _unitOfWork.SaveChangesAsync();
+}
+}
+}
+
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+public class TenantApprovalService
+{
+private readonly ITenantAccountRepository _tenantRepo;
+private readonly ISubscriptionRepository _subRepo;
+private readonly IUnitOfWork _unitOfWork;
+public TenantApprovalService(
+ITenantAccountRepository tenantRepo,
+ISubscriptionRepository subRepo,
+IUnitOfWork unitOfWork)
+{
+_tenantRepo = tenantRepo;
+_subRepo = subRepo;
+_unitOfWork = unitOfWork;
+}
+public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+if (tenant.RegistrationStatus == RegistrationStatus.Approved)
+return (false, "Tenant is already approved.");
+tenant.RegistrationStatus = RegistrationStatus.Approved;
+tenant.IsActive = true;
+_tenantRepo.Update(tenant);
+var subscription = await _subRepo.GetActiveByTenantIdAsync(tenantId);
+if (subscription is not null && subscription.Status == SubscriptionStatus.Trialing)
+{
+subscription.Status = SubscriptionStatus.Active;
+subscription.TrialEndsAt = DateTime.UtcNow.AddDays(14);
+subscription.NextBillingDate = DateTime.UtcNow.AddDays(14);
+_subRepo.Update(subscription);
+}
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant approved successfully.");
+}
+public async Task<(bool Success, string Message)> RejectAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+tenant.RegistrationStatus = RegistrationStatus.Rejected;
+_tenantRepo.Update(tenant);
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant rejected.");
+}
+}
+
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Interfaces;
+namespace SaaSPlatform.Application.Services;
+public class TenantRegistrationAppService
+{
+private readonly ITenantAccountRepository _tenantRepo;
+private readonly IStoreRepository _storeRepo;
+private readonly IUserRepository _userRepo;
+private readonly IRoleRepository _roleRepo;
+private readonly ITenantLegalInfoRepository _legalRepo;
+private readonly ISubscriptionRepository _subscriptionRepo;
+private readonly IPasswordHasher _passwordHasher;
+private readonly ISlugGenerator _slugGenerator;
+private readonly IUnitOfWork _unitOfWork;
+public TenantRegistrationAppService(
+ITenantAccountRepository tenantRepo,
+IStoreRepository storeRepo,
+IUserRepository userRepo,
+IRoleRepository roleRepo,
+ITenantLegalInfoRepository legalRepo,
+ISubscriptionRepository subscriptionRepo,
+IPasswordHasher passwordHasher,
+ISlugGenerator slugGenerator,
+IUnitOfWork unitOfWork)
+{
+_tenantRepo = tenantRepo;
+_storeRepo = storeRepo;
+_userRepo = userRepo;
+_roleRepo = roleRepo;
+_legalRepo = legalRepo;
+_subscriptionRepo = subscriptionRepo;
+_passwordHasher = passwordHasher;
+_slugGenerator = slugGenerator;
+_unitOfWork = unitOfWork;
+}
+public async Task<(Guid tenantId, string message)> RegisterAsync(TenantRegistrationRequest request)
+{
+return await ExecuteRegistrationAsync(request);
+}
+private async Task<(Guid tenantId, string message)> ExecuteRegistrationAsync(TenantRegistrationRequest request)
+{
+await _unitOfWork.BeginTransactionAsync();
+try
+{
+var tenant = CreateTenant(request);
+var store = CreateStore(tenant.Id, request);
+var user = CreateUser(request);
+var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
+LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
+CreateLegalInfo(tenant.Id, request);
+await CreateStarterSubscriptionAsync(tenant.Id);
+await _unitOfWork.SaveChangesAsync();
+await _unitOfWork.CommitAsync();
+return (tenant.Id, "Registration submitted successfully. Awaiting approval.");
+}
+catch
+{
+await _unitOfWork.RollbackAsync();
+throw;
+}
+}
+private TenantAccount CreateTenant(TenantRegistrationRequest request)
+{
+var slug = _slugGenerator.Generate(request.RestaurantName);
+var tenant = new TenantAccount
+{
+Id = Guid.NewGuid(),
+Name = request.RestaurantName,
+Slug = slug,
+IsActive = false,
+RegistrationStatus = RegistrationStatus.Pending
+};
+_tenantRepo.Add(tenant);
+return tenant;
+}
+private Store CreateStore(Guid tenantId, TenantRegistrationRequest request)
+{
+var store = new Store
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = request.RestaurantName,
+Slug = _slugGenerator.Generate(request.RestaurantName),
+Address = request.Address,
+MinPreparingTime = request.MinPreparingTime,
+MaxPreparingTime = request.MaxPreparingTime,
+IsOnline = false,
+StoreCuisines = new List<StoreCuisine>(),
+DeliveryZones = new List<StoreDeliveryZone>()
+};
+foreach (var c in request.CuisineIds)
+store.StoreCuisines.Add(new StoreCuisine { CuisineId = c });
+foreach (var z in request.ZoneIds)
+store.DeliveryZones.Add(new StoreDeliveryZone { ZoneId = z });
+_storeRepo.Add(store);
+return store;
+}
+private User CreateUser(TenantRegistrationRequest request)
+{
+var user = new User
+{
+Id = Guid.NewGuid(),
+Name = $"{request.FirstName} {request.LastName}",
+Phone = request.Phone,
+Email = request.Email,
+PasswordHash = _passwordHasher.Hash(request.Password),
+IsActive = true
+};
+_userRepo.AddAsync(user);
+return user;
+}
+private async Task<Role> CreateOwnerRoleAsync(Guid tenantId)
+{
+var ownerRole = new Role
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = "Owner",
+Description = "Tenant owner – full access",
+IsSystem = false
+};
+_roleRepo.Add(ownerRole);
+var allPermissions = await _roleRepo.GetAllPermissionsAsync();
+foreach (var perm in allPermissions)
+_roleRepo.AddRolePermission(new RolePermission { RoleId = ownerRole.Id, PermissionId = perm.Id });
+return ownerRole;
+}
+private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
+{
+_roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+_roleRepo.AddTenantUser(new TenantUser
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+UserId = userId,
+IsOwner = true,
+IsActive = true
+});
+}
+private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
+{
+_legalRepo.Add(new TenantLegalInfo
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+CnicNumber = request.CnicNumber,
+NtnNumber = request.NtnNumber,
+HasFoodLicense = request.HasFoodLicense,
+CnicFrontImageUrl = request.CnicFrontImageUrl,
+CnicBackImageUrl = request.CnicBackImageUrl
+});
+}
+private async Task CreateStarterSubscriptionAsync(Guid tenantId)
+{
+var starterPlan = await _subscriptionRepo.GetPlanByNameAsync("Starter")
+?? throw new InvalidOperationException("Starter plan not found.");
+_subscriptionRepo.Add(new Subscription
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+PlanId = starterPlan.Id,
+Status = SubscriptionStatus.Trialing,
+StartDate = DateTime.UtcNow,
+TrialEndsAt = DateTime.UtcNow.AddDays(14),
+NextBillingDate = DateTime.UtcNow.AddDays(14),
+PriceSnapshot = 0
+});
+}
+}
+
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs =====
+using FluentValidation;
+using SaaSPlatform.Core.IAM.Models;
+using System.Text.RegularExpressions;
+namespace SaaSPlatform.Application.Validators.Auth;
+public class LoginRequestValidator : AbstractValidator<LoginRequest>
+{
+public LoginRequestValidator()
+{
+RuleFor(x => x.Phone)
+.NotEmpty()
+.WithMessage("Phone number is required")
+.Must(BeValidPhone)
+.WithMessage("Invalid phone number format");
+RuleFor(x => x.Password)
+.NotEmpty()
+.WithMessage("Password is required")
+.MinimumLength(8)
+.WithMessage("Password must be at least 8 characters")
+.Matches("[A-Z]").WithMessage("Password must contain uppercase letter")
+.Matches("[a-z]").WithMessage("Password must contain lowercase letter")
+.Matches("[0-9]").WithMessage("Password must contain number");
+}
+private bool BeValidPhone(string phone)
+{
+if (string.IsNullOrWhiteSpace(phone))
+return false;
+var normalized = NormalizePhone(phone);
+return Regex.IsMatch(normalized, @"^\+?[0-9]{10,15}$");
+}
+private string NormalizePhone(string phone)
+{
+return phone.Trim()
+.Replace(" ", "")
+.Replace("-", "");
+}
+}
+
+===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Agents.Entities;
+public class Agent : AuditableEntity
+{
+public string Name { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string? Email { get; set; }
+public bool IsActive { get; set; } = true;
+public decimal CommissionRate { get; set; }
+}
+
+===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Agents.Entities;
+public class AgentCommission : AuditableEntity
+{
+public Guid AgentId { get; set; }
+public Guid TenantId { get; set; }
+public decimal Amount { get; set; }
+public string Type { get; set; } = default!;
+public bool IsPaid { get; set; } = false;
+public DateTime? PaidAt { get; set; }
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Billing.Entities;
+public class Payment : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid SubscriptionId { get; set; }
+public Guid? StoreId { get; set; }
+public decimal Amount { get; set; }
+public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+public string Provider { get; set; } = "Cash";
+public DateTime? PaidAt { get; set; }
+public DateTime? StatusUpdatedAt { get; set; }
+public string? Notes { get; set; }
+public string? ReferenceNumber { get; set; }
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Billing.Entities;
+public class Plan : AuditableEntity
+{
+public string Name { get; set; } = default!;
+public decimal PriceMonthly { get; set; }
+public decimal PriceYearly { get; set; }
+public int MaxStores { get; set; }
+public int MaxUsers { get; set; }
+public int MaxCategories { get; set; }
+public int MaxProducts { get; set; }
+public int MaxOrdersPerMonth { get; set; }
+public int GraceDays { get; set; } = 7;
+public int TrialDays { get; set; } = 0;
+public bool AllowOrders { get; set; } = true;
+public bool AllowProductCreation { get; set; } = true;
+public bool AllowAdminAccess { get; set; } = true;
+public bool IsActive { get; set; } = true;
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Billing.Entities;
+public class Subscription : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid PlanId { get; set; }
+public Plan Plan { get; set; } = default!;
+public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Trialing;
+public DateTime StartDate { get; set; }
+public DateTime? EndDate { get; set; }
+public DateTime? TrialEndsAt { get; set; }
+public DateTime? CancelledAt { get; set; }
+public DateTime? PaymentFailedAt { get; set; }
+public DateTime NextBillingDate { get; set; }
+public decimal PriceSnapshot { get; set; }
+public bool IsAutoRenew { get; set; } = true;
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Billing.Entities;
+public class TenantUsage : BaseEntity
+{
+public Guid TenantId { get; set; }
+public int CategoryCount { get; set; }
+public int ProductCount { get; set; }
+public int OrderCountThisMonth { get; set; }
+public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Billing.Entities;
+public class TenantUsageLedger : BaseEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public int UsageMonthYear { get; set; }
+public int ProductCount { get; set; }
+public int CategoryCount { get; set; }
+public int OrderCount { get; set; }
+public int StoreCount { get; set; }
+public int UserCount { get; set; }
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs =====
+namespace SaaSPlatform.Core.Billing.Enums;
+public enum PaymentStatus
+{
+Pending,
+Paid
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs =====
+namespace SaaSPlatform.Core.Billing.Enums;
+public enum SubscriptionStatus
+{
+Trialing,
+Active,
+PastDue,
+Suspended,
+Canceled,
+Expired,
+GracePeriod
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs =====
+namespace SaaSPlatform.Core.Billing.Interfaces;
+public interface IPaymentService
+{
+Task MarkAsPaidAsync(Guid paymentId);
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs =====
+namespace SaaSPlatform.Core.Billing.Interfaces;
+public interface ISubscriptionAccessService
+{
+Task<bool> IsTenantAllowedAsync(Guid tenantId);
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRepository.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+namespace SaaSPlatform.Core.Billing.Interfaces;
+public interface ISubscriptionRepository
+{
+void Add(Subscription subscription);
+void Update(Subscription subscription);
+Task<Subscription?> GetActiveByTenantIdAsync(Guid tenantId, CancellationToken ct = default);
+Task<Plan?> GetPlanByNameAsync(string planName, CancellationToken ct = default);
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+namespace SaaSPlatform.Core.Billing.Interfaces;
+public interface ISubscriptionRuleEngine
+{
+Task<bool> CanAccessAsync(
+Subscription subscription,
+Plan plan);
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+namespace SaaSPlatform.Core.Billing.Services;
+public class SubscriptionRuleEngine : ISubscriptionRuleEngine
+{
+public Task<bool> CanAccessAsync(
+Subscription subscription,
+Plan plan)
+{
+var now = DateTime.UtcNow;
+if (subscription.Status == SubscriptionStatus.Active)
+{
+return Task.FromResult(true);
+}
+if (subscription.Status == SubscriptionStatus.Trialing)
+{
+if (subscription.TrialEndsAt.HasValue &&
+subscription.TrialEndsAt.Value > now)
+{
+return Task.FromResult(true);
+}
+return Task.FromResult(false);
+}
+if (subscription.Status == SubscriptionStatus.GracePeriod)
+{
+var graceEndDate =
+subscription.NextBillingDate
+.AddDays(plan.GraceDays);
+if (graceEndDate > now)
+{
+return Task.FromResult(true);
+}
+return Task.FromResult(false);
+}
+return Task.FromResult(false);
+}
+}
+
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+namespace SaaSPlatform.Core.Billing.Services;
+public class SubscriptionService
+{
+public void HandlePaymentFailed(
+Subscription subscription)
+{
+subscription.PaymentFailedAt = DateTime.UtcNow;
+subscription.Status =
+SubscriptionStatus.GracePeriod;
+}
+public void EvaluateSubscription(
+Subscription subscription,
+Plan plan)
+{
+if (subscription.Status != SubscriptionStatus.GracePeriod)
+return;
+if (!subscription.PaymentFailedAt.HasValue)
+return;
+var graceEndDate =
+subscription.NextBillingDate
+.AddDays(plan.GraceDays);
+if (DateTime.UtcNow > graceEndDate)
+{
+subscription.Status =
+SubscriptionStatus.Suspended;
+}
+}
+public bool IsTenantActive(
+Subscription subscription)
+{
+return subscription.Status is
+SubscriptionStatus.Active
+or SubscriptionStatus.Trialing
+or SubscriptionStatus.GracePeriod;
+}
+}
+
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class Addon : BaseTenantEntity
+{
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public decimal Price { get; set; }
+public bool IsActive { get; set; } = true;
+}
+
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class AddonGroup : BaseTenantEntity
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public string? Description { get; set; }
+public bool IsRequired { get; set; } = false;
+public int MinSelect { get; set; } = 0;
+public int MaxSelect { get; set; } = 1;
+public bool IsActive { get; set; } = true;
+public int DisplayOrder { get; set; }
+public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
+}
+
+===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class AddonGroupItem : BaseEntity
+{
+public Guid AddonGroupId { get; set; }
+public AddonGroup AddonGroup { get; set; } = default!;
+public Guid AddonId { get; set; }
+public Addon Addon { get; set; } = default!;
+public decimal PriceAdjustment { get; set; } = 0;
+public bool IsDefault { get; set; } = false;
+public int DisplayOrder { get; set; }
+}
+

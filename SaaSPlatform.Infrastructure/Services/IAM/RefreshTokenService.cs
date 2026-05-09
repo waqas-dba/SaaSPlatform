@@ -1,8 +1,8 @@
 ﻿using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
 using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
-using Microsoft.Extensions.Options;
 
 namespace SaaSPlatform.Infrastructure.Services.Auth;
 
@@ -17,8 +17,13 @@ public class RefreshTokenService : IRefreshTokenService
         IOptions<JwtSettings> jwtOptions)
     {
         _repository = repository;
+
         _jwtSettings = jwtOptions.Value;
     }
+
+    // =========================
+    // GENERATE
+    // =========================
 
     public async Task<string> GenerateAsync(
         Guid userId,
@@ -32,12 +37,15 @@ public class RefreshTokenService : IRefreshTokenService
         var refreshToken = new RefreshToken
         {
             UserId = userId,
+
             Token = token,
+
             JwtId = jwtId,
+
             ExpiresAtUtc = DateTime.UtcNow.AddDays(
                 _jwtSettings.RefreshTokenDays),
 
-            CreatedAtUtc = DateTime.UtcNow,
+            IsRevoked = false,
 
             CreatedByIp = ipAddress,
 
@@ -46,10 +54,12 @@ public class RefreshTokenService : IRefreshTokenService
 
         await _repository.AddAsync(refreshToken);
 
-        await _repository.SaveChangesAsync();
-
         return token;
     }
+
+    // =========================
+    // VALIDATE
+    // =========================
 
     public async Task<bool> ValidateAsync(string token)
     {
@@ -59,6 +69,10 @@ public class RefreshTokenService : IRefreshTokenService
         return refreshToken != null &&
                refreshToken.IsActive;
     }
+
+    // =========================
+    // REVOKE
+    // =========================
 
     public async Task RevokeAsync(
         string token,
@@ -79,6 +93,6 @@ public class RefreshTokenService : IRefreshTokenService
 
         refreshToken.RevokedByIp = revokedByIp;
 
-        await _repository.SaveChangesAsync();
+        await _repository.UpdateAsync(refreshToken);
     }
 }

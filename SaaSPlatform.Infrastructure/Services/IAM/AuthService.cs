@@ -1,43 +1,87 @@
-﻿using SaaSPlatform.Core.IAM.Interfaces;
+﻿using BCrypt.Net;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.IAM.Models;
-using SaaSPlatform.Core.IAM.Services;
 
-public class AuthService : IAuthService
+namespace SaaSPlatform.Core.IAM.Services
 {
-    private readonly IUserRepository _userRepository;
-    private readonly IJwtTokenService _jwtService;
-
-    public AuthService(
-        IUserRepository userRepository,
-        IJwtTokenService jwtService)
+    public class AuthService : IAuthService
     {
-        _userRepository = userRepository;
-        _jwtService = jwtService;
-    }
+        private readonly IUserRepository _userRepository;
+        private readonly IJwtTokenService _jwtService;
+        private readonly IRefreshTokenRepository _refreshRepo;
 
-    public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId)
-    {
-        var phone = PhoneNormalizer.Normalize(request.Phone);
-
-        var user = await _userRepository.GetByPhoneNumberAsync(phone);
-
-        if (user == null)
-            throw new UnauthorizedAccessException("Invalid credentials");
-
-        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-            throw new UnauthorizedAccessException("Invalid credentials");
-
-        var roles = user.UserRoles.Select(r => r.Role.Name);
-
-        var (token, expiresAt) = _jwtService.GenerateAccessToken(
-            user,
-            tenantId,
-            roles);
-
-        return new LoginResponse
+        public AuthService(
+            IUserRepository userRepository,
+            IJwtTokenService jwtService,
+            IRefreshTokenRepository refreshRepo)
         {
-            AccessToken = token,
-            ExpiresAt = expiresAt
-        };
+            _userRepository = userRepository;
+            _jwtService = jwtService;
+            _refreshRepo = refreshRepo;
+        }
+
+        public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId)
+        {
+            var user = await _userRepository.GetByPhoneAsync(request.Phone, tenantId);
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+                throw new UnauthorizedAccessException("Invalid credentials");
+
+            var roles = user.Roles.Select(x => x.Role.Name).ToList();
+            var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+
+            var refresh = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = Guid.NewGuid().ToString("N"),   // For production, use RefreshTokenService
+                JwtId = Guid.NewGuid().ToString(),
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(7)
+            };
+            await _refreshRepo.AddAsync(refresh);
+
+            return new LoginResponse
+            {
+                AccessToken = accessToken,
+                RefreshToken = refresh.Token
+            };
+        }
+
+        public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId)
+        {
+            var storedToken = await _refreshRepo.GetByTokenAsync(request.RefreshToken);
+            if (storedToken == null || !storedToken.IsActive)
+                throw new UnauthorizedAccessException("Invalid or expired refresh token");
+
+            var user = await _userRepository.GetByIdAsync(storedToken.UserId);
+            if (user == null)
+                throw new UnauthorizedAccessException("User not found");
+
+            // Rotate the refresh token
+            await _refreshRepo.RevokeAsync(storedToken);
+
+            var roles = user.Roles.Select(x => x.Role.Name).ToList();
+            var (newAccessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+
+            var newRefresh = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = Guid.NewGuid().ToString("N"),
+                JwtId = Guid.NewGuid().ToString(),
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(7)
+            };
+            await _refreshRepo.AddAsync(newRefresh);
+
+            return new LoginResponse
+            {
+                AccessToken = newAccessToken,
+                RefreshToken = newRefresh.Token
+            };
+        }
+
+        public Task LogoutAsync(string refreshToken)
+        {
+            // TODO: implement revocation
+            throw new NotImplementedException();
+        }
     }
 }

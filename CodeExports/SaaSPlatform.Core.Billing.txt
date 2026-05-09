@@ -1,7 +1,5 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs =====
 
 // SaaSPlatform.Core/Billing/Entities/Payment.cs
 using SaaSPlatform.Core.Billing.Enums;
@@ -25,10 +23,7 @@ public class Payment : AuditableEntity, ITenantScoped
     public string? Notes { get; set; }
     public string? ReferenceNumber { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -60,10 +55,7 @@ public class Plan : AuditableEntity
 
     public bool IsActive { get; set; } = true;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs =====
 
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.SharedKernel.Common;
@@ -95,10 +87,7 @@ public class Subscription : AuditableEntity, ITenantScoped
 
     public bool IsAutoRenew { get; set; } = true;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -114,10 +103,7 @@ public class TenantUsage : BaseEntity
 
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -140,10 +126,7 @@ public class TenantUsageLedger : BaseEntity, ITenantScoped
 
     public int UserCount { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs =====
 
 namespace SaaSPlatform.Core.Billing.Enums;
 
@@ -152,10 +135,7 @@ public enum PaymentStatus
     Pending,
     Paid
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs =====
 
 namespace SaaSPlatform.Core.Billing.Enums;
 
@@ -169,10 +149,7 @@ public enum SubscriptionStatus
     Expired,
     GracePeriod
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs =====
 
 namespace SaaSPlatform.Core.Billing.Interfaces;
 
@@ -180,10 +157,7 @@ public interface IPaymentService
 {
     Task MarkAsPaidAsync(Guid paymentId);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs =====
 
 namespace SaaSPlatform.Core.Billing.Interfaces;
 
@@ -191,10 +165,7 @@ public interface ISubscriptionAccessService
 {
     Task<bool> IsTenantAllowedAsync(Guid tenantId);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRepository.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRepository.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 
@@ -207,10 +178,7 @@ public interface ISubscriptionRepository
     Task<Subscription?> GetActiveByTenantIdAsync(Guid tenantId, CancellationToken ct = default);
     Task<Plan?> GetPlanByNameAsync(string planName, CancellationToken ct = default);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 
@@ -222,10 +190,7 @@ public interface ISubscriptionRuleEngine
         Subscription subscription,
         Plan plan);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
@@ -278,10 +243,7 @@ public class SubscriptionRuleEngine : ISubscriptionRuleEngine
         return Task.FromResult(false);
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs
-==================================================
+===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
@@ -329,4 +291,3 @@ public class SubscriptionService
             or SubscriptionStatus.GracePeriod;
     }
 }
-

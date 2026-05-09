@@ -138,6 +138,7 @@ public static class DbSeeder
             var adminUser = new User
             {
                 Id = Guid.NewGuid(),
+                TenantId = SeedData.SystemTenantId,
                 Name = "Super Admin",
                 Phone = superAdminPhone,
                 Email = "admin@system.com",

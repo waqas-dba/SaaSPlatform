@@ -2,53 +2,51 @@
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.Billing;
-using System;
-using System.Threading.Tasks;
 using Xunit;
 
-namespace SaaSPlatform.UnitTests.Billing
+namespace SaaSPlatform.UnitTests.Billing;
+
+public class PaymentServiceTests
 {
-    public class PaymentServiceTests
+    private SaaSPlatformDbContext GetDb()
     {
-        private SaaSPlatformDbContext GetDb()
+        var options = new DbContextOptionsBuilder<SaaSPlatformDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        return new SaaSPlatformDbContext(
+            options,
+            tenantContext: null,
+            currentUser: null);
+    }
+
+    [Fact]
+    public async Task Should_Mark_Payment_As_Paid()
+    {
+        var db = GetDb();
+
+        var payment = new Payment
         {
-            var options = new DbContextOptionsBuilder<SaaSPlatformDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
+            Id = Guid.NewGuid(),
+            TenantId = Guid.NewGuid(),
+            SubscriptionId = Guid.NewGuid(),
+            Amount = 100,
+            Status = PaymentStatus.Pending
+        };
 
-            return new SaaSPlatformDbContext(options);
-        }
+        db.Payments.Add(payment);
 
-        [Fact]
-        public async Task Should_Mark_Payment_As_Paid()
-        {
-            // Arrange
-            var db = GetDb();
+        await db.SaveChangesAsync();
 
-            var payment = new Payment
-            {
-                Id = Guid.NewGuid(),
-                TenantId = Guid.NewGuid(),
-                SubscriptionId = Guid.NewGuid(),
-                Amount = 100,
-                Status = PaymentStatus.Pending
-            };
+        var service = new PaymentService(db);
 
-            db.Payments.Add(payment);
-            await db.SaveChangesAsync();
+        await service.MarkAsPaidAsync(payment.Id);
 
-            var service = new PaymentService(db);
+        var updated = await db.Payments.FirstAsync();
 
-            // Act
-            await service.MarkAsPaidAsync(payment.Id);
+        Assert.Equal(PaymentStatus.Paid, updated.Status);
 
-            // Assert
-            var updated = await db.Payments.FirstAsync();
-
-            Assert.Equal(PaymentStatus.Paid, updated.Status);
-            Assert.NotNull(updated.PaidAt);
-        }
+        Assert.NotNull(updated.PaidAt);
     }
 }

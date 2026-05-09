@@ -1,7 +1,5 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -35,10 +33,7 @@ public abstract class AuditableEntity : BaseEntity
     /// </summary>
     public bool IsDeleted { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -52,10 +47,7 @@ public abstract class BaseEntity
     /// </summary>
     public Guid Id { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
 
 
 namespace SaaSPlatform.SharedKernel.Common;
@@ -72,23 +64,17 @@ public abstract class BaseTenantEntity
     /// </summary>
     public Guid TenantId { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
 
 
 
 namespace SaaSPlatform.SharedKernel.Interfaces
 {
-    public class IAggregateRoot
+    public interface IAggregateRoot
     {
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
 
 
 namespace SaaSPlatform.SharedKernel.Interfaces;
@@ -97,10 +83,7 @@ public interface ISlugGenerator
 {
     string Generate(string input);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs =====
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -108,10 +91,7 @@ public interface ITenantScoped
 {
     Guid TenantId { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
-==================================================
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
 
 
 
@@ -124,4 +104,45 @@ public interface IUnitOfWork : IDisposable
     Task RollbackAsync(CancellationToken cancellationToken = default);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
+===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
 
+namespace SaaSPlatform.SharedKernel.Results;
+
+public class Result
+{
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public List<string> Errors { get; init; } = new();
+
+    public static Result Success(string message = "")
+        => new() { Succeeded = true, Message = message };
+
+    public static Result Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+public class Result<T> : Result
+{
+    public T? Data { get; init; }
+
+    public static Result<T> Success(T data, string message = "")
+        => new()
+        {
+            Succeeded = true,
+            Data = data,
+            Message = message
+        };
+
+    public new static Result<T> Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}

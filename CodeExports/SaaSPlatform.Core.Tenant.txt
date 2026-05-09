@@ -1,7 +1,5 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
 
 namespace SaaSPlatform.Core.Tenant.Constants;
 
@@ -21,10 +19,7 @@ public static class TenantConstants
     /// </summary>
     public const string TenantContextKey = "TenantId";
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
 
 using SaaSPlatform.Core.Catalog.Entities;   // only needed if Cuisine referenced elsewhere
 using SaaSPlatform.SharedKernel.Common;
@@ -61,10 +56,7 @@ public class Store : AuditableEntity, ITenantScoped
 
     public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs =====
 
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.SharedKernel.Common;
@@ -78,10 +70,7 @@ public class StoreCuisine : BaseEntity
     public Guid CuisineId { get; set; }
     public Cuisine Cuisine { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs =====
 
 // SaaSPlatform.Core/Tenant/Entities/StoreDeliveryZone.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -96,10 +85,7 @@ public class StoreDeliveryZone : BaseEntity
     public Guid ZoneId { get; set; }
     public Zone Zone { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.SharedKernel.Common;
@@ -144,10 +130,7 @@ public class TenantAccount : AuditableEntity
 
     public ICollection<Subscription>? Subscriptions { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -164,10 +147,7 @@ public class TenantDomain : AuditableEntity
 
     public DateTime? VerifiedAt { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs =====
 
 // SaaSPlatform.Core/Tenant/Entities/TenantLegalInfo.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -183,10 +163,7 @@ public class TenantLegalInfo : AuditableEntity
     public string? CnicFrontImageUrl { get; set; }
     public string? CnicBackImageUrl { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs =====
 
 // SaaSPlatform.Core/Tenant/Entities/Zone.cs
 using SaaSPlatform.SharedKernel.Common;
@@ -199,10 +176,7 @@ public class Zone : BaseEntity
     public string City { get; set; } = default!;
     // Future: polygon field for geofencing
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs =====
 
 // SaaSPlatform.Core/Tenant/Enums/RegistrationStatus.cs
 namespace SaaSPlatform.Core.Tenant.Enums;
@@ -213,10 +187,7 @@ public enum RegistrationStatus
     Approved,
     Rejected
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs =====
 
 using SaaSPlatform.Core.Tenant.Entities;
 
@@ -226,10 +197,7 @@ public interface IStoreRepository
 {
     void Add(Store store);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs =====
 
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
@@ -237,10 +205,7 @@ public interface ITenantAccessService
 {
     Task<bool> TenantExistsAsync(Guid tenantId);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs =====
 
 using SaaSPlatform.Core.Tenant.Entities;
 
@@ -252,21 +217,16 @@ public interface ITenantAccountRepository
     void Add(TenantAccount tenant);
     void Update(TenantAccount tenant);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs =====
 
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
 public interface ITenantContext
 {
-    Guid TenantId { get; set; }
+    Guid? TenantId { get; }
+    void SetTenantId(Guid tenantId);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
 
 using SaaSPlatform.Core.Tenant.Entities;
 
@@ -276,10 +236,7 @@ public interface ITenantLegalInfoRepository
 {
     void Add(TenantLegalInfo info);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs =====
 
 // SaaSPlatform.Core/Tenant/Interfaces/ITenantRegistrationService.cs
 namespace SaaSPlatform.Core.Tenant.Interfaces;
@@ -304,10 +261,7 @@ public interface ITenantRegistrationService
         string? cnicFrontUrl,
         string? cnicBackUrl);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs =====
 
 // SaaSPlatform.Core/Tenant/Interfaces/ITenantRepository.cs
 
@@ -321,10 +275,7 @@ public interface ITenantRepository
     void Update(TenantAccount tenant);
     // Add any other needed methods
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs =====
 
 // SaaSPlatform.Core/Tenant/Interfaces/ITenantStoreService.cs
 using SaaSPlatform.Core.Tenant.Models;
@@ -335,10 +286,7 @@ public interface ITenantStoreService
 {
     Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs =====
 
 // SaaSPlatform.Core/Tenant/Models/TenantRegistrationRequest.cs
 namespace SaaSPlatform.Core.Tenant.Models;
@@ -364,10 +312,7 @@ public class TenantRegistrationRequest
     public string? CnicFrontImageUrl { get; set; }
     public string? CnicBackImageUrl { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs =====
 
 // SaaSPlatform.Core/Tenant/Models/TenantRegistrationResponse.cs
 namespace SaaSPlatform.Core.Tenant.Models;
@@ -377,10 +322,7 @@ public class TenantRegistrationResponse
     public Guid TenantId { get; set; }
     public string Message { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs =====
 
 // SaaSPlatform.Core/Tenant/Models/UpdateStoreRequest.cs
 namespace SaaSPlatform.Core.Tenant.Models;
@@ -400,10 +342,7 @@ public class UpdateStoreRequest
     public string? CoverPhotoUrl { get; set; }
     public string? LogoUrl { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs
-==================================================
+===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs =====
 
 using SaaSPlatform.Core.Tenant.Interfaces;
 
@@ -411,6 +350,12 @@ namespace SaaSPlatform.Infrastructure.Services;
 
 public class TenantContext : ITenantContext
 {
-    public Guid TenantId { get; set; }
-}
+    private Guid? _tenantId;
 
+    public Guid? TenantId => _tenantId;
+
+    public void SetTenantId(Guid tenantId)
+    {
+        _tenantId = tenantId;
+    }
+}

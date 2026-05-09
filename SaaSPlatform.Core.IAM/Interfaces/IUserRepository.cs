@@ -5,7 +5,7 @@ namespace SaaSPlatform.Core.IAM.Interfaces;
 public interface IUserRepository
 {
     // =========================
-    // READ OPERATIONS
+    // READ
     // =========================
 
     Task<User?> GetByIdAsync(Guid userId);
@@ -17,7 +17,7 @@ public interface IUserRepository
     Task<List<User>> GetByTenantAsync(Guid tenantId);
 
     // =========================
-    // EXISTENCE CHECKS
+    // EXISTS
     // =========================
 
     Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId);
@@ -25,7 +25,7 @@ public interface IUserRepository
     Task<bool> ExistsByEmailAsync(string email, Guid tenantId);
 
     // =========================
-    // WRITE OPERATIONS
+    // WRITE
     // =========================
 
     Task AddAsync(User user);
@@ -35,7 +35,7 @@ public interface IUserRepository
     Task DeleteAsync(User user);
 
     // =========================
-    // SECURITY (AUTH SYSTEM)
+    // SECURITY
     // =========================
 
     Task IncrementFailedLoginAttemptsAsync(Guid userId);

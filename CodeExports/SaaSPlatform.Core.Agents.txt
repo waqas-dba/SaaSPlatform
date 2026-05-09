@@ -1,7 +1,5 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs
-==================================================
+===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -18,10 +16,7 @@ public class Agent : AuditableEntity
     // commission model
     public decimal CommissionRate { get; set; } // e.g. 10%
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs
-==================================================
+===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -39,4 +34,3 @@ public class AgentCommission : AuditableEntity
 
     public DateTime? PaidAt { get; set; }
 }
-

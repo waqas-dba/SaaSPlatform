@@ -1,20 +1,36 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs
-==================================================
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
 
+namespace SaaSPlatform.Application.DTOs.Auth;
 
+public class AuthTokenResponse
+{
+    public string AccessToken { get; set; } = default!;
+
+    public DateTime AccessTokenExpiresAtUtc { get; set; }
+
+    public string RefreshToken { get; set; } = default!;
+
+    public DateTime RefreshTokenExpiresAtUtc { get; set; }
+}
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
 
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
 
 namespace SaaSPlatform.Application.Services;
 
 public class ProductManagementService
 {
     private readonly IProductRepository _productRepo;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ProductManagementService(IProductRepository productRepo) => _productRepo = productRepo;
+    public ProductManagementService(IProductRepository productRepo, IUnitOfWork unitOfWork)
+    {
+        _productRepo = productRepo;
+        _unitOfWork = unitOfWork;
+    }
 
     public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
         => await _productRepo.GetByStoreAsync(storeId);
@@ -25,44 +41,48 @@ public class ProductManagementService
     public async Task<Product> CreateProductAsync(Product product)
     {
         _productRepo.Add(product);
-        // If you're not inside a unit-of-work, you'll need to save here.
-        // The best practice is to inject IUnitOfWork and call SaveChangesAsync().
+        await _unitOfWork.SaveChangesAsync();
         return product;
     }
 
     public async Task UpdateProductAsync(Product product)
     {
         _productRepo.Update(product);
+        await _unitOfWork.SaveChangesAsync();
     }
 
     public async Task DeleteProductAsync(Guid productId)
     {
         var product = await _productRepo.GetByIdAsync(productId);
         if (product != null)
+        {
             _productRepo.Delete(product);
+            await _unitOfWork.SaveChangesAsync();
+        }
     }
 }
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs
-==================================================
-
-using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Core.Billing.Enums;
-
-namespace SaaSPlatform.Application.Services;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
 
 public class TenantApprovalService
 {
     private readonly ITenantAccountRepository _tenantRepo;
     private readonly ISubscriptionRepository _subRepo;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public TenantApprovalService(ITenantAccountRepository tenantRepo, ISubscriptionRepository subRepo)
+    public TenantApprovalService(
+        ITenantAccountRepository tenantRepo,
+        ISubscriptionRepository subRepo,
+        IUnitOfWork unitOfWork)
     {
         _tenantRepo = tenantRepo;
         _subRepo = subRepo;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
@@ -85,6 +105,7 @@ public class TenantApprovalService
             _subRepo.Update(subscription);
         }
 
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
         return (true, "Tenant approved successfully.");
     }
 
@@ -94,13 +115,11 @@ public class TenantApprovalService
         if (tenant is null) return (false, "Tenant not found.");
         tenant.RegistrationStatus = RegistrationStatus.Rejected;
         _tenantRepo.Update(tenant);
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
         return (true, "Tenant rejected.");
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs
-==================================================
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
 
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
@@ -199,6 +218,7 @@ public class TenantRegistrationAppService
     {
         var store = new Store
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             Name = request.RestaurantName,
             Slug = _slugGenerator.Generate(request.RestaurantName),
@@ -230,7 +250,7 @@ public class TenantRegistrationAppService
             PasswordHash = _passwordHasher.Hash(request.Password),
             IsActive = true
         };
-        _userRepo.Add(user);
+        _userRepo.AddAsync(user);
         return user;
     }
 
@@ -253,16 +273,28 @@ public class TenantRegistrationAppService
         return ownerRole;
     }
 
+    //private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
+    //{
+    //    _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+    //    _roleRepo.AddTenantUser(new TenantUser { TenantId = tenantId, UserId = userId, IsOwner = true, IsActive = true });
+    //}
     private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
     {
-        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-        _roleRepo.AddTenantUser(new TenantUser { TenantId = tenantId, UserId = userId, IsOwner = true, IsActive = true });
+        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId }); // no extra GUID needed, it's a join with composite key
+        _roleRepo.AddTenantUser(new TenantUser
+        {
+            Id = Guid.NewGuid(),          // <-- ADD
+            TenantId = tenantId,
+            UserId = userId,
+            IsOwner = true,
+            IsActive = true
+        });
     }
-
     private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
     {
         _legalRepo.Add(new TenantLegalInfo
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             CnicNumber = request.CnicNumber,
             NtnNumber = request.NtnNumber,
@@ -279,6 +311,7 @@ public class TenantRegistrationAppService
 
         _subscriptionRepo.Add(new Subscription
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             PlanId = starterPlan.Id,
             Status = SubscriptionStatus.Trialing,
@@ -288,5 +321,51 @@ public class TenantRegistrationAppService
             PriceSnapshot = 0
         });
     }
-}
 
+
+}
+===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs =====
+
+using FluentValidation;
+using SaaSPlatform.Core.IAM.Models;
+using System.Text.RegularExpressions;
+
+namespace SaaSPlatform.Application.Validators.Auth;
+
+public class LoginRequestValidator : AbstractValidator<LoginRequest>
+{
+    public LoginRequestValidator()
+    {
+        RuleFor(x => x.Phone)
+            .NotEmpty()
+            .WithMessage("Phone number is required")
+            .Must(BeValidPhone)
+            .WithMessage("Invalid phone number format");
+
+        RuleFor(x => x.Password)
+            .NotEmpty()
+            .WithMessage("Password is required")
+            .MinimumLength(8)
+            .WithMessage("Password must be at least 8 characters")
+            .Matches("[A-Z]").WithMessage("Password must contain uppercase letter")
+            .Matches("[a-z]").WithMessage("Password must contain lowercase letter")
+            .Matches("[0-9]").WithMessage("Password must contain number");
+    }
+
+    private bool BeValidPhone(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+            return false;
+
+        var normalized = NormalizePhone(phone);
+
+        return Regex.IsMatch(normalized, @"^\+?[0-9]{10,15}$");
+    }
+
+    private string NormalizePhone(string phone)
+    {
+        return phone.Trim()
+            .Replace(" ", "")
+            .Replace("-", "");
+    }
+}

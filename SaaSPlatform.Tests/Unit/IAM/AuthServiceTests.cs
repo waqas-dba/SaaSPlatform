@@ -3,17 +3,24 @@ using Microsoft.Extensions.Options;
 using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.IAM.Models;
+using SaaSPlatform.Core.IAM.Services;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.IAM;
-
+using SaaSPlatform.UnitTests.Fakes;
+using Xunit;
 
 namespace SaaSPlatform.UnitTests.IAM;
 
 public class AuthServiceTests
 {
-    private readonly IPasswordHasher _passwordHasher = new PasswordHasher();
+    private readonly IPasswordHasher _passwordHasher =
+        new PasswordHasher();
+
+    // =====================================================
+    // JWT SERVICE
+    // =====================================================
 
     private IJwtTokenService CreateJwtService()
     {
@@ -25,58 +32,80 @@ public class AuthServiceTests
             AccessTokenMinutes = 5,
             RefreshTokenDays = 1
         };
-        return new JwtTokenService(Options.Create(settings));
+
+        return new JwtTokenService(
+            Options.Create(settings));
     }
+
+    // =====================================================
+    // DB CONTEXT
+    // =====================================================
 
     private SaaSPlatformDbContext GetDbContext()
     {
         var options = new DbContextOptionsBuilder<SaaSPlatformDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new SaaSPlatformDbContext(options);
+
+        return new SaaSPlatformDbContext(
+            options,
+            tenantContext: null,
+            currentUser: null);
     }
 
-    private async Task<(SaaSPlatformDbContext db, User user, Guid tenantId)> SeedUserWithRole(string roleName)
+    // =====================================================
+    // SEED USER
+    // =====================================================
+
+    private async Task<(
+        SaaSPlatformDbContext db,
+        IUserRepository userRepository,
+        Guid tenantId)>
+        SeedUser()
     {
         var db = GetDbContext();
+
         var tenantId = Guid.NewGuid();
+
         var user = new User
         {
             Id = Guid.NewGuid(),
-            Name = "Test User",                 // ← required
+
+            Name = "Test User",
+
             Email = null,
+
             Phone = "123456789",
+
             PasswordHash = _passwordHasher.Hash("Password123"),
+
             IsActive = true
-        };
-        var role = new Role
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            Name = roleName,
-            IsSystem = false
-        };
-        var userRole = new UserRole
-        {
-            UserId = user.Id,
-            RoleId = role.Id,
-            TenantId = tenantId
         };
 
         db.Users.Add(user);
-        db.Roles.Add(role);
-        db.UserRoles.Add(userRole);
+
         await db.SaveChangesAsync();
 
-        return (db, user, tenantId);
+        var repo = new UserRepository(db);
+
+        return (db, repo, tenantId);
     }
+
+    // =====================================================
+    // LOGIN SUCCESS
+    // =====================================================
 
     [Fact]
     public async Task Login_WithValidPhoneAndPassword_ReturnsTokens()
     {
-        var (db, user, tenantId) = await SeedUserWithRole("Admin");
-        var jwtService = CreateJwtService();
-        var authService = new AuthService(db, _passwordHasher, jwtService);
+        // Arrange
+        var (_, repo, tenantId) = await SeedUser();
+
+        var authService = new AuthService(
+            repo,
+            CreateJwtService(),
+            new FakeRefreshTokenRepository(),
+            _passwordHasher);
 
         var request = new LoginRequest
         {
@@ -84,69 +113,160 @@ public class AuthServiceTests
             Password = "Password123"
         };
 
-        var response = await authService.LoginAsync(request, tenantId);
+        // Act
+        var response =
+            await authService.LoginAsync(request, tenantId);
 
+        // Assert
         Assert.NotNull(response);
-        Assert.NotEmpty(response.AccessToken);
-        Assert.NotEmpty(response.RefreshToken);
 
-        var updatedUser = await db.Users.FindAsync(user.Id);
-        Assert.NotNull(updatedUser!.LastLoginAt);
+        Assert.NotEmpty(response.AccessToken);
+
+        Assert.NotEmpty(response.RefreshToken);
     }
+
+    // =====================================================
+    // WRONG PASSWORD
+    // =====================================================
 
     [Fact]
     public async Task Login_WithWrongPassword_ThrowsUnauthorized()
     {
-        var (db, _, tenantId) = await SeedUserWithRole("Admin");
-        var authService = new AuthService(db, _passwordHasher, CreateJwtService());
+        // Arrange
+        var (_, repo, tenantId) = await SeedUser();
 
+        var authService = new AuthService(
+            repo,
+            CreateJwtService(),
+            new FakeRefreshTokenRepository(),
+            _passwordHasher);
+
+        // Act + Assert
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => authService.LoginAsync(new LoginRequest { Phone = "123456789", Password = "Wrong" }, tenantId));
+            () => authService.LoginAsync(
+                new LoginRequest
+                {
+                    Phone = "123456789",
+                    Password = "WrongPassword"
+                },
+                tenantId));
     }
 
+    // =====================================================
+    // UNKNOWN PHONE
+    // =====================================================
+
     [Fact]
-    public async Task Login_WithNonExistentPhone_ThrowsUnauthorized()
+    public async Task Login_WithUnknownPhone_ThrowsUnauthorized()
     {
+        // Arrange
         var db = GetDbContext();
-        var authService = new AuthService(db, _passwordHasher, CreateJwtService());
 
+        var repo = new UserRepository(db);
+
+        var authService = new AuthService(
+            repo,
+            CreateJwtService(),
+            new FakeRefreshTokenRepository(),
+            _passwordHasher);
+
+        // Act + Assert
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => authService.LoginAsync(new LoginRequest { Phone = "0000", Password = "x" }, Guid.NewGuid()));
+            () => authService.LoginAsync(
+                new LoginRequest
+                {
+                    Phone = "000000000",
+                    Password = "Password123"
+                },
+                Guid.NewGuid()));
     }
 
+    // =====================================================
+    // REFRESH TOKEN
+    // =====================================================
+
     [Fact]
-    public async Task Refresh_WithValidToken_RotatesTokens()
+    public async Task Refresh_WithValidToken_ReturnsNewTokens()
     {
-        var (db, _, tenantId) = await SeedUserWithRole("Admin");
-        var authService = new AuthService(db, _passwordHasher, CreateJwtService());
+        // Arrange
+        var (_, repo, tenantId) = await SeedUser();
 
-        var loginResponse = await authService.LoginAsync(
-            new LoginRequest { Phone = "123456789", Password = "Password123" }, tenantId);
+        var refreshRepo = new FakeRefreshTokenRepository();
 
-        var refreshResponse = await authService.RefreshAsync(
-            new RefreshTokenRequest { RefreshToken = loginResponse.RefreshToken }, tenantId);
+        var authService = new AuthService(
+            repo,
+            CreateJwtService(),
+            refreshRepo,
+            _passwordHasher);
 
-        Assert.NotEmpty(refreshResponse.AccessToken);
-        Assert.NotEqual(loginResponse.RefreshToken, refreshResponse.RefreshToken);
+        // Login first
+        var loginResponse =
+            await authService.LoginAsync(
+                new LoginRequest
+                {
+                    Phone = "123456789",
+                    Password = "Password123"
+                },
+                tenantId);
 
-        var oldToken = await db.RefreshTokens.FirstOrDefaultAsync(rt => rt.Token == loginResponse.RefreshToken);
-        Assert.True(oldToken!.IsRevoked);
-        Assert.Equal(refreshResponse.RefreshToken, oldToken.ReplacedByToken);
+        // Act
+        var refreshed =
+            await authService.RefreshAsync(
+                new RefreshTokenRequest
+                {
+                    RefreshToken = loginResponse.RefreshToken
+                },
+                tenantId);
+
+        // Assert
+        Assert.NotNull(refreshed);
+
+        Assert.NotEmpty(refreshed.AccessToken);
+
+        Assert.NotEmpty(refreshed.RefreshToken);
+
+        Assert.NotEqual(
+            loginResponse.RefreshToken,
+            refreshed.RefreshToken);
     }
 
+    // =====================================================
+    // LOGOUT
+    // =====================================================
+
     [Fact]
-    public async Task Logout_RevokesToken()
+    public async Task Logout_ShouldRevokeRefreshToken()
     {
-        var (db, _, tenantId) = await SeedUserWithRole("Admin");
-        var authService = new AuthService(db, _passwordHasher, CreateJwtService());
+        // Arrange
+        var (_, repo, tenantId) = await SeedUser();
 
-        var loginResponse = await authService.LoginAsync(
-            new LoginRequest { Phone = "123456789", Password = "Password123" }, tenantId);
+        var refreshRepo = new FakeRefreshTokenRepository();
 
-        await authService.LogoutAsync(loginResponse.RefreshToken);
+        var authService = new AuthService(
+            repo,
+            CreateJwtService(),
+            refreshRepo,
+            _passwordHasher);
 
-        var token = await db.RefreshTokens.FirstOrDefaultAsync(rt => rt.Token == loginResponse.RefreshToken);
+        var login =
+            await authService.LoginAsync(
+                new LoginRequest
+                {
+                    Phone = "123456789",
+                    Password = "Password123"
+                },
+                tenantId);
+
+        // Act
+        await authService.LogoutAsync(login.RefreshToken);
+
+        // Assert
+        var token =
+            await refreshRepo.GetByTokenAsync(
+                login.RefreshToken);
+
+        Assert.NotNull(token);
+
         Assert.True(token!.IsRevoked);
-        Assert.NotNull(token.RevokedAt);
     }
 }

@@ -1,30 +1,57 @@
 ﻿
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\ClaimConstants.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\ClaimConstants.cs =====
+
+using System.Security.Claims;
 
 namespace SaaSPlatform.Core.IAM.Constants;
 
-/// <summary>
-/// JWT claim names.
-/// Prevents magic strings.
-/// </summary>
 public static class ClaimConstants
 {
     public const string UserId = "userId";
 
     public const string TenantId = "tenantId";
 
-    public const string Email = "email";
-
-    public const string Role = "role";
-
     public const string Permission = "permission";
-}
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Permission.cs
-==================================================
+    public const string Email = ClaimTypes.Email;
+
+    public const string Role = ClaimTypes.Role;
+
+    public const string Name = ClaimTypes.Name;
+
+    public const string NameIdentifier = ClaimTypes.NameIdentifier;
+
+    public const string Subject = "sub";
+
+    public const string JwtId = "jti";
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\Permissions.cs =====
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace SaaSPlatform.Core.IAM.Constants;
+
+public static class Permissions
+{
+    // Tenant
+    public const string TenantView = "tenant.view";
+    public const string TenantCreate = "tenant.create";
+    public const string TenantApprove = "tenant.approve";
+    public const string TenantReject = "tenant.reject";
+
+    // Users
+    public const string UserView = "user.view";
+    public const string UserCreate = "user.create";
+    public const string UserUpdate = "user.update";
+    public const string UserDelete = "user.delete";
+
+    // Billing
+    public const string BillingView = "billing.view";
+    public const string BillingManage = "billing.manage";
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Permission.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -42,10 +69,7 @@ public class Permission : BaseEntity
 
     public ICollection<RolePermission>? RolePermissions { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\PermissionModule.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\PermissionModule.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -58,10 +82,7 @@ public class PermissionModule : BaseEntity
 
     public ICollection<Permission>? Permissions { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RefreshToken.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RefreshToken.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -71,41 +92,79 @@ public class RefreshToken : AuditableEntity
 {
     public Guid UserId { get; set; }
 
+    public User? User { get; set; }
+
+    // Actual refresh token
     public string Token { get; set; } = default!;
 
-    public DateTime ExpiresAt { get; set; }
+    // JWT Id linked to access token
+    public string JwtId { get; set; } = default!;
 
-    public bool IsRevoked { get; set; } = false;
+    // Expiry
+    public DateTime ExpiresAtUtc { get; set; }
 
-    public DateTime? RevokedAt { get; set; }
+    // Revocation
+    public bool IsRevoked { get; set; }
 
+    public DateTime? RevokedAtUtc { get; set; }
+
+    // Rotation
     public string? ReplacedByToken { get; set; }
-}
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Role.cs
-==================================================
+    // Security tracking
+    public string? CreatedByIp { get; set; }
+
+    public string? RevokedByIp { get; set; }
+
+    public string? Device { get; set; }
+
+    public string? UserAgent { get; set; }
+
+    // Optional session tracking
+    public Guid? SessionId { get; set; }
+
+    // Convenience properties
+    public bool IsExpired =>
+        DateTime.UtcNow >= ExpiresAtUtc;
+
+    public bool IsActive =>
+        !IsRevoked && !IsExpired;
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Role.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
 namespace SaaSPlatform.Core.IAM.Entities;
 
-public class Role : BaseEntity, ITenantScoped
+public class Role : BaseEntity
 {
+    // =========================
+    // MULTI TENANT
+    // =========================
+
     public Guid TenantId { get; set; }
 
+    // =========================
+    // BASIC INFO
+    // =========================
+
     public string Name { get; set; } = default!;
+
     public string? Description { get; set; }
 
-    public bool IsSystem { get; set; } = false;
+    public bool IsSystem { get; set; }
 
-    public ICollection<UserRole>? UserRoles { get; set; }
-    public ICollection<RolePermission>? RolePermissions { get; set; }
+    // =========================
+    // NAVIGATION
+    // =========================
+
+    public ICollection<UserRole> UserRoles { get; set; }
+        = new List<UserRole>();
+
+    public ICollection<RolePermission> RolePermissions { get; set; }
+        = new List<RolePermission>();
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RolePermission.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RolePermission.cs =====
 
 namespace SaaSPlatform.Core.IAM.Entities;
 
@@ -117,10 +176,7 @@ public class RolePermission
     public Guid PermissionId { get; set; }
     public Permission Permission { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\TenantUser.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\TenantUser.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -134,10 +190,7 @@ public class TenantUser : BaseEntity
     public bool IsOwner { get; set; }
     public bool IsActive { get; set; } = true;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\User.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\User.cs =====
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -145,38 +198,67 @@ namespace SaaSPlatform.Core.IAM.Entities;
 
 public class User : BaseEntity
 {
+    // =========================
+    // MULTI TENANT
+    // =========================
+
+    public Guid TenantId { get; set; }
+
+    // =========================
+    // BASIC INFO
+    // =========================
+
     public string Name { get; set; } = default!;
-    public string? Email { get; set; } = default!;
-    public string Phone { get; set; } = string.Empty;
+
+    public string? Email { get; set; }
+
+    public string Phone { get; set; } = default!;
+
+    // =========================
+    // SECURITY
+    // =========================
 
     public string PasswordHash { get; set; } = default!;
+
     public bool IsActive { get; set; } = true;
 
     public DateTime? LastLoginAt { get; set; }
 
-    public ICollection<UserRole>? Roles { get; set; }
-}
+    // =========================
+    // LOGIN SECURITY
+    // =========================
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\UserRole.cs
-==================================================
+    public int FailedLoginAttempts { get; set; }
+
+    public DateTime? LockoutEnd { get; set; }
+
+    // =========================
+    // NAVIGATION
+    // =========================
+
+    public ICollection<UserRole> Roles { get; set; }
+        = new List<UserRole>();
+
+    public ICollection<RefreshToken> RefreshTokens { get; set; }
+        = new List<RefreshToken>();
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\UserRole.cs =====
 
 namespace SaaSPlatform.Core.IAM.Entities;
 
 public class UserRole
 {
     public Guid UserId { get; set; }
+
     public User User { get; set; } = default!;
 
     public Guid RoleId { get; set; }
+
     public Role Role { get; set; } = default!;
 
     public Guid TenantId { get; set; }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IAuthService.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IAuthService.cs =====
 
 using SaaSPlatform.Core.IAM.Models;
 
@@ -188,10 +270,25 @@ public interface IAuthService
     Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId);
     Task LogoutAsync(string refreshToken);
 }
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\ICurrentUserService.cs =====
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IJwtTokenService.cs
-==================================================
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace SaaSPlatform.Core.IAM.Interfaces;
+
+public interface ICurrentUserService
+{
+    Guid? UserId { get; }
+
+    Guid? TenantId { get; }
+
+    bool IsAuthenticated { get; }
+
+    bool IsSuperAdmin { get; }
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IJwtTokenService.cs =====
 
 using SaaSPlatform.Core.IAM.Entities;
 
@@ -202,12 +299,10 @@ public interface IJwtTokenService
     (string Token, DateTime ExpiresAt) GenerateAccessToken(
         User user,
         Guid tenantId,
-        IEnumerable<string> roles);
+        IEnumerable<string> roles,
+        IEnumerable<string>? permissions = null);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPasswordHasher.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPasswordHasher.cs =====
 
 namespace SaaSPlatform.Core.IAM.Interfaces;
 
@@ -216,10 +311,7 @@ public interface IPasswordHasher
     string Hash(string password);
     bool Verify(string password, string passwordHash);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionRepository.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionRepository.cs =====
 
 
 namespace SaaSPlatform.Core.IAM.Interfaces;
@@ -230,10 +322,7 @@ public interface IPermissionRepository
 
     Task<bool> HasPermissionByModuleAsync(Guid userId, Guid tenantId, string module);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionService.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionService.cs =====
 
 using System;
 using System.Collections.Generic;
@@ -247,10 +336,39 @@ namespace SaaSPlatform.Core.IAM.Interfaces
         Task<bool> HasModuleAccessAsync(Guid userId, Guid tenantId, string module);
     }
 }
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenRepository.cs =====
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRoleRepository.cs
-==================================================
+using SaaSPlatform.Core.IAM.Entities;
+
+namespace SaaSPlatform.Core.IAM.Interfaces;
+
+public interface IRefreshTokenRepository
+{
+    Task AddAsync(RefreshToken token);
+    Task<RefreshToken?> GetByTokenAsync(string token);
+    Task UpdateAsync(RefreshToken token);
+    Task RevokeAsync(RefreshToken token);
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenService.cs =====
+
+namespace SaaSPlatform.Core.IAM.Interfaces;
+
+public interface IRefreshTokenService
+{
+    Task<string> GenerateAsync(
+        Guid userId,
+        string jwtId,
+        string? ipAddress = null,
+        string? userAgent = null);
+
+    Task<bool> ValidateAsync(string token);
+
+    Task RevokeAsync(
+        string token,
+        string? replacedByToken = null,
+        string? revokedByIp = null);
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRoleRepository.cs =====
 
 using SaaSPlatform.Core.IAM.Entities;
 
@@ -264,10 +382,7 @@ public interface IRoleRepository
     void AddUserRole(UserRole userRole);
     void AddTenantUser(TenantUser tenantUser);
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IUserRepository.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IUserRepository.cs =====
 
 using SaaSPlatform.Core.IAM.Entities;
 
@@ -275,12 +390,49 @@ namespace SaaSPlatform.Core.IAM.Interfaces;
 
 public interface IUserRepository
 {
-    void Add(User user);
-}
+    // =========================
+    // READ
+    // =========================
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs
-==================================================
+    Task<User?> GetByIdAsync(Guid userId);
+
+    Task<User?> GetByPhoneAsync(string phone, Guid tenantId);
+
+    Task<User?> GetByEmailAsync(string email, Guid tenantId);
+
+    Task<List<User>> GetByTenantAsync(Guid tenantId);
+
+    // =========================
+    // EXISTS
+    // =========================
+
+    Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId);
+
+    Task<bool> ExistsByEmailAsync(string email, Guid tenantId);
+
+    // =========================
+    // WRITE
+    // =========================
+
+    Task AddAsync(User user);
+
+    Task UpdateAsync(User user);
+
+    Task DeleteAsync(User user);
+
+    // =========================
+    // SECURITY
+    // =========================
+
+    Task IncrementFailedLoginAttemptsAsync(Guid userId);
+
+    Task ResetFailedLoginAttemptsAsync(Guid userId);
+
+    Task LockUserAsync(Guid userId, DateTime lockoutEnd);
+
+    Task<DateTime?> GetLockoutEndAsync(Guid userId);
+}
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs =====
 
 using System;
 using System.Collections.Generic;
@@ -297,22 +449,16 @@ namespace SaaSPlatform.Core.Tenant.Models
         public int RefreshTokenDays { get; set; } = 7;
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginRequest.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginRequest.cs =====
 
 namespace SaaSPlatform.Core.IAM.Models;
 
 public class LoginRequest
 {
-    public string Email { get; set; } = default!;
+    public string Phone { get; set; } = default!;
     public string Password { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginResponse.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginResponse.cs =====
 
 namespace SaaSPlatform.Core.IAM.Models;
 
@@ -321,10 +467,7 @@ public class LoginResponse
     public string AccessToken { get; set; } = default!;
     public string RefreshToken { get; set; } = default!;
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\RefreshTokenRequest.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\RefreshTokenRequest.cs =====
 
 namespace SaaSPlatform.Core.IAM.Models;
 
@@ -332,76 +475,102 @@ public class RefreshTokenRequest
 {
     public string RefreshToken { get; set; } = default!;
 }
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\JwtTokenService.cs =====
 
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\JwtTokenService.cs
-==================================================
-
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using SaaSPlatform.Core.IAM.Constants;
+using SaaSPlatform.Core.IAM.Entities;
+using SaaSPlatform.Core.IAM.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
 
-namespace SaaSPlatform.Infrastructure.Services.IAM;
+namespace SaaSPlatform.Infrastructure.Services;
 
 public class JwtTokenService : IJwtTokenService
 {
-    private readonly JwtSettings _settings;
+    private readonly JwtSettings _jwtSettings;
 
-    public JwtTokenService(IOptions<JwtSettings> settings)
+    public JwtTokenService(
+        IOptions<JwtSettings> jwtOptions)
     {
-        _settings = settings.Value;
+        _jwtSettings = jwtOptions.Value;
     }
 
     public (string Token, DateTime ExpiresAt) GenerateAccessToken(
         User user,
         Guid tenantId,
-        IEnumerable<string> roles)
+        IEnumerable<string> roles,
+        IEnumerable<string>? permissions = null)
     {
-        var expiresAt = DateTime.UtcNow
-            .AddMinutes(_settings.AccessTokenMinutes);
+        var expiresAt = DateTime.UtcNow.AddMinutes(
+            _jwtSettings.AccessTokenMinutes);
 
         var claims = new List<Claim>
         {
-            new("userId", user.Id.ToString()),
-            new("tenantId", tenantId.ToString()),
-            new(ClaimTypes.MobilePhone, user.Phone),
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new(
+                ClaimConstants.UserId,
+                user.Id.ToString()),
+
+            new(
+                ClaimConstants.TenantId,
+                tenantId.ToString()),
+
+            new(
+                ClaimConstants.Email,
+                user.Email),
+
+            new(
+                ClaimConstants.Subject,
+                user.Id.ToString()),
+
+            new(
+                ClaimConstants.JwtId,
+                Guid.NewGuid().ToString())
         };
 
-        // roles → claims
-        claims.AddRange(
-            roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        // Roles
+        foreach (var role in roles.Distinct())
+        {
+            claims.Add(new Claim(
+                ClaimConstants.Role,
+                role));
+        }
+
+        // Permissions
+        if (permissions != null)
+        {
+            foreach (var permission in permissions.Distinct())
+            {
+                claims.Add(new Claim(
+                    ClaimConstants.Permission,
+                    permission));
+            }
+        }
 
         var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_settings.Secret));
+            Encoding.UTF8.GetBytes(_jwtSettings.Secret));
 
-        var creds = new SigningCredentials(
+        var credentials = new SigningCredentials(
             key,
             SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            issuer: _settings.Issuer,
-            audience: _settings.Audience,
+            issuer: _jwtSettings.Issuer,
+            audience: _jwtSettings.Audience,
             claims: claims,
             expires: expiresAt,
-            signingCredentials: creds);
+            signingCredentials: credentials);
 
-        var jwt = new JwtSecurityTokenHandler()
+        var tokenValue = new JwtSecurityTokenHandler()
             .WriteToken(token);
 
-        return (jwt, expiresAt);
+        return (tokenValue, expiresAt);
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PasswordHasher.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PasswordHasher.cs =====
 
 using SaaSPlatform.Core.IAM.Interfaces;
 using System.Security.Cryptography;
@@ -444,10 +613,7 @@ public class PasswordHasher : IPasswordHasher
         return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
     }
 }
-
-==================================================
-FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PermissionService.cs
-==================================================
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PermissionService.cs =====
 
 using SaaSPlatform.Core.IAM.Interfaces;
 
@@ -479,4 +645,19 @@ public class PermissionService : IPermissionService
         return await _repo.HasPermissionByModuleAsync(userId, tenantId, module);
     }
 }
+===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PhoneNormalizer.cs =====
 
+namespace SaaSPlatform.Core.IAM.Services;
+
+public static class PhoneNormalizer
+{
+    public static string Normalize(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+            return string.Empty;
+
+        return phone.Trim()
+            .Replace(" ", "")
+            .Replace("-", "");
+    }
+}

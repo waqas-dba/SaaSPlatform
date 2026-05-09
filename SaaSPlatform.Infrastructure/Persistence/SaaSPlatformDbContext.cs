@@ -6,6 +6,7 @@ using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence.Extensions;
 using SaaSPlatform.Infrastructure.Services;
+using SaaSPlatform.Infrastructure.Services.TenantServices;
 
 namespace SaaSPlatform.Infrastructure.Persistence;
 
@@ -19,8 +20,7 @@ public class SaaSPlatformDbContext : AuditableDbContext
         CurrentUserService? currentUser = null)
         : base(options, currentUser)
     {
-        _tenantContext = tenantContext
-            ?? throw new ArgumentNullException(nameof(tenantContext));
+        _tenantContext = tenantContext ?? new NullTenantContext();
     }
 
     // =========================
@@ -69,11 +69,10 @@ public class SaaSPlatformDbContext : AuditableDbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Apply all configurations
         modelBuilder.ApplyConfigurationsFromAssembly(
             typeof(SaaSPlatformDbContext).Assembly);
 
-        // 🚨 ALWAYS APPLY TENANT FILTER (NO NULL ALLOWED)
+        // ✅ SAFE: always apply filter with fallback
         modelBuilder.ApplyTenantFilters(_tenantContext);
     }
 }
