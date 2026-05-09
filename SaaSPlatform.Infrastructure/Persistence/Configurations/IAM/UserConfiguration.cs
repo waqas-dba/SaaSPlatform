@@ -12,10 +12,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.HasKey(x => x.Id);
 
-        // =========================
-        // REQUIRED FIELDS
-        // =========================
-
         builder.Property(x => x.Name)
             .IsRequired()
             .HasMaxLength(200);
@@ -30,31 +26,22 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PasswordHash)
             .IsRequired();
 
-        // =========================
-        // TENANT ISOLATION (CRITICAL)
-        // =========================
-
         builder.Property(x => x.TenantId)
             .IsRequired();
 
-        builder.HasIndex(x => new { x.TenantId, x.Phone })
+        // Global unique phone – one phone = one account across all tenants
+        builder.HasIndex(x => x.Phone)
             .IsUnique();
 
-        builder.HasIndex(x => new { x.TenantId, x.Email });
-
-        // =========================
-        // SECURITY
-        // =========================
+        // Global unique email – optional but recommended
+        builder.HasIndex(x => x.Email)
+            .IsUnique();
 
         builder.Property(x => x.FailedLoginAttempts)
             .HasDefaultValue(0);
 
         builder.Property(x => x.IsActive)
             .HasDefaultValue(true);
-
-        // =========================
-        // RELATIONSHIPS
-        // =========================
 
         builder.HasMany(x => x.Roles)
             .WithOne()

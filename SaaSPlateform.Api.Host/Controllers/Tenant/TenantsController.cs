@@ -23,7 +23,7 @@ public class TenantsController : BaseApiController
     [HttpPost("register")]
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
-        var (tenantId, message) = await _registrationService.RegisterAsync(
+        var result = await _registrationService.RegisterAsync(
             request.RestaurantName,
             request.CuisineIds,
             request.ZoneIds,
@@ -41,10 +41,13 @@ public class TenantsController : BaseApiController
             request.CnicFrontImageUrl,
             request.CnicBackImageUrl);
 
+        if (!result.Succeeded)
+            return Fail(result.Message, status: 400);
+
         return Success(new TenantRegistrationResponse
         {
-            TenantId = tenantId,
-            Message = message
+            TenantId = result.Data,
+            Message = result.Message
         });
     }
 
@@ -55,7 +58,6 @@ public class TenantsController : BaseApiController
             return Fail("Missing tenant context", status: 401);
 
         var tenant = await _tenantRepo.GetByIdAsync(TenantId.Value);
-
         if (tenant is null)
             return Fail("Tenant not found", status: 404);
 

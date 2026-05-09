@@ -4,45 +4,21 @@ namespace SaaSPlatform.Core.IAM.Interfaces;
 
 public interface IUserRepository
 {
-    // =========================
-    // READ
-    // =========================
-
     Task<User?> GetByIdAsync(Guid userId);
-
     Task<User?> GetByPhoneAsync(string phone, Guid tenantId);
-
     Task<User?> GetByEmailAsync(string email, Guid tenantId);
-
     Task<List<User>> GetByTenantAsync(Guid tenantId);
-
-    // =========================
-    // EXISTS
-    // =========================
-
     Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId);
-
     Task<bool> ExistsByEmailAsync(string email, Guid tenantId);
-
-    // =========================
-    // WRITE
-    // =========================
-
-    Task AddAsync(User user);
-
+    void Add(User user);                          // changed from AddAsync to void for consistency
     Task UpdateAsync(User user);
-
     Task DeleteAsync(User user);
-
-    // =========================
-    // SECURITY
-    // =========================
-
     Task IncrementFailedLoginAttemptsAsync(Guid userId);
-
     Task ResetFailedLoginAttemptsAsync(Guid userId);
-
     Task LockUserAsync(Guid userId, DateTime lockoutEnd);
-
     Task<DateTime?> GetLockoutEndAsync(Guid userId);
+
+    // NEW – global checks (ignore tenant filter)
+    Task<bool> AnyUserWithPhoneAsync(string phone);
+    Task<bool> AnyUserWithEmailAsync(string email);
 }

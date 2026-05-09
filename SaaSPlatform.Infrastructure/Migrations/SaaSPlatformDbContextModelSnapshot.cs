@@ -876,9 +876,10 @@ namespace SaaSPlatform.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Email");
+                    b.HasIndex("Email")
+                        .IsUnique();
 
-                    b.HasIndex("TenantId", "Phone")
+                    b.HasIndex("Phone")
                         .IsUnique();
 
                     b.ToTable("Users", (string)null);

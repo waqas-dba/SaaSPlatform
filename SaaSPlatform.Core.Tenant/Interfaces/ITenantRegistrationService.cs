@@ -1,9 +1,11 @@
-﻿// SaaSPlatform.Core/Tenant/Interfaces/ITenantRegistrationService.cs
+﻿using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
+
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 
 public interface ITenantRegistrationService
 {
-    Task<(Guid tenantId, string message)> RegisterAsync(
+    Task<Result<Guid>> RegisterAsync(
         string restaurantName,
         List<Guid> cuisineIds,
         List<Guid> zoneIds,

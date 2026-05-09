@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text.Json;
+using FluentValidation;
 using SaaSPlatform.Api.Host.Responses;
 
 namespace SaaSPlatform.Api.Host.Middleware;
@@ -33,16 +34,54 @@ public class ExceptionMiddleware
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception ex)
     {
-        context.Response.ContentType = "application/json";
-        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+        var (statusCode, message, code, errors) = ex switch
+        {
+            UnauthorizedAccessException => (
+                (int)HttpStatusCode.Unauthorized,
+                ex.Message,
+                "UNAUTHORIZED",
+                null as List<string>
+            ),
+
+            // FluentValidation throws ValidationException
+            ValidationException validationEx => (
+                (int)HttpStatusCode.BadRequest,
+                "Validation failed",
+                "VALIDATION_ERROR",
+                validationEx.Errors.Select(e => e.ErrorMessage).ToList()
+            ),
+
+            ArgumentException => (
+                (int)HttpStatusCode.BadRequest,
+                ex.Message,
+                "BAD_REQUEST",
+                null
+            ),
+
+            InvalidOperationException => (
+                (int)HttpStatusCode.BadRequest,
+                ex.Message,
+                "INVALID_OPERATION",
+                null
+            ),
+
+            _ => (
+                (int)HttpStatusCode.InternalServerError,
+                "An unexpected error occurred",
+                "SERVER_ERROR",
+                new List<string> { ex.Message }  // only for non‑production; remove later
+            )
+        };
 
         var response = ApiResponse<object>.FailResponse(
-            message: "An unexpected error occurred",
-            code: "SERVER_ERROR",
-            errors: new List<string> { ex.Message },
-            traceId: context.TraceIdentifier);
+            message: message,
+            code: code,
+            errors: errors,
+            traceId: context.TraceIdentifier
+        );
 
-        await context.Response.WriteAsync(
-            JsonSerializer.Serialize(response));
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = statusCode;
+        await context.Response.WriteAsync(JsonSerializer.Serialize(response));
     }
 }

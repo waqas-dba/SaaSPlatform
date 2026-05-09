@@ -1,9 +1,11 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SaaSPlatform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Responses;
 using SaaSPlatform.Application.Services;
 using SaaSPlatform.Application.Validators.Auth;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -32,7 +34,25 @@ var builder = WebApplication.CreateBuilder(args);
 // CORE SERVICES
 // ======================================================
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(e => e.Value?.Errors.Count > 0)
+                .SelectMany(e => e.Value!.Errors.Select(x => x.ErrorMessage))
+                .ToList();
+
+            var response = ApiResponse<object>.FailResponse(
+                message: "Validation failed",
+                code: "VALIDATION_ERROR",
+                errors: errors,
+                traceId: context.HttpContext.TraceIdentifier);
+
+            return new BadRequestObjectResult(response);
+        };
+    });
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -215,6 +235,8 @@ builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
                 $"Unsupported database provider: {provider}");
     }
 });
+
+
 
 // ======================================================
 // BUILD APP

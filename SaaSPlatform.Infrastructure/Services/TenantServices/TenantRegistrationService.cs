@@ -1,6 +1,7 @@
 ﻿using SaaSPlatform.Application.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
 
 namespace SaaSPlatform.Infrastructure.Services.TenantServices;
 
@@ -10,7 +11,7 @@ public class TenantRegistrationService : ITenantRegistrationService
 
     public TenantRegistrationService(TenantRegistrationAppService appService) => _appService = appService;
 
-    public Task<(Guid tenantId, string message)> RegisterAsync(
+    public async Task<Result<Guid>> RegisterAsync(
         string restaurantName, List<Guid> cuisineIds, List<Guid> zoneIds,
         string? address, int minPrepTime, int maxPrepTime,
         string firstName, string lastName, string phone, string email,
@@ -36,6 +37,7 @@ public class TenantRegistrationService : ITenantRegistrationService
             CnicFrontImageUrl = cnicFrontUrl,
             CnicBackImageUrl = cnicBackUrl
         };
-        return _appService.RegisterAsync(request);
+
+        return await _appService.RegisterAsync(request);
     }
 }

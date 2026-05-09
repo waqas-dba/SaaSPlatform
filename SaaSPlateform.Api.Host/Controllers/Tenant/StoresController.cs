@@ -1,5 +1,4 @@
-﻿// SaaSPlatform.Api.Host/Controllers/Tenant/StoresController.cs
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Api.Host.Authorization;
@@ -12,7 +11,7 @@ namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 [Authorize]
 [ApiController]
 [Route("api/tenant")]
-public class StoresController : ControllerBase
+public class StoresController : BaseApiController         // <-- inherits Fail / Success / TenantId
 {
     private readonly ITenantStoreService _storeService;
     private readonly SaaSPlatformDbContext _db;
@@ -33,8 +32,11 @@ public class StoresController : ControllerBase
             .Include(s => s.DeliveryZones).ThenInclude(sz => sz.Zone)
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-        if (store is null) return NotFound();
-        return Ok(new
+        if (store is null)
+            return Fail("Store not found", status: 404);
+
+        // ✅ Consistent success response
+        return Success(new
         {
             store.Id,
             store.Name,
@@ -58,6 +60,6 @@ public class StoresController : ControllerBase
     {
         var tenantId = (Guid)HttpContext.Items["TenantId"]!;
         await _storeService.UpdateStoreAsync(tenantId, request);
-        return NoContent();
+        return NoContent();   // 204 is fine – no body needed after update
     }
 }
