@@ -1,5 +1,5 @@
-﻿using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
+﻿using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
 
 namespace SaaSPlatform.UnitTests.Fakes;
 

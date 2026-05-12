@@ -1,7 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
-using SaaSPlatform.Infrastructure.Services.IAM;
-using SaaSPlatform.Infrastructure.Services;
+using AuthCoreKit.IAM.Interfaces;   // <-- already present
 
 namespace SaaSPlatform.Infrastructure.Persistence;
 
@@ -10,11 +9,11 @@ namespace SaaSPlatform.Infrastructure.Persistence;
 /// </summary>
 public abstract class AuditableDbContext : DbContext
 {
-    private readonly CurrentUserService? _currentUser;
+    private readonly ICurrentUserService? _currentUser;   // <-- CHANGED from CurrentUserService?
 
     protected AuditableDbContext(
         DbContextOptions options,
-        CurrentUserService? currentUser = null)
+        ICurrentUserService? currentUser = null)           // <-- CHANGED from CurrentUserService?
         : base(options)
     {
         _currentUser = currentUser;
@@ -32,26 +31,17 @@ public abstract class AuditableDbContext : DbContext
             switch (entry.State)
             {
                 case EntityState.Added:
-
                     entry.Entity.CreatedAt = DateTime.UtcNow;
-
-                    entry.Entity.CreatedBy =
-                        _currentUser?.UserId;
-
+                    entry.Entity.CreatedBy = _currentUser?.UserId;
                     break;
 
                 case EntityState.Modified:
-
                     entry.Entity.UpdatedAt = DateTime.UtcNow;
-
-                    entry.Entity.UpdatedBy =
-                        _currentUser?.UserId;
-
+                    entry.Entity.UpdatedBy = _currentUser?.UserId;
                     break;
             }
         }
 
-        return await base.SaveChangesAsync(
-            cancellationToken);
+        return await base.SaveChangesAsync(cancellationToken);
     }
 }

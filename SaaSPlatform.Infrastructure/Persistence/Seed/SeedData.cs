@@ -1,6 +1,6 @@
 ﻿using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
+using AuthCoreKit.IAM.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
 
 namespace SaaSPlatform.Infrastructure.Persistence.Seed;

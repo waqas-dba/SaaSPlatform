@@ -57,6 +57,4 @@ Write-Host "DONE. Global file + per-project files created."
 
 
 
-Get-ChildItem -Recurse -Directory -Force |
-Where-Object { $_.Name -in @("bin", "obj") } |
-Remove-Item -Recurse -Force
+powershell -Command "Get-ChildItem -Recurse -Directory -Force | Where-Object { $_.Name -in @('bin','obj') } | Remove-Item -Recurse -Force"

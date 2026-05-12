@@ -1,8 +1,8 @@
 ﻿using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
+using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
+using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -48,16 +48,17 @@ public class TenantRegistrationAppService
 
     public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
     {
-        // 1. Tenant name uniqueness
+        // 1. Tenant name uniqueness (already implemented)
         if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
             return Result<Guid>.Failure("A tenant with this name already exists.");
 
-        // 2. Global phone uniqueness – one phone = one user = one tenant
-        if (await _userRepo.AnyUserWithPhoneAsync(request.Phone))
+        // 2. Global phone uniqueness – use ExistsByPhoneAsync with tenantId: null
+        if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
             return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
 
-        // 3. Global email uniqueness (optional but consistent)
-        if (!string.IsNullOrWhiteSpace(request.Email) && await _userRepo.AnyUserWithEmailAsync(request.Email))
+        // 3. Global email uniqueness (optional)
+        if (!string.IsNullOrWhiteSpace(request.Email) &&
+            await _userRepo.ExistsByEmailAsync(request.Email, tenantId: null))
             return Result<Guid>.Failure("A user with this email already exists.");
 
         return await ExecuteRegistrationAsync(request);
@@ -71,7 +72,7 @@ public class TenantRegistrationAppService
         {
             var tenant = CreateTenant(request);
             var store = CreateStore(tenant.Id, request);
-            var user = CreateUser(tenant.Id, request);          // synchronous Add
+            var user = CreateUser(tenant.Id, request);
             var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
             LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
             CreateLegalInfo(tenant.Id, request);
@@ -86,15 +87,12 @@ public class TenantRegistrationAppService
         {
             await _unitOfWork.RollbackAsync();
 
-            // Handle any remaining duplicate key violations (e.g. race condition)
             if (ex.InnerException?.Message.Contains("duplicate key") == true)
                 return Result<Guid>.Failure("A record with the same details already exists.");
 
             throw;
         }
     }
-
-    // ---------- Private helpers ----------
 
     private TenantAccount CreateTenant(TenantRegistrationRequest request)
     {
@@ -136,7 +134,6 @@ public class TenantRegistrationAppService
         return store;
     }
 
-    // Now synchronous – Add only tracks the user, no save
     private User CreateUser(Guid tenantId, TenantRegistrationRequest request)
     {
         var user = new User
@@ -149,7 +146,7 @@ public class TenantRegistrationAppService
             PasswordHash = _passwordHasher.Hash(request.Password),
             IsActive = true
         };
-        _userRepo.Add(user);   // void call, no await
+        _userRepo.Add(user);
         return user;
     }
 
@@ -174,15 +171,15 @@ public class TenantRegistrationAppService
 
     private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
     {
-        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-        _roleRepo.AddTenantUser(new TenantUser
+        // Only UserRole is needed – User.TenantId already links the user to the tenant.
+        _roleRepo.AddUserRole(new UserRole
         {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
             UserId = userId,
-            IsOwner = true,
-            IsActive = true
+            RoleId = roleId,
+            TenantId = tenantId
         });
+
+        // ❌ Removed: _roleRepo.AddTenantUser(...) – TenantUser is obsolete.
     }
 
     private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)

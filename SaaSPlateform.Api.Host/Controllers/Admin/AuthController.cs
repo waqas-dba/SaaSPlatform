@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Controllers;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.IAM.Models;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
 
 [ApiController]
 [Route("api/auth")]

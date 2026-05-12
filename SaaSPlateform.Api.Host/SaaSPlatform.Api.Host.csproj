@@ -7,7 +7,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+		<PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
 		<PackageReference Include="FluentValidation" Version="12.1.1" />
 		<PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
@@ -19,6 +19,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\AuthCoreKit.IAM\AuthCoreKit.IAM.csproj" />
 		<ProjectReference Include="..\SaaSPlatform.Application\SaaSPlatform.Application.csproj" />
 		<ProjectReference Include="..\SaaSPlatform.Core.Billing\SaaSPlatform.Core.Billing.csproj" />
 		<ProjectReference Include="..\SaaSPlatform.Core.Tenant\SaaSPlatform.Core.Tenant.csproj" />

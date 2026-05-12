@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Services.IAM;
 using System;

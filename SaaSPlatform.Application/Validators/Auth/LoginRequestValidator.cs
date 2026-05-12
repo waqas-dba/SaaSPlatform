@@ -1,5 +1,5 @@
 ﻿using FluentValidation;
-using SaaSPlatform.Core.IAM.Models;
+using AuthCoreKit.IAM.Models;
 using System.Text.RegularExpressions;
 
 namespace SaaSPlatform.Application.Validators.Auth;
@@ -8,11 +8,13 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
 {
     public LoginRequestValidator()
     {
-        RuleFor(x => x.Phone)
+        // The Login field can be phone or email depending on configuration.
+        // For simplicity, we just require it to be non‑empty.
+        // If you want phone‑format validation only when login mode is "phone",
+        // you can inject IamOptions and check – left as an exercise.
+        RuleFor(x => x.Login)
             .NotEmpty()
-            .WithMessage("Phone number is required")
-            .Must(BeValidPhone)
-            .WithMessage("Invalid phone number format");
+            .WithMessage("Login (phone or email) is required");
 
         RuleFor(x => x.Password)
             .NotEmpty()
@@ -24,13 +26,13 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
             .Matches("[0-9]").WithMessage("Password must contain number");
     }
 
+    // These helper methods are kept for reference but are no longer used.
     private bool BeValidPhone(string phone)
     {
         if (string.IsNullOrWhiteSpace(phone))
             return false;
 
         var normalized = NormalizePhone(phone);
-
         return Regex.IsMatch(normalized, @"^\+?[0-9]{10,15}$");
     }
 

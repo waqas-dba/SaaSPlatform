@@ -1,7 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Api.Host.Authorization;
+using AuthCoreKit.IAM.Authorization;               // RequiresPermission
+using SaaSPlatform.Api.Host.Controllers;             // BaseApiController
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -11,7 +12,7 @@ namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 [Authorize]
 [ApiController]
 [Route("api/tenant")]
-public class StoresController : BaseApiController         // <-- inherits Fail / Success / TenantId
+public class StoresController : BaseApiController
 {
     private readonly ITenantStoreService _storeService;
     private readonly SaaSPlatformDbContext _db;
@@ -22,21 +23,26 @@ public class StoresController : BaseApiController         // <-- inherits Fail /
         _db = db;
     }
 
-    [TenantPermission("store.update")]
+    /// <summary>
+    /// Returns the store belonging to the current tenant.
+    /// </summary>
+    [RequiresPermission("store.update")]
     [HttpGet("store")]
     public async Task<IActionResult> GetStore()
     {
         var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+
         var store = await _db.Stores
-              .IgnoreQueryFilters()
-            .Include(s => s.StoreCuisines).ThenInclude(sc => sc.Cuisine)
-            .Include(s => s.DeliveryZones).ThenInclude(sz => sz.Zone)
+            .IgnoreQueryFilters()   // bypass global filter (we filter explicitly)
+            .Include(s => s.StoreCuisines)
+                .ThenInclude(sc => sc.Cuisine)
+            .Include(s => s.DeliveryZones)
+                .ThenInclude(sz => sz.Zone)
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
         if (store is null)
             return Fail("Store not found", status: 404);
 
-        // ✅ Consistent success response
         return Success(new
         {
             store.Id,
@@ -55,14 +61,15 @@ public class StoresController : BaseApiController         // <-- inherits Fail /
         });
     }
 
-    [TenantPermission("store.update")]
+    /// <summary>
+    /// Updates the store of the current tenant.
+    /// </summary>
+    [RequiresPermission("store.update")]
     [HttpPut("store")]
     public async Task<IActionResult> UpdateStore(UpdateStoreRequest request)
     {
         var tenantId = (Guid)HttpContext.Items["TenantId"]!;
         await _storeService.UpdateStoreAsync(tenantId, request);
-        return NoContent();   // 204 is fine – no body needed after update
+        return NoContent();
     }
-
-
 }

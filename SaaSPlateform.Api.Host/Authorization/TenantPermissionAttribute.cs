@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using SaaSPlatform.Core.IAM.Interfaces;
+using AuthCoreKit.IAM.Interfaces;
 
 namespace SaaSPlatform.Api.Host.Authorization;
 

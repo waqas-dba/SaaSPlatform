@@ -1,10 +1,12 @@
 <Solution>
+  <Project Path="AuthCoreKit.IAM/AuthCoreKit.IAM.csproj" Id="ac7bb1cb-7e6d-4029-9299-80db4931da09" />
   <Project Path="SaaSPlateform.Api.Host/SaaSPlatform.Api.Host.csproj" Id="5bb9c653-c8fb-4e89-9a08-308fc5ce13f4" />
-  <Project Path="SaaSPlatform.Application/SaaSPlatform.Application.csproj" Id="6dc30ffc-84e9-44da-8cdc-319eb8efcf29" />
+  <Project Path="SaaSPlatform.Application/SaaSPlatform.Application.csproj" Id="6dc30ffc-84e9-44da-8cdc-319eb8efcf29">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="SaaSPlatform.Core.Agents/SaaSPlatform.Core.Agents.csproj" Id="b0da19ae-484b-4966-b6de-5fe952c1073d" />
   <Project Path="SaaSPlatform.Core.Billing/SaaSPlatform.Core.Billing.csproj" Id="14f8c526-27a3-437d-986a-341d56249000" />
   <Project Path="SaaSPlatform.Core.Catalog/SaaSPlatform.Core.Catalog.csproj" />
-  <Project Path="SaaSPlatform.Core.IAM/SaaSPlatform.Core.IAM.csproj" />
   <Project Path="SaaSPlatform.Core.Orders/SaaSPlatform.Core.Orders.csproj" />
   <Project Path="SaaSPlatform.Core.Tenant/SaaSPlatform.Core.Tenant.csproj" />
   <Project Path="SaaSPlatform.Infrastructure/SaaSPlatform.Infrastructure.csproj" />
