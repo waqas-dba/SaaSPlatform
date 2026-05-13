@@ -12,4 +12,5 @@
   <Project Path="SaaSPlatform.Infrastructure/SaaSPlatform.Infrastructure.csproj" />
   <Project Path="SaaSPlatform.SharedKernel/SaaSPlatform.SharedKernel.csproj" />
   <Project Path="SaaSPlatform.Tests/SaaSPlatform.Tests.csproj" Id="60a2ccb6-99ca-4e4a-8fb7-f9bbf7a7bacc" />
+  <Project Path="TenantKit/TenantKit.csproj" />
 </Solution>
