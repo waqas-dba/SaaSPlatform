@@ -1,4 +1,267 @@
 ﻿
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class Addon : BaseTenantEntity
+{
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public decimal Price { get; set; }
+public bool IsActive { get; set; } = true;
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class AddonGroup : BaseTenantEntity
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public string? Description { get; set; }
+public bool IsRequired { get; set; } = false;
+public int MinSelect { get; set; } = 0;
+public int MaxSelect { get; set; } = 1;
+public bool IsActive { get; set; } = true;
+public int DisplayOrder { get; set; }
+public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class AddonGroupItem : BaseEntity
+{
+public Guid AddonGroupId { get; set; }
+public AddonGroup AddonGroup { get; set; } = default!;
+public Guid AddonId { get; set; }
+public Addon Addon { get; set; } = default!;
+public decimal PriceAdjustment { get; set; } = 0;
+public bool IsDefault { get; set; } = false;
+public int DisplayOrder { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class Category : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public Guid? ParentCategoryId { get; set; }
+public string? PhotoUrl { get; set; }
+public string? Icon { get; set; }
+public int DisplayOrder { get; set; }
+public bool IsActive { get; set; } = true;
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class Cuisine : BaseEntity
+{
+public string Name { get; set; } = default!;
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
+using SaaSPlatform.Core.Catalog.Enums;
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class FeaturedProduct : BaseEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public ProductFeatureSection Section { get; set; }
+public Guid? CategoryId { get; set; }
+public int DisplayOrder { get; set; }
+public DateTime FeaturedFrom { get; set; }
+public DateTime? FeaturedUntil { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class Product : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid CategoryId { get; set; }
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public string? Description { get; set; }
+public decimal Price { get; set; }
+public bool IsActive { get; set; } = true;
+public int DisplayOrder { get; set; }
+public string? MainImageUrl { get; set; }
+public ICollection<ProductImage>? Images { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class ProductAddon : BaseEntity
+{
+public Guid ProductId { get; set; }
+public Guid AddonId { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class ProductAddonGroup : BaseEntity
+{
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public Guid AddonGroupId { get; set; }
+public AddonGroup AddonGroup { get; set; } = default!;
+public bool IsRequired { get; set; } = true;
+public int DisplayOrder { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class ProductImage : BaseEntity
+{
+public Guid ProductId { get; set; }
+public string ImageUrl { get; set; } = default!;
+public int DisplayOrder { get; set; }
+public bool IsPrimary { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Catalog.Entities;
+public class ProductVariant : BaseEntity
+{
+public Guid ProductId { get; set; }
+public string Name { get; set; } = default!;
+public decimal Price { get; set; }
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
+namespace SaaSPlatform.Core.Catalog.Enums;
+public enum ProductFeatureSection
+{
+MainPage,
+Category
+}
+
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Core.Catalog.Interfaces;
+public interface IProductRepository
+{
+Task<Product?> GetByIdAsync(Guid productId, CancellationToken ct = default);
+Task<List<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
+void Add(Product product);
+void Update(Product product);
+void Delete(Product product);
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Orders.Enums;
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Orders.Entities;
+public class Order : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public Guid? TableId { get; set; }
+public long OrderNumber { get; set; }
+public OrderStatus Status { get; set; } = OrderStatus.Pending;
+public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
+public OrderChannel Channel { get; set; } = OrderChannel.QRMenu;
+public decimal Subtotal { get; set; }
+public decimal DiscountAmount { get; set; }
+public decimal TaxAmount { get; set; }
+public decimal TotalAmount { get; set; }
+public string? Notes { get; set; }
+public Guid? CreatedByUserId { get; set; }
+public ICollection<OrderItem>? Items { get; set; }
+public OrderType OrderType { get; set; } = OrderType.Pickup;
+public string? DeliveryAddress { get; set; }
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Orders.Entities;
+public class OrderItem : BaseEntity
+{
+public Guid OrderId { get; set; }
+public Guid ProductId { get; set; }
+public Guid? ProductVariantId { get; set; }
+public string ProductNameSnapshot { get; set; } = default!;
+public string? VariantNameSnapshot { get; set; }
+public decimal UnitPrice { get; set; }
+public int Quantity { get; set; }
+public decimal LineTotal { get; set; }
+public ICollection<OrderItemAddon>? Addons { get; set; }
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Orders.Entities;
+public class OrderItemAddon : BaseEntity
+{
+public Guid OrderItemId { get; set; }
+public string Name { get; set; } = default!;
+public decimal Price { get; set; }
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Orders.Entities;
+public class RestaurantTable : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid StoreId { get; set; }
+public string Name { get; set; } = default!;
+public int Capacity { get; set; }
+public bool IsActive { get; set; } = true;
+public string? QRCode { get; set; }
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
+namespace SaaSPlatform.Core.Orders.Enums;
+public enum OrderChannel
+{
+Web,
+MobileApp,
+QRMenu
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
+namespace SaaSPlatform.Core.Orders.Enums;
+public enum OrderStatus
+{
+Pending,
+Confirmed,
+Preparing,
+Delivered,
+Cancelled
+}
+
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
+namespace SaaSPlatform.Core.Orders.Enums;
+public enum OrderType
+{
+Delivery,
+Pickup,
+DineIn
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
+namespace SaaSPlatform.Core.Tenant.Constants;
+public static class TenantConstants
+{
+public const string TenantHeader = "X-Tenant-ID";
+public const string TenantContextKey = "TenantId";
+}
+
 ===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.SharedKernel.Common;
@@ -278,271 +541,6 @@ public void Configure(EntityTypeBuilder<Subscription> builder)
 {
 builder.HasIndex(x => new { x.TenantId, x.Status });
 builder.HasIndex(x => x.NextBillingDate);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Billing.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
-public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
-{
-public void Configure(EntityTypeBuilder<Payment> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.Status });
-builder.HasIndex(x => new { x.TenantId, x.StoreId });
-builder.Property(x => x.Amount).HasPrecision(18, 2);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(p => p.StoreId)
-.IsRequired(false);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Billing.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
-public class TenantUsageLedgerConfiguration : IEntityTypeConfiguration<TenantUsageLedger>
-{
-public void Configure(EntityTypeBuilder<TenantUsageLedger> builder)
-{
-builder.HasIndex(x => new
-{
-x.TenantId,
-x.UsageMonthYear
-}).IsUnique();
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonConfiguration : IEntityTypeConfiguration<Addon>
-{
-public void Configure(EntityTypeBuilder<Addon> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
-builder.Property(x => x.Price).HasPrecision(18, 2);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(a => a.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonGroupConfiguration : IEntityTypeConfiguration<AddonGroup>
-{
-public void Configure(EntityTypeBuilder<AddonGroup> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
-builder.Property(x => x.Name).HasMaxLength(200);
-builder.HasMany(g => g.Items)
-.WithOne(i => i.AddonGroup)
-.HasForeignKey(i => i.AddonGroupId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonGroupItemConfiguration : IEntityTypeConfiguration<AddonGroupItem>
-{
-public void Configure(EntityTypeBuilder<AddonGroupItem> builder)
-{
-builder.HasIndex(x => new { x.AddonGroupId, x.AddonId }).IsUnique();
-builder.Property(x => x.PriceAdjustment).HasPrecision(18, 2);
-builder.HasOne(i => i.AddonGroup)
-.WithMany(g => g.Items)
-.HasForeignKey(i => i.AddonGroupId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasOne(i => i.Addon)
-.WithMany()
-.HasForeignKey(i => i.AddonId)
-.OnDelete(DeleteBehavior.Restrict);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class CategoryConfiguration : IEntityTypeConfiguration<Category>
-{
-public void Configure(EntityTypeBuilder<Category> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.ParentCategoryId });
-builder.HasIndex(x => new { x.StoreId, x.Name });
-builder.Property(x => x.PhotoUrl).HasMaxLength(500);
-builder.Property(x => x.Icon).HasMaxLength(200);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(c => c.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class CuisineConfiguration : IEntityTypeConfiguration<Cuisine>
-{
-public void Configure(EntityTypeBuilder<Cuisine> builder)
-{
-builder.HasIndex(c => c.Name).IsUnique();
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class FeaturedProductConfiguration : IEntityTypeConfiguration<FeaturedProduct>
-{
-public void Configure(EntityTypeBuilder<FeaturedProduct> builder)
-{
-builder.HasIndex(fp => new { fp.TenantId, fp.StoreId, fp.Section, fp.ProductId })
-.IsUnique();
-builder.HasIndex(fp => new { fp.StoreId, fp.Section, fp.CategoryId });
-builder.HasOne(fp => fp.Product)
-.WithMany()
-.HasForeignKey(fp => fp.ProductId)
-.OnDelete(DeleteBehavior.Restrict);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(fp => fp.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class ProductAddonGroupConfiguration : IEntityTypeConfiguration<ProductAddonGroup>
-{
-public void Configure(EntityTypeBuilder<ProductAddonGroup> builder)
-{
-builder.HasIndex(x => new { x.ProductId, x.AddonGroupId }).IsUnique();
-builder.HasOne(x => x.Product)
-.WithMany()
-.HasForeignKey(x => x.ProductId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasOne(x => x.AddonGroup)
-.WithMany()
-.HasForeignKey(x => x.AddonGroupId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class ProductConfiguration : IEntityTypeConfiguration<Product>
-{
-public void Configure(EntityTypeBuilder<Product> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.CategoryId });
-builder.HasIndex(x => new { x.StoreId, x.Name });
-builder.Property(x => x.MainImageUrl).HasMaxLength(500);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(p => p.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasMany(p => p.Images)
-.WithOne()
-.HasForeignKey(i => i.ProductId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog
-{
-public class ProductImageConfiguration : IEntityTypeConfiguration<ProductImage>
-{
-public void Configure(EntityTypeBuilder<ProductImage> builder)
-{
-builder.HasIndex(x => new { x.ProductId, x.DisplayOrder });
-builder.Property(x => x.ImageUrl).HasMaxLength(500);
-}
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVariant>
-{
-public void Configure(EntityTypeBuilder<ProductVariant> builder)
-{
-builder.HasIndex(x => x.ProductId);
-builder.HasOne<Product>()
-.WithMany()
-.HasForeignKey(pv => pv.ProductId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Orders.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Orders;
-public class OrderConfiguration : IEntityTypeConfiguration<Order>
-{
-public void Configure(EntityTypeBuilder<Order> builder)
-{
-builder.HasIndex(x => new
-{
-x.TenantId,
-x.CreatedAt
-});
-builder.HasIndex(x => new
-{
-x.TenantId,
-x.OrderNumber
-}).IsUnique();
-builder.HasIndex(x => new
-{
-x.TenantId,
-x.Status
-});
-builder.HasIndex(x => x.StoreId);
-builder.Property(x => x.Subtotal)
-.HasPrecision(18, 2);
-builder.Property(x => x.DiscountAmount)
-.HasPrecision(18, 2);
-builder.Property(x => x.TaxAmount)
-.HasPrecision(18, 2);
-builder.Property(x => x.TotalAmount)
-.HasPrecision(18, 2);
-builder.Property(x => x.OrderType).IsRequired();
-builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
 }
 }
 

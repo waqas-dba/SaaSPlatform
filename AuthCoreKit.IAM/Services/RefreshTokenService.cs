@@ -1,8 +1,9 @@
 ﻿using System.Security.Cryptography;
-using Microsoft.Extensions.Options;
+using System.Text;
 using AuthCoreKit.IAM.Entities;
 using AuthCoreKit.IAM.Interfaces;
 using AuthCoreKit.IAM.Models;
+using Microsoft.Extensions.Options;
 
 namespace AuthCoreKit.IAM.Services;
 
@@ -11,43 +12,111 @@ public class RefreshTokenService : IRefreshTokenService
     private readonly IRefreshTokenRepository _repo;
     private readonly JwtSettings _settings;
 
-    public RefreshTokenService(IRefreshTokenRepository repo, IOptions<JwtSettings> options)
+    public RefreshTokenService(
+        IRefreshTokenRepository repo,
+        IOptions<JwtSettings> options)
     {
         _repo = repo;
         _settings = options.Value;
     }
 
-    public async Task<string> GenerateAsync(Guid userId, string jwtId,
-        string? ipAddress = null, string? userAgent = null)
+    private static string Hash(string token)
     {
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshToken = new RefreshToken
+        using var sha = SHA256.Create();
+        return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(token)));
+    }
+
+    public async Task<string> GenerateAsync(
+        Guid userId,
+        string jwtId,
+        string? ipAddress = null,
+        string? userAgent = null)
+    {
+        var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var familyId = Guid.NewGuid().ToString();
+
+        var entity = new RefreshToken
         {
             UserId = userId,
-            Token = token,
             JwtId = jwtId,
+            FamilyId = familyId,
+            TokenHash = Hash(rawToken),
             ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
             CreatedByIp = ipAddress,
             UserAgent = userAgent
         };
-        await _repo.AddAsync(refreshToken);
-        return token;
+
+        await _repo.AddAsync(entity);
+        return rawToken;
     }
 
     public async Task<bool> ValidateAsync(string token)
     {
-        var rt = await _repo.GetByTokenAsync(token);
-        return rt is { IsActive: true };
+        var hash = Hash(token);
+        var stored = await _repo.GetByTokenHashAsync(hash);
+        return stored is { IsActive: true };
     }
 
-    public async Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null)
+    public async Task RevokeAsync(
+        string token,
+        string? replacedByToken = null,
+        string? revokedByIp = null)
     {
-        var rt = await _repo.GetByTokenAsync(token);
-        if (rt == null) return;
-        rt.IsRevoked = true;
-        rt.RevokedAtUtc = DateTime.UtcNow;
-        rt.ReplacedByToken = replacedByToken;
-        rt.RevokedByIp = revokedByIp;
-        await _repo.UpdateAsync(rt);
+        var hash = Hash(token);
+        var stored = await _repo.GetByTokenHashAsync(hash);
+
+        if (stored == null) return;
+
+        stored.IsRevoked = true;
+        stored.RevokedAtUtc = DateTime.UtcNow;
+        stored.RevokedByIp = revokedByIp;
+
+        await _repo.UpdateAsync(stored);
+    }
+
+    // 🔥 CORE: ROTATION + THEFT DETECTION
+    public async Task<(string Token, bool Compromised)> RotateAsync(string token)
+    {
+        var hash = Hash(token);
+        var existing = await _repo.GetByTokenHashAsync(hash);
+
+        if (existing == null)
+            throw new UnauthorizedAccessException("Invalid refresh token");
+
+        // 🚨 reuse detection (token already revoked but used again)
+        if (existing.IsRevoked)
+        {
+            await _repo.RevokeFamilyAsync(existing.FamilyId);
+            return (string.Empty, true);
+        }
+
+        var newToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
+        var newEntity = new RefreshToken
+        {
+            UserId = existing.UserId,
+            JwtId = existing.JwtId,
+            FamilyId = existing.FamilyId,
+            TokenHash = Hash(newToken),
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays)
+        };
+
+        // revoke old
+        existing.IsRevoked = true;
+        existing.RevokedAtUtc = DateTime.UtcNow;
+        existing.ReplacedByTokenHash = newEntity.TokenHash;
+
+        await _repo.UpdateAsync(existing);
+        await _repo.AddAsync(newEntity);
+
+        return (newToken, false);
+    }
+
+    public string ComputeHash(string token)
+    {
+        using var sha = SHA256.Create();
+        return Convert.ToBase64String(
+            sha.ComputeHash(Encoding.UTF8.GetBytes(token))
+        );
     }
 }

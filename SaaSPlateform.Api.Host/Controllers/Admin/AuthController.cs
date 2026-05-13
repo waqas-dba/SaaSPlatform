@@ -1,18 +1,19 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Api.Host.Controllers;
-using AuthCoreKit.IAM.Interfaces;
+﻿using AuthCoreKit.IAM.Interfaces;
 using AuthCoreKit.IAM.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Api.Host.Controllers.Admin;
 
 [ApiController]
 [Route("api/auth")]
 public class AuthController : BaseApiController
 {
-    private readonly IAuthService _authService;
+    private readonly IAuthService _auth;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService auth)
     {
-        _authService = authService;
+        _auth = auth;
     }
 
     [AllowAnonymous]
@@ -22,8 +23,7 @@ public class AuthController : BaseApiController
         if (TenantId is null)
             return Fail("Missing tenant context");
 
-        var result = await _authService.LoginAsync(request, TenantId.Value);
-
+        var result = await _auth.LoginAsync(request, TenantId.Value);
         return Success(result, "Login successful");
     }
 
@@ -34,8 +34,7 @@ public class AuthController : BaseApiController
         if (TenantId is null)
             return Fail("Missing tenant context");
 
-        var result = await _authService.RefreshAsync(request, TenantId.Value);
-
+        var result = await _auth.RefreshAsync(request, TenantId.Value);
         return Success(result, "Token refreshed");
     }
 }

@@ -1,28 +1,31 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Api.Host.Controllers;
 using SaaSPlatform.Application.Services;
 using SaaSPlatform.Core.Catalog.Entities;
+
+namespace SaaSPlatform.Api.Host.Controllers.Products;
 
 [ApiController]
 [Route("api/products")]
 public class ProductsController : BaseApiController
 {
-    private readonly ProductManagementService _productService;
+    private readonly ProductManagementService _service;
 
-    public ProductsController(ProductManagementService productService)
-        => _productService = productService;
+    public ProductsController(ProductManagementService service)
+    {
+        _service = service;
+    }
 
     [HttpGet]
-    public async Task<IActionResult> GetProducts(Guid storeId)
+    public async Task<IActionResult> Get(Guid storeId)
     {
-        var products = await _productService.GetStoreProductsAsync(storeId);
+        var products = await _service.GetStoreProductsAsync(storeId);
         return Success(products);
     }
 
     [HttpPost]
-    public async Task<IActionResult> CreateProduct(Product product)
+    public async Task<IActionResult> Create(Product product)
     {
-        var created = await _productService.CreateProductAsync(product);
+        var created = await _service.CreateProductAsync(product);
         return Success(created);
     }
 }

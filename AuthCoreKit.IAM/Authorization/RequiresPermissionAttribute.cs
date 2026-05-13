@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
+using AuthCoreKit.IAM.Constants;
 using AuthCoreKit.IAM.Interfaces;
 using AuthCoreKit.IAM.Models;
 
@@ -11,36 +12,63 @@ namespace AuthCoreKit.IAM.Authorization
     {
         private readonly string _permission;
 
-        public RequiresPermissionAttribute(string permission) => _permission = permission;
+        public RequiresPermissionAttribute(string permission)
+        {
+            _permission = permission;
+        }
 
-        public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+        public async Task OnAuthorizationAsync(
+            AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
+
             if (user.Identity?.IsAuthenticated != true)
             {
                 context.Result = new UnauthorizedResult();
                 return;
             }
 
-            var options = context.HttpContext.RequestServices.GetService<IamOptions>();
-            if (options?.SuperAdminBypassPermissions == true && user.IsInRole(options.SuperAdminRoleName))
-                return;
+            var options = context.HttpContext.RequestServices
+                .GetRequiredService<IamOptions>();
 
-            var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
-            var currentUserService = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
-
-            if (currentUserService.UserId == null)
+            if (options.SuperAdminBypassPermissions &&
+                user.IsInRole(options.SuperAdminRoleName))
             {
-                context.Result = new UnauthorizedObjectResult("User not authenticated.");
                 return;
             }
 
-            var tenantId = currentUserService.TenantId;
+            // Fast claim-based permission check
+            var hasClaimPermission = user.Claims.Any(c =>
+                c.Type == ClaimConstants.Permission &&
+                c.Value == _permission);
+
+            if (hasClaimPermission)
+            {
+                return;
+            }
+
+            // Fallback DB verification
+            var permissionService = context.HttpContext.RequestServices
+                .GetRequiredService<IPermissionService>();
+
+            var currentUser = context.HttpContext.RequestServices
+                .GetRequiredService<ICurrentUserService>();
+
+            if (currentUser.UserId == null)
+            {
+                context.Result = new UnauthorizedResult();
+                return;
+            }
+
             var hasPermission = await permissionService.HasPermissionAsync(
-                currentUserService.UserId.Value, tenantId, _permission);
+                currentUser.UserId.Value,
+                currentUser.TenantId,
+                _permission);
 
             if (!hasPermission)
+            {
                 context.Result = new ForbidResult();
+            }
         }
     }
 }

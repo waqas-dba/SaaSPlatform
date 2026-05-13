@@ -29,8 +29,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Models\Response\" />
 		<Folder Include="Models\Requests\" />
+		<Folder Include="Models\Response\" />
 	</ItemGroup>
 
 	<ItemGroup>

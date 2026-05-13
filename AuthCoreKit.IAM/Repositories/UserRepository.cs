@@ -9,57 +9,68 @@ public class UserRepository : IUserRepository
 {
     private readonly IIamDbContext _db;
 
-    public UserRepository(IIamDbContext db) => _db = db;
+    public UserRepository(IIamDbContext db)
+    {
+        _db = db;
+    }
 
     public async Task<User?> GetByIdAsync(Guid userId)
-        => await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
-                .FirstOrDefaultAsync(u => u.Id == userId);
+    {
+        return await _db.Users
+            .Include(u => u.Roles)
+            .ThenInclude(r => r.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+    }
 
     public async Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null)
     {
-        var normalized = PhoneNormalizer.Normalize(phone);
-        var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
-                        .Where(u => u.Phone == normalized);
-        query = tenantId.HasValue
-            ? query.Where(u => u.TenantId == tenantId.Value)
-            : query.Where(u => u.TenantId == null);
-        return await query.FirstOrDefaultAsync();
+        phone = PhoneNormalizer.Normalize(phone);
+
+        return await _db.Users
+            .Include(u => u.Roles)
+            .ThenInclude(r => r.Role)
+            .Where(u => u.Phone == phone && u.TenantId == tenantId)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<User?> GetByEmailAsync(string email, Guid? tenantId = null)
     {
-        var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
-                        .Where(u => u.Email == email);
-        query = tenantId.HasValue
-            ? query.Where(u => u.TenantId == tenantId.Value)
-            : query.Where(u => u.TenantId == null);
-        return await query.FirstOrDefaultAsync();
+        email = email.Trim().ToLowerInvariant();
+
+        return await _db.Users
+            .Include(u => u.Roles)
+            .ThenInclude(r => r.Role)
+            .Where(u => u.Email == email && u.TenantId == tenantId)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<List<User>> GetByTenantAsync(Guid tenantId)
-        => await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+    {
+        return await _db.Users
+            .Where(u => u.TenantId == tenantId)
+            .ToListAsync();
+    }
 
     public async Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null)
     {
-        var normalized = PhoneNormalizer.Normalize(phone);
-        var query = _db.Users.Where(u => u.Phone == normalized);
-        query = tenantId.HasValue
-            ? query.Where(u => u.TenantId == tenantId.Value)
-            : query.Where(u => u.TenantId == null);
-        return await query.AnyAsync();
+        phone = PhoneNormalizer.Normalize(phone);
+
+        return await _db.Users
+            .AnyAsync(u => u.Phone == phone && u.TenantId == tenantId);
     }
 
     public async Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null)
     {
-        var query = _db.Users.Where(u => u.Email == email);
-        query = tenantId.HasValue
-            ? query.Where(u => u.TenantId == tenantId.Value)
-            : query.Where(u => u.TenantId == null);
-        return await query.AnyAsync();
+        email = email.Trim().ToLowerInvariant();
+
+        return await _db.Users
+            .AnyAsync(u => u.Email == email && u.TenantId == tenantId);
     }
 
     public void Add(User user) => _db.Users.Add(user);
+
     public void Update(User user) => _db.Users.Update(user);
+
     public void Delete(User user) => _db.Users.Remove(user);
 
     public async Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier)
@@ -68,11 +79,13 @@ public class UserRepository : IUserRepository
         {
             case "email":
                 return await GetByEmailAsync(login, tenantId);
+
             case "both":
-                if (login.Contains('@'))
-                    return await GetByEmailAsync(login, tenantId);
-                return await GetByPhoneAsync(login, tenantId);
-            default: // "phone"
+                return login.Contains('@')
+                    ? await GetByEmailAsync(login, tenantId)
+                    : await GetByPhoneAsync(login, tenantId);
+
+            default:
                 return await GetByPhoneAsync(login, tenantId);
         }
     }

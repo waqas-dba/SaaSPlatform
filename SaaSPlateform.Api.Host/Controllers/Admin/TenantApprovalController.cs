@@ -1,37 +1,36 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Authorization;
-using SaaSPlatform.Api.Host.Controllers;
+
+namespace SaaSPlatform.Api.Host.Controllers.Admin;
 
 [ApiController]
 [Route("api/admin")]
 public class TenantApprovalController : BaseApiController
 {
-    private readonly TenantApprovalService _approvalService;
+    private readonly TenantApprovalService _service;
 
-    public TenantApprovalController(TenantApprovalService approvalService)
-        => _approvalService = approvalService;
+    public TenantApprovalController(TenantApprovalService service)
+    {
+        _service = service;
+    }
 
     [TenantPermission("tenant.approve")]
     [HttpPost("tenants/{tenantId}/approve")]
-    public async Task<IActionResult> ApproveTenant(Guid tenantId)
+    public async Task<IActionResult> Approve(Guid tenantId)
     {
-        var (success, message) = await _approvalService.ApproveAsync(tenantId);
+        var (ok, msg) = await _service.ApproveAsync(tenantId);
 
-        if (!success)
-            return Fail(message);
-
-        return Success(new { }, message);
+        if (!ok) return Fail(msg);
+        return Success(new { }, msg);
     }
 
     [TenantPermission("tenant.approve")]
     [HttpPost("tenants/{tenantId}/reject")]
-    public async Task<IActionResult> RejectTenant(Guid tenantId)
+    public async Task<IActionResult> Reject(Guid tenantId)
     {
-        var (success, message) = await _approvalService.RejectAsync(tenantId);
+        var (ok, msg) = await _service.RejectAsync(tenantId);
 
-        if (!success)
-            return Fail(message);
-
-        return Success(new { }, message);
+        if (!ok) return Fail(msg);
+        return Success(new { }, msg);
     }
 }

@@ -1,44 +1,37 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AuthCoreKit.IAM.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using AuthCoreKit.IAM.Authorization;               // RequiresPermission
-using SaaSPlatform.Api.Host.Controllers;             // BaseApiController
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
 
 namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 
-[Authorize]
 [ApiController]
 [Route("api/tenant")]
 public class StoresController : BaseApiController
 {
-    private readonly ITenantStoreService _storeService;
     private readonly SaaSPlatformDbContext _db;
+    private readonly ITenantStoreService _service;
 
-    public StoresController(ITenantStoreService storeService, SaaSPlatformDbContext db)
+    public StoresController(
+        SaaSPlatformDbContext db,
+        ITenantStoreService service)
     {
-        _storeService = storeService;
         _db = db;
+        _service = service;
     }
 
-    /// <summary>
-    /// Returns the store belonging to the current tenant.
-    /// </summary>
-    [RequiresPermission("store.update")]
+    [RequiresPermission("store.view")]
     [HttpGet("store")]
     public async Task<IActionResult> GetStore()
     {
-        var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+        var tenantId = TenantId ?? throw new Exception("Tenant missing");
 
         var store = await _db.Stores
-            .IgnoreQueryFilters()   // bypass global filter (we filter explicitly)
-            .Include(s => s.StoreCuisines)
-                .ThenInclude(sc => sc.Cuisine)
-            .Include(s => s.DeliveryZones)
-                .ThenInclude(sz => sz.Zone)
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+            .Include(x => x.StoreCuisines)
+            .Include(x => x.DeliveryZones)
+            .FirstOrDefaultAsync(x => x.TenantId == tenantId);
 
         if (store is null)
             return Fail("Store not found", status: 404);
@@ -48,28 +41,17 @@ public class StoresController : BaseApiController
             store.Id,
             store.Name,
             store.Address,
-            store.IsOnline,
-            store.MinPreparingTime,
-            store.MaxPreparingTime,
-            store.CoverPhotoUrl,
-            store.LogoUrl,
-            store.SupportsDelivery,
-            store.SupportsPickup,
-            store.SupportsDineIn,
-            Cuisines = store.StoreCuisines.Select(sc => sc.Cuisine.Name),
-            Zones = store.DeliveryZones.Select(sz => new { sz.Zone.City, sz.Zone.Name })
+            store.IsOnline
         });
     }
 
-    /// <summary>
-    /// Updates the store of the current tenant.
-    /// </summary>
     [RequiresPermission("store.update")]
     [HttpPut("store")]
-    public async Task<IActionResult> UpdateStore(UpdateStoreRequest request)
+    public async Task<IActionResult> Update(UpdateStoreRequest request)
     {
-        var tenantId = (Guid)HttpContext.Items["TenantId"]!;
-        await _storeService.UpdateStoreAsync(tenantId, request);
+        var tenantId = TenantId ?? throw new Exception("Tenant missing");
+
+        await _service.UpdateStoreAsync(tenantId, request);
         return NoContent();
     }
 }

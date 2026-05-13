@@ -1,42 +1,39 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using AuthCoreKit.IAM.Interfaces;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using AuthCoreKit.IAM.Interfaces;
 
 namespace SaaSPlatform.Api.Host.Authorization;
 
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public class TenantPermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
     private readonly string _permission;
 
-    public TenantPermissionAttribute(string permission) => _permission = permission;
+    public TenantPermissionAttribute(string permission)
+        => _permission = permission;
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        // 1. SuperAdmin always passes
         if (context.HttpContext.User.IsInRole("SuperAdmin"))
             return;
 
-        // 2. Tenant from middleware
-        var tenantIdObj = context.HttpContext.Items["TenantId"];
-        if (tenantIdObj is not Guid tenantId)
+        var tenantId = context.HttpContext.Items["TenantId"] as Guid?;
+        if (tenantId is null)
         {
-            context.Result = new UnauthorizedObjectResult("Missing tenant context.");
+            context.Result = new UnauthorizedResult();
             return;
         }
 
-        // 3. Authenticated user
-        var userIdClaim = context.HttpContext.User.FindFirst("userId")?.Value;
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+        var userId = context.HttpContext.User.FindFirst("userId")?.Value;
+        if (!Guid.TryParse(userId, out var uid))
         {
-            context.Result = new UnauthorizedObjectResult("User not authenticated.");
+            context.Result = new UnauthorizedResult();
             return;
         }
 
-        // 4. Permission check
-        var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
-        var hasPerm = await permissionService.HasPermissionAsync(userId, tenantId, _permission);
-        if (!hasPerm)
+        var perm = context.HttpContext.RequestServices
+            .GetRequiredService<IPermissionService>();
+
+        if (!await perm.HasPermissionAsync(uid, tenantId.Value, _permission))
         {
             context.Result = new ForbidResult();
         }

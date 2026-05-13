@@ -1,20 +1,36 @@
 ﻿namespace AuthCoreKit.IAM.Entities;
 
-public class RefreshToken : AuditableEntity
+public class RefreshToken
 {
+    public Guid Id { get; set; }
+
     public Guid UserId { get; set; }
-    public User? User { get; set; }
-    public string Token { get; set; } = default!;
+
+    // 🔐 hashed token (NOT raw token)
+    public string TokenHash { get; set; } = default!;
+
+    // 🔗 rotation family (JWT theft detection core)
+    public string FamilyId { get; set; } = default!;
+
+    // JWT ID binding
     public string JwtId { get; set; } = default!;
+
     public DateTime ExpiresAtUtc { get; set; }
-    public bool IsRevoked { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
     public DateTime? RevokedAtUtc { get; set; }
-    public string? ReplacedByToken { get; set; }
+
+    public bool IsRevoked { get; set; }
+
+    public string? ReplacedByTokenHash { get; set; }
+
     public string? CreatedByIp { get; set; }
+
     public string? RevokedByIp { get; set; }
-    public string? Device { get; set; }
+
     public string? UserAgent { get; set; }
 
-    public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
-    public bool IsActive => !IsRevoked && !IsExpired;
+    // helper
+    public bool IsActive => !IsRevoked && DateTime.UtcNow < ExpiresAtUtc;
 }

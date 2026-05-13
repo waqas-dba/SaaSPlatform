@@ -9,7 +9,18 @@ public class PermissionModuleConfiguration : IEntityTypeConfiguration<Permission
     public void Configure(EntityTypeBuilder<PermissionModule> builder)
     {
         builder.ToTable("IAM_PermissionModules");
+
         builder.HasKey(x => x.Id);
-        builder.HasIndex(x => x.Code).IsUnique();
+
+        builder.Property(x => x.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        builder.Property(x => x.Code)
+            .IsRequired()
+            .HasMaxLength(50);
+
+        builder.HasIndex(x => x.Code)
+            .IsUnique();
     }
 }

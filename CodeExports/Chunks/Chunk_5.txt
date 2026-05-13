@@ -1,4 +1,240 @@
 ﻿
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs =====
+using AuthCoreKit.IAM.Extensions;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Services;
+using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using SaaSPlatform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Api.Host.Services;
+using SaaSPlatform.Application.Services;
+using SaaSPlatform.Application.Validators.Auth;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Billing.Services;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Infrastructure.Persistence.Repositories;
+using SaaSPlatform.Infrastructure.Persistence.Seed;
+using SaaSPlatform.Infrastructure.Services;
+using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.Common;
+using SaaSPlatform.Infrastructure.Services.Subscriptions;
+using SaaSPlatform.Infrastructure.Services.TenantServices;
+using SaaSPlatform.SharedKernel.Interfaces;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers()
+.ConfigureApiBehaviorOptions(options =>
+{
+options.InvalidModelStateResponseFactory = context =>
+{
+var errors = context.ModelState
+.Where(e => e.Value?.Errors.Count > 0)
+.SelectMany(e => e.Value!.Errors.Select(x => x.ErrorMessage))
+.ToList();
+var response = ApiResponse<object>.FailResponse(
+message: "Validation failed",
+code: "VALIDATION_ERROR",
+errors: errors,
+traceId: context.HttpContext.TraceIdentifier);
+return new BadRequestObjectResult(response);
+};
+});
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
+builder.Services.AddAuthCoreKit<SaaSPlatformDbContext>(
+builder.Configuration.GetSection("Jwt"),
+options =>
+{
+options.LoginIdentifier = "phone";
+options.TenantResolver = ctx =>
+{
+var header = ctx.Request.Headers["x-tenant-id"].FirstOrDefault();
+return Guid.TryParse(header, out var tid) ? tid : null;
+};
+options.SuperAdminRoleName = "SuperAdmin";
+options.SuperAdminBypassPermissions = true;
+options.EnableUserDocuments = true;
+options.EnableUserIdentities = true;
+options.RequireCnic = true;
+options.EnableRoleDocumentRequirements = true;
+});
+builder.Services.AddRateLimiter(options =>
+{
+options.AddFixedWindowLimiter("default", config =>
+{
+config.Window = TimeSpan.FromMinutes(1);
+config.PermitLimit = 100;
+config.QueueLimit = 0;
+});
+});
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
+builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
+builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+{
+var config =
+sp.GetRequiredService<IConfiguration>();
+var key =
+config["EncryptionKey"]
+?? throw new Exception("EncryptionKey missing.");
+return new EncryptionService(key);
+});
+builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
+builder.Services.AddScoped<IStoreRepository, StoreRepository>();
+builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
+builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+builder.Services.AddScoped<TenantApprovalService>();
+builder.Services.AddScoped<TenantRegistrationAppService>();
+builder.Services.AddScoped<ProductManagementService>();
+builder.Services.AddScoped<DocumentStorageService>();
+var provider = builder.Configuration["DatabaseProvider"];
+builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
+{
+switch (provider)
+{
+case "Postgres":
+options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
+break;
+default:
+throw new Exception($"Unsupported database provider: {provider}");
+}
+});
+var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+var db = scope.ServiceProvider.GetRequiredService<SaaSPlatformDbContext>();
+await DbSeeder.SeedAsync(db);
+}
+if (app.Environment.IsDevelopment())
+{
+app.UseSwagger();
+app.UseSwaggerUI();
+}
+app.UseRouting();
+app.UseRateLimiter();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseMiddleware<TenantMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<SubscriptionMiddleware>();
+app.MapControllers();
+app.Run();
+
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
+namespace SaaSPlatform.Application.DTOs.Auth;
+public class AuthTokenResponse
+{
+public string AccessToken { get; set; } = default!;
+public DateTime AccessTokenExpiresAtUtc { get; set; }
+public string RefreshToken { get; set; } = default!;
+public DateTime RefreshTokenExpiresAtUtc { get; set; }
+}
+
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+namespace SaaSPlatform.Application.Services;
+public class ProductManagementService
+{
+private readonly IProductRepository _productRepo;
+private readonly IUnitOfWork _unitOfWork;
+public ProductManagementService(IProductRepository productRepo, IUnitOfWork unitOfWork)
+{
+_productRepo = productRepo;
+_unitOfWork = unitOfWork;
+}
+public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
+=> await _productRepo.GetByStoreAsync(storeId);
+public async Task<Product?> GetProductAsync(Guid productId)
+=> await _productRepo.GetByIdAsync(productId);
+public async Task<Product> CreateProductAsync(Product product)
+{
+_productRepo.Add(product);
+await _unitOfWork.SaveChangesAsync();
+return product;
+}
+public async Task UpdateProductAsync(Product product)
+{
+_productRepo.Update(product);
+await _unitOfWork.SaveChangesAsync();
+}
+public async Task DeleteProductAsync(Guid productId)
+{
+var product = await _productRepo.GetByIdAsync(productId);
+if (product != null)
+{
+_productRepo.Delete(product);
+await _unitOfWork.SaveChangesAsync();
+}
+}
+}
+
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+public class TenantApprovalService
+{
+private readonly ITenantAccountRepository _tenantRepo;
+private readonly ISubscriptionRepository _subRepo;
+private readonly IUnitOfWork _unitOfWork;
+public TenantApprovalService(
+ITenantAccountRepository tenantRepo,
+ISubscriptionRepository subRepo,
+IUnitOfWork unitOfWork)
+{
+_tenantRepo = tenantRepo;
+_subRepo = subRepo;
+_unitOfWork = unitOfWork;
+}
+public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+if (tenant.RegistrationStatus == RegistrationStatus.Approved)
+return (false, "Tenant is already approved.");
+tenant.RegistrationStatus = RegistrationStatus.Approved;
+tenant.IsActive = true;
+_tenantRepo.Update(tenant);
+var subscription = await _subRepo.GetActiveByTenantIdAsync(tenantId);
+if (subscription is not null && subscription.Status == SubscriptionStatus.Trialing)
+{
+subscription.Status = SubscriptionStatus.Active;
+subscription.TrialEndsAt = DateTime.UtcNow.AddDays(14);
+subscription.NextBillingDate = DateTime.UtcNow.AddDays(14);
+_subRepo.Update(subscription);
+}
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant approved successfully.");
+}
+public async Task<(bool Success, string Message)> RejectAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+tenant.RegistrationStatus = RegistrationStatus.Rejected;
+_tenantRepo.Update(tenant);
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant rejected.");
+}
+}
+
 ===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
 using AuthCoreKit.IAM.Entities;
 using AuthCoreKit.IAM.Interfaces;
@@ -484,268 +720,5 @@ SubscriptionStatus.Active
 or SubscriptionStatus.Trialing
 or SubscriptionStatus.GracePeriod;
 }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Addon : BaseTenantEntity
-{
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public decimal Price { get; set; }
-public bool IsActive { get; set; } = true;
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class AddonGroup : BaseTenantEntity
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public string? Description { get; set; }
-public bool IsRequired { get; set; } = false;
-public int MinSelect { get; set; } = 0;
-public int MaxSelect { get; set; } = 1;
-public bool IsActive { get; set; } = true;
-public int DisplayOrder { get; set; }
-public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class AddonGroupItem : BaseEntity
-{
-public Guid AddonGroupId { get; set; }
-public AddonGroup AddonGroup { get; set; } = default!;
-public Guid AddonId { get; set; }
-public Addon Addon { get; set; } = default!;
-public decimal PriceAdjustment { get; set; } = 0;
-public bool IsDefault { get; set; } = false;
-public int DisplayOrder { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Category : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public Guid? ParentCategoryId { get; set; }
-public string? PhotoUrl { get; set; }
-public string? Icon { get; set; }
-public int DisplayOrder { get; set; }
-public bool IsActive { get; set; } = true;
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Cuisine : BaseEntity
-{
-public string Name { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
-using SaaSPlatform.Core.Catalog.Enums;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class FeaturedProduct : BaseEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public Guid ProductId { get; set; }
-public Product Product { get; set; } = default!;
-public ProductFeatureSection Section { get; set; }
-public Guid? CategoryId { get; set; }
-public int DisplayOrder { get; set; }
-public DateTime FeaturedFrom { get; set; }
-public DateTime? FeaturedUntil { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Product : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid CategoryId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public string? Description { get; set; }
-public decimal Price { get; set; }
-public bool IsActive { get; set; } = true;
-public int DisplayOrder { get; set; }
-public string? MainImageUrl { get; set; }
-public ICollection<ProductImage>? Images { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductAddon : BaseEntity
-{
-public Guid ProductId { get; set; }
-public Guid AddonId { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductAddonGroup : BaseEntity
-{
-public Guid ProductId { get; set; }
-public Product Product { get; set; } = default!;
-public Guid AddonGroupId { get; set; }
-public AddonGroup AddonGroup { get; set; } = default!;
-public bool IsRequired { get; set; } = true;
-public int DisplayOrder { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductImage : BaseEntity
-{
-public Guid ProductId { get; set; }
-public string ImageUrl { get; set; } = default!;
-public int DisplayOrder { get; set; }
-public bool IsPrimary { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductVariant : BaseEntity
-{
-public Guid ProductId { get; set; }
-public string Name { get; set; } = default!;
-public decimal Price { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
-namespace SaaSPlatform.Core.Catalog.Enums;
-public enum ProductFeatureSection
-{
-MainPage,
-Category
-}
-
-===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Core.Catalog.Interfaces;
-public interface IProductRepository
-{
-Task<Product?> GetByIdAsync(Guid productId, CancellationToken ct = default);
-Task<List<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
-void Add(Product product);
-void Update(Product product);
-void Delete(Product product);
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
-using SaaSPlatform.Core.Billing.Enums;
-using SaaSPlatform.Core.Orders.Enums;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class Order : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public Guid? TableId { get; set; }
-public long OrderNumber { get; set; }
-public OrderStatus Status { get; set; } = OrderStatus.Pending;
-public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
-public OrderChannel Channel { get; set; } = OrderChannel.QRMenu;
-public decimal Subtotal { get; set; }
-public decimal DiscountAmount { get; set; }
-public decimal TaxAmount { get; set; }
-public decimal TotalAmount { get; set; }
-public string? Notes { get; set; }
-public Guid? CreatedByUserId { get; set; }
-public ICollection<OrderItem>? Items { get; set; }
-public OrderType OrderType { get; set; } = OrderType.Pickup;
-public string? DeliveryAddress { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class OrderItem : BaseEntity
-{
-public Guid OrderId { get; set; }
-public Guid ProductId { get; set; }
-public Guid? ProductVariantId { get; set; }
-public string ProductNameSnapshot { get; set; } = default!;
-public string? VariantNameSnapshot { get; set; }
-public decimal UnitPrice { get; set; }
-public int Quantity { get; set; }
-public decimal LineTotal { get; set; }
-public ICollection<OrderItemAddon>? Addons { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class OrderItemAddon : BaseEntity
-{
-public Guid OrderItemId { get; set; }
-public string Name { get; set; } = default!;
-public decimal Price { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class RestaurantTable : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public int Capacity { get; set; }
-public bool IsActive { get; set; } = true;
-public string? QRCode { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderChannel
-{
-Web,
-MobileApp,
-QRMenu
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderStatus
-{
-Pending,
-Confirmed,
-Preparing,
-Delivered,
-Cancelled
-}
-
-===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderType
-{
-Delivery,
-Pickup,
-DineIn
-}
-
-===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
-namespace SaaSPlatform.Core.Tenant.Constants;
-public static class TenantConstants
-{
-public const string TenantHeader = "X-Tenant-ID";
-public const string TenantContextKey = "TenantId";
 }
 
