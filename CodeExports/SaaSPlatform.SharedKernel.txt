@@ -1,5 +1,8 @@
 ﻿
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -33,7 +36,12 @@ public abstract class AuditableEntity : BaseEntity
     /// </summary>
     public bool IsDeleted { get; set; }
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -47,7 +55,12 @@ public abstract class BaseEntity
     /// </summary>
     public Guid Id { get; set; }
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
 
 
 namespace SaaSPlatform.SharedKernel.Common;
@@ -64,7 +77,12 @@ public abstract class BaseTenantEntity
     /// </summary>
     public Guid TenantId { get; set; }
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
 
 
 
@@ -74,7 +92,13 @@ namespace SaaSPlatform.SharedKernel.Interfaces
     {
     }
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+==================================================
 
 
 namespace SaaSPlatform.SharedKernel.Interfaces;
@@ -83,7 +107,13 @@ public interface ISlugGenerator
 {
     string Generate(string input);
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs =====
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
+==================================================
 
 namespace SaaSPlatform.SharedKernel.Common;
 
@@ -91,7 +121,12 @@ public interface ITenantScoped
 {
     Guid TenantId { get; set; }
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+==================================================
 
 
 
@@ -104,7 +139,12 @@ public interface IUnitOfWork : IDisposable
     Task RollbackAsync(CancellationToken cancellationToken = default);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
+==================================================
 
 namespace SaaSPlatform.SharedKernel.Results;
 
@@ -146,3 +186,5 @@ public class Result<T> : Result
             Errors = errors ?? new()
         };
 }
+
+

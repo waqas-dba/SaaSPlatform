@@ -1,581 +1,594 @@
 ﻿
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Category : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public Guid? ParentCategoryId { get; set; }
-public string? PhotoUrl { get; set; }
-public string? Icon { get; set; }
-public int DisplayOrder { get; set; }
-public bool IsActive { get; set; } = true;
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Cuisine : BaseEntity
-{
-public string Name { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
-using SaaSPlatform.Core.Catalog.Enums;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class FeaturedProduct : BaseEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public Guid ProductId { get; set; }
-public Product Product { get; set; } = default!;
-public ProductFeatureSection Section { get; set; }
-public Guid? CategoryId { get; set; }
-public int DisplayOrder { get; set; }
-public DateTime FeaturedFrom { get; set; }
-public DateTime? FeaturedUntil { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class Product : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid CategoryId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public string? Description { get; set; }
-public decimal Price { get; set; }
-public bool IsActive { get; set; } = true;
-public int DisplayOrder { get; set; }
-public string? MainImageUrl { get; set; }
-public ICollection<ProductImage>? Images { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductAddon : BaseEntity
-{
-public Guid ProductId { get; set; }
-public Guid AddonId { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductAddonGroup : BaseEntity
-{
-public Guid ProductId { get; set; }
-public Product Product { get; set; } = default!;
-public Guid AddonGroupId { get; set; }
-public AddonGroup AddonGroup { get; set; } = default!;
-public bool IsRequired { get; set; } = true;
-public int DisplayOrder { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductImage : BaseEntity
-{
-public Guid ProductId { get; set; }
-public string ImageUrl { get; set; } = default!;
-public int DisplayOrder { get; set; }
-public bool IsPrimary { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Catalog.Entities;
-public class ProductVariant : BaseEntity
-{
-public Guid ProductId { get; set; }
-public string Name { get; set; } = default!;
-public decimal Price { get; set; }
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
-namespace SaaSPlatform.Core.Catalog.Enums;
-public enum ProductFeatureSection
-{
-MainPage,
-Category
-}
-
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Core.Catalog.Interfaces;
-public interface IProductRepository
-{
-Task<Product?> GetByIdAsync(Guid productId, CancellationToken ct = default);
-Task<List<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
-void Add(Product product);
-void Update(Product product);
-void Delete(Product product);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\ClaimConstants.cs =====
-using System.Security.Claims;
-namespace SaaSPlatform.Core.IAM.Constants;
-public static class ClaimConstants
-{
-public const string UserId = "userId";
-public const string TenantId = "tenantId";
-public const string Permission = "permission";
-public const string Email = ClaimTypes.Email;
-public const string Role = ClaimTypes.Role;
-public const string Name = ClaimTypes.Name;
-public const string NameIdentifier = ClaimTypes.NameIdentifier;
-public const string Subject = "sub";
-public const string JwtId = "jti";
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\Permissions.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Constants;
-public static class Permissions
-{
-public const string TenantView = "tenant.view";
-public const string TenantCreate = "tenant.create";
-public const string TenantApprove = "tenant.approve";
-public const string TenantReject = "tenant.reject";
-public const string UserView = "user.view";
-public const string UserCreate = "user.create";
-public const string UserUpdate = "user.update";
-public const string UserDelete = "user.delete";
-public const string BillingView = "billing.view";
-public const string BillingManage = "billing.manage";
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Permission.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class Permission : BaseEntity
-{
-public string Name { get; set; } = default!;
-public Guid PermissionModuleId { get; set; }
-public PermissionModule Module { get; set; } = default!;
-public ICollection<RolePermission>? RolePermissions { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\PermissionModule.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class PermissionModule : BaseEntity
-{
-public string Name { get; set; } = default!;
-public string Code { get; set; } = default!;
-public ICollection<Permission>? Permissions { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RefreshToken.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class RefreshToken : AuditableEntity
-{
-public Guid UserId { get; set; }
-public User? User { get; set; }
-public string Token { get; set; } = default!;
-public string JwtId { get; set; } = default!;
-public DateTime ExpiresAtUtc { get; set; }
-public bool IsRevoked { get; set; }
-public DateTime? RevokedAtUtc { get; set; }
-public string? ReplacedByToken { get; set; }
-public string? CreatedByIp { get; set; }
-public string? RevokedByIp { get; set; }
-public string? Device { get; set; }
-public string? UserAgent { get; set; }
-public Guid? SessionId { get; set; }
-public bool IsExpired =>
-DateTime.UtcNow >= ExpiresAtUtc;
-public bool IsActive =>
-!IsRevoked && !IsExpired;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Role.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class Role : BaseEntity
-{
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Description { get; set; }
-public bool IsSystem { get; set; }
-public ICollection<UserRole> UserRoles { get; set; }
-= new List<UserRole>();
-public ICollection<RolePermission> RolePermissions { get; set; }
-= new List<RolePermission>();
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RolePermission.cs =====
-namespace SaaSPlatform.Core.IAM.Entities;
-public class RolePermission
-{
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid PermissionId { get; set; }
-public Permission Permission { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\TenantUser.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class TenantUser : BaseEntity
-{
-public Guid TenantId { get; set; }
-public Guid UserId { get; set; }
-public bool IsOwner { get; set; }
-public bool IsActive { get; set; } = true;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\User.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class User : BaseEntity
-{
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Email { get; set; }
-public string Phone { get; set; } = default!;
-public string PasswordHash { get; set; } = default!;
-public bool IsActive { get; set; } = true;
-public DateTime? LastLoginAt { get; set; }
-public int FailedLoginAttempts { get; set; }
-public DateTime? LockoutEnd { get; set; }
-public ICollection<UserRole> Roles { get; set; }
-= new List<UserRole>();
-public ICollection<RefreshToken> RefreshTokens { get; set; }
-= new List<RefreshToken>();
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\UserRole.cs =====
-namespace SaaSPlatform.Core.IAM.Entities;
-public class UserRole
-{
-public Guid UserId { get; set; }
-public User User { get; set; } = default!;
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid TenantId { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IAuthService.cs =====
-using SaaSPlatform.Core.IAM.Models;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IAuthService
-{
-Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId);
-Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId);
-Task LogoutAsync(string refreshToken);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\ICurrentUserService.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface ICurrentUserService
-{
-Guid? UserId { get; }
-Guid? TenantId { get; }
-bool IsAuthenticated { get; }
-bool IsSuperAdmin { get; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IJwtTokenService.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IJwtTokenService
-{
-(string Token, DateTime ExpiresAt) GenerateAccessToken(
-User user,
-Guid tenantId,
-IEnumerable<string> roles,
-IEnumerable<string>? permissions = null);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPasswordHasher.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IPasswordHasher
-{
-string Hash(string password);
-bool Verify(string password, string passwordHash);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionRepository.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IPermissionRepository
-{
-Task<bool> HasPermissionAsync(Guid userId, Guid tenantId, string permission);
-Task<bool> HasPermissionByModuleAsync(Guid userId, Guid tenantId, string module);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionService.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Interfaces
-{
-public interface IPermissionService
-{
-Task<bool> HasPermissionAsync(Guid userId, Guid tenantId, string permission);
-Task<bool> HasModuleAccessAsync(Guid userId, Guid tenantId, string module);
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRefreshTokenRepository
-{
-Task AddAsync(RefreshToken token);
-Task<RefreshToken?> GetByTokenAsync(string token);
-Task UpdateAsync(RefreshToken token);
-Task RevokeAsync(RefreshToken token);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenService.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRefreshTokenService
-{
-Task<string> GenerateAsync(
-Guid userId,
-string jwtId,
-string? ipAddress = null,
-string? userAgent = null);
-Task<bool> ValidateAsync(string token);
-Task RevokeAsync(
-string token,
-string? replacedByToken = null,
-string? revokedByIp = null);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRoleRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRoleRepository
-{
-void Add(Role role);
-Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
-void AddRolePermission(RolePermission rolePermission);
-void AddUserRole(UserRole userRole);
-void AddTenantUser(TenantUser tenantUser);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IUserRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IUserRepository
-{
-Task<User?> GetByIdAsync(Guid userId);
-Task<User?> GetByPhoneAsync(string phone, Guid tenantId);
-Task<User?> GetByEmailAsync(string email, Guid tenantId);
-Task<List<User>> GetByTenantAsync(Guid tenantId);
-Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId);
-Task<bool> ExistsByEmailAsync(string email, Guid tenantId);
-Task AddAsync(User user);
-Task UpdateAsync(User user);
-Task DeleteAsync(User user);
-Task IncrementFailedLoginAttemptsAsync(Guid userId);
-Task ResetFailedLoginAttemptsAsync(Guid userId);
-Task LockUserAsync(Guid userId, DateTime lockoutEnd);
-Task<DateTime?> GetLockoutEndAsync(Guid userId);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.Tenant.Models
-{
-public class JwtSettings
-{
-public string Secret { get; set; } = default!;
-public string Issuer { get; set; } = default!;
-public string Audience { get; set; } = default!;
-public int AccessTokenMinutes { get; set; } = 120;
-public int RefreshTokenDays { get; set; } = 7;
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginRequest.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class LoginRequest
-{
-public string Phone { get; set; } = default!;
-public string Password { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginResponse.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class LoginResponse
-{
-public string AccessToken { get; set; } = default!;
-public string RefreshToken { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\RefreshTokenRequest.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class RefreshTokenRequest
-{
-public string RefreshToken { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\JwtTokenService.cs =====
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\JwtTokenService.cs =====
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using SaaSPlatform.Core.IAM.Constants;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
-namespace SaaSPlatform.Infrastructure.Services;
+using AuthCoreKit.IAM.Constants;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Services;
 public class JwtTokenService : IJwtTokenService
 {
-private readonly JwtSettings _jwtSettings;
-public JwtTokenService(
-IOptions<JwtSettings> jwtOptions)
+private readonly JwtSettings _settings;
+public JwtTokenService(IOptions<JwtSettings> options) => _settings = options.Value;
+public (string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
+IEnumerable<string> roles, IEnumerable<string>? permissions = null)
 {
-_jwtSettings = jwtOptions.Value;
-}
-public (string Token, DateTime ExpiresAt) GenerateAccessToken(
-User user,
-Guid tenantId,
-IEnumerable<string> roles,
-IEnumerable<string>? permissions = null)
-{
-var expiresAt = DateTime.UtcNow.AddMinutes(
-_jwtSettings.AccessTokenMinutes);
+var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
 var claims = new List<Claim>
 {
-new(
-ClaimConstants.UserId,
-user.Id.ToString()),
-new(
-ClaimConstants.TenantId,
-tenantId.ToString()),
-new(
-ClaimConstants.Email,
-user.Email),
-new(
-ClaimConstants.Subject,
-user.Id.ToString()),
-new(
-ClaimConstants.JwtId,
-Guid.NewGuid().ToString())
+new(ClaimConstants.UserId, user.Id.ToString()),
+new(ClaimConstants.Email, user.Email ?? ""),
+new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
 };
+if (tenantId.HasValue)
+claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
 foreach (var role in roles.Distinct())
-{
-claims.Add(new Claim(
-ClaimConstants.Role,
-role));
-}
+claims.Add(new Claim(ClaimConstants.Role, role));
 if (permissions != null)
-{
-foreach (var permission in permissions.Distinct())
-{
-claims.Add(new Claim(
-ClaimConstants.Permission,
-permission));
-}
-}
-var key = new SymmetricSecurityKey(
-Encoding.UTF8.GetBytes(_jwtSettings.Secret));
-var credentials = new SigningCredentials(
-key,
-SecurityAlgorithms.HmacSha256);
+foreach (var perm in permissions.Distinct())
+claims.Add(new Claim(ClaimConstants.Permission, perm));
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 var token = new JwtSecurityToken(
-issuer: _jwtSettings.Issuer,
-audience: _jwtSettings.Audience,
+issuer: _settings.Issuer,
+audience: _settings.Audience,
 claims: claims,
 expires: expiresAt,
-signingCredentials: credentials);
-var tokenValue = new JwtSecurityTokenHandler()
-.WriteToken(token);
-return (tokenValue, expiresAt);
+signingCredentials: creds);
+return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
 }
 }
 
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PasswordHasher.cs =====
-using SaaSPlatform.Core.IAM.Interfaces;
-using System.Security.Cryptography;
-using System.Text;
-namespace SaaSPlatform.Infrastructure.Services.IAM;
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PasswordHasher.cs =====
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
 public class PasswordHasher : IPasswordHasher
 {
-public string Hash(string password)
-{
-using var pbkdf2 = new Rfc2898DeriveBytes(
-password,
-saltSize: 16,
-iterations: 100_000,
-HashAlgorithmName.SHA256);
-var salt = pbkdf2.Salt;
-var hash = pbkdf2.GetBytes(32);
-return $"{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
-}
-public bool Verify(string password, string passwordHash)
-{
-var parts = passwordHash.Split(':');
-if (parts.Length != 2) return false;
-var salt = Convert.FromBase64String(parts[0]);
-var expectedHash = Convert.FromBase64String(parts[1]);
-using var pbkdf2 = new Rfc2898DeriveBytes(
-password,
-salt,
-100_000,
-HashAlgorithmName.SHA256);
-var actualHash = pbkdf2.GetBytes(32);
-return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
-}
+public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
+public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
 }
 
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PermissionService.cs =====
-using SaaSPlatform.Core.IAM.Interfaces;
-namespace SaaSPlatform.Core.IAM.Services;
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PermissionService.cs =====
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
 public class PermissionService : IPermissionService
 {
 private readonly IPermissionRepository _repo;
-public PermissionService(IPermissionRepository repo)
+public PermissionService(IPermissionRepository repo) => _repo = repo;
+public Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+=> _repo.HasPermissionAsync(userId, tenantId, permission);
+public Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module)
+=> _repo.HasPermissionByModuleAsync(userId, tenantId, module);
+public Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId)
+=> _repo.GetPermissionsAsync(userId, tenantId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RefreshTokenService.cs =====
+using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Services;
+public class RefreshTokenService : IRefreshTokenService
+{
+private readonly IRefreshTokenRepository _repo;
+private readonly JwtSettings _settings;
+public RefreshTokenService(IRefreshTokenRepository repo, IOptions<JwtSettings> options)
 {
 _repo = repo;
+_settings = options.Value;
 }
-public Task<bool> HasPermissionAsync(
-Guid userId,
-Guid tenantId,
-string permission)
+public async Task<string> GenerateAsync(Guid userId, string jwtId,
+string? ipAddress = null, string? userAgent = null)
 {
-return _repo.HasPermissionAsync(userId, tenantId, permission);
+var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+var refreshToken = new RefreshToken
+{
+UserId = userId,
+Token = token,
+JwtId = jwtId,
+ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
+CreatedByIp = ipAddress,
+UserAgent = userAgent
+};
+await _repo.AddAsync(refreshToken);
+return token;
 }
-public async Task<bool> HasModuleAccessAsync(
-Guid userId,
-Guid tenantId,
-string module)
+public async Task<bool> ValidateAsync(string token)
 {
-return await _repo.HasPermissionByModuleAsync(userId, tenantId, module);
+var rt = await _repo.GetByTokenAsync(token);
+return rt is { IsActive: true };
+}
+public async Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null)
+{
+var rt = await _repo.GetByTokenAsync(token);
+if (rt == null) return;
+rt.IsRevoked = true;
+rt.RevokedAtUtc = DateTime.UtcNow;
+rt.ReplacedByToken = replacedByToken;
+rt.RevokedByIp = revokedByIp;
+await _repo.UpdateAsync(rt);
 }
 }
 
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PhoneNormalizer.cs =====
-namespace SaaSPlatform.Core.IAM.Services;
-public static class PhoneNormalizer
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace AuthCoreKit.IAM.Services;
+public class RoleDocumentRequirementService : IRoleDocumentRequirementService
 {
-public static string Normalize(string phone)
+private readonly IIamDbContext _db;
+public RoleDocumentRequirementService(IIamDbContext db) => _db = db;
+public async Task AddRequirementAsync(Guid roleId, string documentType)
 {
-if (string.IsNullOrWhiteSpace(phone))
-return string.Empty;
-return phone.Trim()
-.Replace(" ", "")
-.Replace("-", "");
+bool exists = await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (!exists)
+{
+_db.RoleDocumentRequirements.Add(new RoleDocumentRequirement
+{
+Id = Guid.NewGuid(),
+RoleId = roleId,
+DocumentType = documentType
+});
+await _db.SaveChangesAsync();
+}
+}
+public async Task RemoveRequirementAsync(Guid roleId, string documentType)
+{
+var req = await _db.RoleDocumentRequirements
+.FirstOrDefaultAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (req != null)
+{
+_db.RoleDocumentRequirements.Remove(req);
+await _db.SaveChangesAsync();
+}
+}
+public async Task<List<string>> GetRequiredDocumentsAsync(Guid roleId)
+{
+return await _db.RoleDocumentRequirements
+.Where(r => r.RoleId == roleId)
+.Select(r => r.DocumentType)
+.ToListAsync();
+}
+public async Task<bool> IsRequiredAsync(Guid roleId, string documentType)
+{
+return await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace AuthCoreKit.IAM.Services;
+public class RoleManagementService : IRoleManagementService
+{
+private readonly IIamDbContext _db;
+private readonly ICurrentUserService _currentUser;
+private readonly IamOptions _options;
+public RoleManagementService(IIamDbContext db, ICurrentUserService currentUser, IamOptions options)
+{
+_db = db;
+_currentUser = currentUser;
+_options = options;
+}
+public async Task<List<Role>> GetRolesAsync(Guid? tenantId)
+=> await _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
+public async Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
+=> await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
+public async Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null)
+{
+if (await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId))
+throw new InvalidOperationException("A role with this name already exists in the tenant.");
+var role = new Role
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = name,
+Description = description,
+IsSystem = false
+};
+_db.Roles.Add(role);
+await _db.SaveChangesAsync();
+return role;
+}
+public async Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId)
+{
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.IsSystem)
+throw new UnauthorizedAccessException("System roles cannot be modified.");
+if (newName != null) role.Name = newName;
+if (newDescription != null) role.Description = newDescription;
+await _db.SaveChangesAsync();
+}
+public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
+{
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.IsSystem)
+throw new UnauthorizedAccessException("System roles cannot be deleted.");
+_db.Roles.Remove(role);
+await _db.SaveChangesAsync();
+}
+public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
+{
+var role = await _db.Roles.Include(r => r.RolePermissions)
+.FirstOrDefaultAsync(r => r.Id == roleId)
+?? throw new KeyNotFoundException("Role not found.");
+var permission = await _db.Permissions.FindAsync(permissionId)
+?? throw new KeyNotFoundException("Permission not found.");
+if (role.RolePermissions.Any(rp => rp.PermissionId == permissionId))
+throw new InvalidOperationException("Permission already assigned.");
+role.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permissionId });
+await _db.SaveChangesAsync();
+}
+public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
+{
+var rp = await _db.RolePermissions
+.FirstOrDefaultAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId)
+?? throw new KeyNotFoundException("Role does not have this permission.");
+_db.RolePermissions.Remove(rp);
+await _db.SaveChangesAsync();
+}
+public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
+=> await _db.RolePermissions
+.Where(rp => rp.RoleId == roleId)
+.Select(rp => rp.Permission)
+.ToListAsync();
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserDocumentService.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
+public class UserDocumentService : IUserDocumentService
+{
+private readonly IIamDbContext _db;
+public UserDocumentService(IIamDbContext db) => _db = db;
+public async Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl)
+{
+var existing = await _db.UserDocuments
+.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+if (existing != null)
+{
+existing.ImageUrl = imageUrl;
+_db.UserDocuments.Update(existing);
+}
+else
+{
+_db.UserDocuments.Add(new UserDocument
+{
+Id = Guid.NewGuid(),
+UserId = userId,
+DocumentType = documentType,
+ImageUrl = imageUrl
+});
+}
+await _db.SaveChangesAsync();
+}
+public async Task<UserDocument?> GetAsync(Guid userId, string documentType)
+=> await _db.UserDocuments
+.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+public async Task<List<UserDocument>> GetByUserAsync(Guid userId)
+=> await _db.UserDocuments
+.Where(d => d.UserId == userId)
+.ToListAsync();
+public async Task DeleteAsync(Guid userId, string documentType)
+{
+var doc = await GetAsync(userId, documentType);
+if (doc != null)
+{
+_db.UserDocuments.Remove(doc);
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserIdentityService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace AuthCoreKit.IAM.Services;
+public class UserIdentityService : IUserIdentityService
+{
+private readonly IIamDbContext _db;
+private readonly IEncryptionService _crypto;
+public UserIdentityService(IIamDbContext db, IEncryptionService crypto)
+{
+_db = db;
+_crypto = crypto;
+}
+public async Task SetCnicAsync(Guid userId, string plainCnic)
+{
+var encrypted = _crypto.Encrypt(plainCnic);
+var existing = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+if (existing != null)
+{
+existing.EncryptedCnic = encrypted;
+_db.UserIdentities.Update(existing);
+}
+else
+{
+_db.UserIdentities.Add(new UserIdentity
+{
+Id = Guid.NewGuid(),
+UserId = userId,
+EncryptedCnic = encrypted
+});
+}
+await _db.SaveChangesAsync();
+}
+public async Task<string?> GetCnicAsync(Guid userId)
+{
+var identity = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+return identity == null ? null : _crypto.Decrypt(identity.EncryptedCnic);
+}
+public async Task DeleteAsync(Guid userId)
+{
+var identity = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+if (identity != null)
+{
+_db.UserIdentities.Remove(identity);
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace AuthCoreKit.IAM.Services;
+public class UserManagementService : IUserManagementService
+{
+private readonly IIamDbContext _db;
+private readonly ICurrentUserService _currentUser;
+private readonly IPasswordHasher _passwordHasher;
+private readonly IamOptions _options;
+public UserManagementService(
+IIamDbContext db,
+ICurrentUserService currentUser,
+IPasswordHasher passwordHasher,
+IamOptions options)
+{
+_db = db;
+_currentUser = currentUser;
+_passwordHasher = passwordHasher;
+_options = options;
+}
+public async Task<List<User>> GetUsersAsync(Guid? tenantId)
+=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
+=> await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+public async Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId)
+{
+if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
+throw new InvalidOperationException("A user with this phone already exists in the tenant.");
+if (!string.IsNullOrWhiteSpace(email) &&
+await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
+throw new InvalidOperationException("A user with this email already exists in the tenant.");
+var user = new User
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = name,
+Phone = phone,
+Email = email,
+PasswordHash = _passwordHasher.Hash(password),
+IsActive = true
+};
+_db.Users.Add(user);
+await _db.SaveChangesAsync();
+return user;
+}
+public async Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+if (name != null) user.Name = name;
+if (phone != null) user.Phone = phone;
+if (email != null) user.Email = email;
+await _db.SaveChangesAsync();
+}
+public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+_db.Users.Remove(user);
+await _db.SaveChangesAsync();
+}
+public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+{
+var user = await _db.Users.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.Name == _options.SuperAdminRoleName)
+{
+if (!_currentUser.IsSuperAdmin)
+throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
+if (await _db.UserRoles.AnyAsync(ur => ur.RoleId == roleId && ur.UserId != userId))
+throw new InvalidOperationException("Only one system account is allowed.");
+}
+if (role.IsSystem && !_currentUser.IsSuperAdmin)
+throw new UnauthorizedAccessException("Cannot assign a system role.");
+if (user.Roles.Any(r => r.RoleId == roleId))
+throw new InvalidOperationException("User already has this role.");
+user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+await _db.SaveChangesAsync();
+}
+public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+{
+var user = await _db.Users.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+var userRole = user.Roles.FirstOrDefault(r => r.RoleId == roleId);
+if (userRole == null)
+throw new KeyNotFoundException("User does not have this role.");
+user.Roles.Remove(userRole);
+await _db.SaveChangesAsync();
+}
+public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = lockoutEnd;
+await _db.SaveChangesAsync();
+}
+public async Task UnlockUserAsync(Guid userId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = null;
+user.FailedLoginAttempts = 0;
+await _db.SaveChangesAsync();
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Authorization\TenantPermissionAttribute.cs =====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using AuthCoreKit.IAM.Interfaces;
+namespace SaaSPlatform.Api.Host.Authorization;
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+public class TenantPermissionAttribute : Attribute, IAsyncAuthorizationFilter
+{
+private readonly string _permission;
+public TenantPermissionAttribute(string permission) => _permission = permission;
+public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+{
+if (context.HttpContext.User.IsInRole("SuperAdmin"))
+return;
+var tenantIdObj = context.HttpContext.Items["TenantId"];
+if (tenantIdObj is not Guid tenantId)
+{
+context.Result = new UnauthorizedObjectResult("Missing tenant context.");
+return;
+}
+var userIdClaim = context.HttpContext.User.FindFirst("userId")?.Value;
+if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+{
+context.Result = new UnauthorizedObjectResult("User not authenticated.");
+return;
+}
+var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
+var hasPerm = await permissionService.HasPermissionAsync(userId, tenantId, _permission);
+if (!hasPerm)
+{
+context.Result = new ForbidResult();
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\AuthController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+[ApiController]
+[Route("api/auth")]
+public class AuthController : BaseApiController
+{
+private readonly IAuthService _authService;
+public AuthController(IAuthService authService)
+{
+_authService = authService;
+}
+[AllowAnonymous]
+[HttpPost("login")]
+public async Task<IActionResult> Login(LoginRequest request)
+{
+if (TenantId is null)
+return Fail("Missing tenant context");
+var result = await _authService.LoginAsync(request, TenantId.Value);
+return Success(result, "Login successful");
+}
+[AllowAnonymous]
+[HttpPost("refresh")]
+public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+{
+if (TenantId is null)
+return Fail("Missing tenant context");
+var result = await _authService.RefreshAsync(request, TenantId.Value);
+return Success(result, "Token refreshed");
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\TenantApprovalController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Authorization;
+using SaaSPlatform.Api.Host.Controllers;
+[ApiController]
+[Route("api/admin")]
+public class TenantApprovalController : BaseApiController
+{
+private readonly TenantApprovalService _approvalService;
+public TenantApprovalController(TenantApprovalService approvalService)
+=> _approvalService = approvalService;
+[TenantPermission("tenant.approve")]
+[HttpPost("tenants/{tenantId}/approve")]
+public async Task<IActionResult> ApproveTenant(Guid tenantId)
+{
+var (success, message) = await _approvalService.ApproveAsync(tenantId);
+if (!success)
+return Fail(message);
+return Success(new { }, message);
+}
+[TenantPermission("tenant.approve")]
+[HttpPost("tenants/{tenantId}/reject")]
+public async Task<IActionResult> RejectTenant(Guid tenantId)
+{
+var (success, message) = await _approvalService.RejectAsync(tenantId);
+if (!success)
+return Fail(message);
+return Success(new { }, message);
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Products\ProductsController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using SaaSPlatform.Application.Services;
+using SaaSPlatform.Core.Catalog.Entities;
+[ApiController]
+[Route("api/products")]
+public class ProductsController : BaseApiController
+{
+private readonly ProductManagementService _productService;
+public ProductsController(ProductManagementService productService)
+=> _productService = productService;
+[HttpGet]
+public async Task<IActionResult> GetProducts(Guid storeId)
+{
+var products = await _productService.GetStoreProductsAsync(storeId);
+return Success(products);
+}
+[HttpPost]
+public async Task<IActionResult> CreateProduct(Product product)
+{
+var created = await _productService.CreateProductAsync(product);
+return Success(created);
 }
 }
 

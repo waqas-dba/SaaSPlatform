@@ -1,8 +1,10 @@
-﻿using SaaSPlatform.Core.Billing.Entities;
+﻿using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
+using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher, IUserIdentityService
+using AuthCoreKit.IAM.Models;            // IamOptions
+using Microsoft.Extensions.DependencyInjection;
+using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
-using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
-using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -24,6 +26,9 @@ public class TenantRegistrationAppService
     private readonly ISlugGenerator _slugGenerator;
     private readonly IUnitOfWork _unitOfWork;
 
+    private readonly IamOptions _iamOptions;
+    private readonly IServiceProvider _serviceProvider;
+
     public TenantRegistrationAppService(
         ITenantAccountRepository tenantRepo,
         IStoreRepository storeRepo,
@@ -33,7 +38,9 @@ public class TenantRegistrationAppService
         ISubscriptionRepository subscriptionRepo,
         IPasswordHasher passwordHasher,
         ISlugGenerator slugGenerator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IamOptions iamOptions,
+        IServiceProvider serviceProvider)
     {
         _tenantRepo = tenantRepo;
         _storeRepo = storeRepo;
@@ -44,15 +51,17 @@ public class TenantRegistrationAppService
         _passwordHasher = passwordHasher;
         _slugGenerator = slugGenerator;
         _unitOfWork = unitOfWork;
+        _iamOptions = iamOptions;
+        _serviceProvider = serviceProvider;
     }
 
     public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
     {
-        // 1. Tenant name uniqueness (already implemented)
+        // 1. Tenant name uniqueness
         if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
             return Result<Guid>.Failure("A tenant with this name already exists.");
 
-        // 2. Global phone uniqueness – use ExistsByPhoneAsync with tenantId: null
+        // 2. Global phone uniqueness – one phone = one user = one tenant
         if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
             return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
 
@@ -77,6 +86,21 @@ public class TenantRegistrationAppService
             LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
             CreateLegalInfo(tenant.Id, request);
             await CreateStarterSubscriptionAsync(tenant.Id);
+
+            // ========== STORE ENCRYPTED CNIC (if enabled) ==========
+            if (_iamOptions.EnableUserIdentities && _iamOptions.RequireCnic)
+            {
+                if (string.IsNullOrWhiteSpace(request.CnicNumber))
+                    throw new InvalidOperationException("CNIC number is required.");
+
+                // Basic validation (13 digits, optional dashes)
+                var cnic = request.CnicNumber.Replace("-", "").Trim();
+                if (cnic.Length != 13 || !cnic.All(char.IsDigit))
+                    throw new InvalidOperationException("Invalid CNIC number format.");
+
+                var identityService = _serviceProvider.GetRequiredService<IUserIdentityService>();
+                await identityService.SetCnicAsync(user.Id, cnic);
+            }
 
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
@@ -178,8 +202,6 @@ public class TenantRegistrationAppService
             RoleId = roleId,
             TenantId = tenantId
         });
-
-        // ❌ Removed: _roleRepo.AddTenantUser(...) – TenantUser is obsolete.
     }
 
     private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)

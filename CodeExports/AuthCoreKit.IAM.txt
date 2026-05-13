@@ -1,0 +1,2205 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Authorization\RequiresPermissionAttribute.cs
+==================================================
+
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+
+namespace AuthCoreKit.IAM.Authorization
+{
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+    public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
+    {
+        private readonly string _permission;
+
+        public RequiresPermissionAttribute(string permission) => _permission = permission;
+
+        public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+        {
+            var user = context.HttpContext.User;
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                context.Result = new UnauthorizedResult();
+                return;
+            }
+
+            var options = context.HttpContext.RequestServices.GetService<IamOptions>();
+            if (options?.SuperAdminBypassPermissions == true && user.IsInRole(options.SuperAdminRoleName))
+                return;
+
+            var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
+            var currentUserService = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
+
+            if (currentUserService.UserId == null)
+            {
+                context.Result = new UnauthorizedObjectResult("User not authenticated.");
+                return;
+            }
+
+            var tenantId = currentUserService.TenantId;
+            var hasPermission = await permissionService.HasPermissionAsync(
+                currentUserService.UserId.Value, tenantId, _permission);
+
+            if (!hasPermission)
+                context.Result = new ForbidResult();
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\PermissionConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
+{
+    public void Configure(EntityTypeBuilder<Permission> builder)
+    {
+        builder.ToTable("IAM_Permissions");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.Name).IsUnique();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\PermissionModuleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class PermissionModuleConfiguration : IEntityTypeConfiguration<PermissionModule>
+{
+    public void Configure(EntityTypeBuilder<PermissionModule> builder)
+    {
+        builder.ToTable("IAM_PermissionModules");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.Code).IsUnique();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RefreshTokenConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
+{
+    public void Configure(EntityTypeBuilder<RefreshToken> builder)
+    {
+        builder.ToTable("IAM_RefreshTokens");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.Token).IsUnique();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RoleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class RoleConfiguration : IEntityTypeConfiguration<Role>
+{
+    public void Configure(EntityTypeBuilder<Role> builder)
+    {
+        builder.ToTable("IAM_Roles");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => new { x.TenantId, x.Name });
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RoleDocumentRequirementConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class RoleDocumentRequirementConfiguration : IEntityTypeConfiguration<RoleDocumentRequirement>
+{
+    public void Configure(EntityTypeBuilder<RoleDocumentRequirement> builder)
+    {
+        builder.ToTable("IAM_RoleDocumentRequirements");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => new { x.RoleId, x.DocumentType }).IsUnique();
+        builder.Property(x => x.DocumentType).IsRequired().HasMaxLength(50);
+        builder.HasOne(x => x.Role)
+               .WithMany()
+               .HasForeignKey(x => x.RoleId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RolePermissionConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration
+{
+    public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
+    {
+        public void Configure(EntityTypeBuilder<RolePermission> builder)
+        {
+            builder.ToTable("IAM_RolePermissions");
+            builder.HasKey(x => new { x.RoleId, x.PermissionId });
+
+            builder.HasOne(rp => rp.Role)
+                   .WithMany(r => r.RolePermissions)
+                   .HasForeignKey(rp => rp.RoleId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasOne(rp => rp.Permission)
+                   .WithMany(p => p.RolePermissions)
+                   .HasForeignKey(rp => rp.PermissionId)
+                   .OnDelete(DeleteBehavior.Cascade);
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration
+{
+    public class UserConfiguration : IEntityTypeConfiguration<User>
+    {
+        public void Configure(EntityTypeBuilder<User> builder)
+        {
+            builder.ToTable("IAM_Users");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            builder.Property(x => x.Phone).IsRequired().HasMaxLength(20);
+            builder.Property(x => x.Email).HasMaxLength(200);
+            builder.Property(x => x.PasswordHash).IsRequired();
+            builder.Property(x => x.FailedLoginAttempts).HasDefaultValue(0);
+            builder.Property(x => x.IsActive).HasDefaultValue(true);
+            builder.HasIndex(x => x.Phone).IsUnique();
+            builder.HasIndex(x => x.Email).IsUnique();
+            builder.HasMany(x => x.Roles).WithOne().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserDocumentConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class UserDocumentConfiguration : IEntityTypeConfiguration<UserDocument>
+{
+    public void Configure(EntityTypeBuilder<UserDocument> builder)
+    {
+        builder.ToTable("IAM_UserDocuments");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.DocumentType).IsRequired().HasMaxLength(50);
+        builder.Property(x => x.ImageUrl).IsRequired().HasMaxLength(2000);
+        builder.HasIndex(x => new { x.UserId, x.DocumentType }).IsUnique();
+        builder.HasOne(x => x.User)
+               .WithMany()
+               .HasForeignKey(x => x.UserId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserIdentityConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration;
+
+public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
+{
+    public void Configure(EntityTypeBuilder<UserIdentity> builder)
+    {
+        builder.ToTable("IAM_UserIdentities");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.EncryptedCnic).IsRequired().HasMaxLength(500);
+        builder.HasIndex(x => x.UserId).IsUnique();
+        builder.HasOne(x => x.User)
+               .WithOne()
+               .HasForeignKey<UserIdentity>(x => x.UserId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserRoleConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Configuration
+{
+    public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
+    {
+        public void Configure(EntityTypeBuilder<UserRole> builder)
+        {
+            builder.ToTable("IAM_UserRoles");
+            builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
+
+            builder.HasOne(ur => ur.User)
+                   .WithMany(u => u.Roles)
+                   .HasForeignKey(ur => ur.UserId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasOne(ur => ur.Role)
+                   .WithMany(r => r.UserRoles)
+                   .HasForeignKey(ur => ur.RoleId)
+                   .OnDelete(DeleteBehavior.Cascade);
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Constants\ClaimConstants.cs
+==================================================
+
+using System.Security.Claims;
+
+namespace AuthCoreKit.IAM.Constants;
+
+public static class ClaimConstants
+{
+    public const string UserId = "userId";
+    public const string TenantId = "tenantId";
+    public const string Permission = "permission";
+    public const string Email = ClaimTypes.Email;
+    public const string Role = ClaimTypes.Role;
+    public const string Name = ClaimTypes.Name;
+    public const string JwtId = "jti";
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\AuditableEntity.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public abstract class AuditableEntity : BaseEntity
+{
+    public DateTime CreatedAt { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
+    public bool IsDeleted { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\BaseEntity.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public abstract class BaseEntity
+{
+    public Guid Id { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\Permission.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class Permission : BaseEntity
+{
+    public string Name { get; set; } = default!;
+    public Guid PermissionModuleId { get; set; }
+    public PermissionModule Module { get; set; } = default!;
+    public ICollection<RolePermission>? RolePermissions { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\PermissionModule.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class PermissionModule : BaseEntity
+{
+    public string Name { get; set; } = default!;
+    public string Code { get; set; } = default!;
+    public ICollection<Permission>? Permissions { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RefreshToken.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class RefreshToken : AuditableEntity
+{
+    public Guid UserId { get; set; }
+    public User? User { get; set; }
+    public string Token { get; set; } = default!;
+    public string JwtId { get; set; } = default!;
+    public DateTime ExpiresAtUtc { get; set; }
+    public bool IsRevoked { get; set; }
+    public DateTime? RevokedAtUtc { get; set; }
+    public string? ReplacedByToken { get; set; }
+    public string? CreatedByIp { get; set; }
+    public string? RevokedByIp { get; set; }
+    public string? Device { get; set; }
+    public string? UserAgent { get; set; }
+
+    public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
+    public bool IsActive => !IsRevoked && !IsExpired;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\Role.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class Role : BaseEntity
+{
+    public Guid? TenantId { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Description { get; set; }
+    public bool IsSystem { get; set; }
+
+    public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RoleDocumentRequirement.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+/// <summary>
+/// Defines a document type that is required for a given role.
+/// </summary>
+public class RoleDocumentRequirement
+{
+    public Guid Id { get; set; }
+    public Guid RoleId { get; set; }
+    public string DocumentType { get; set; } = default!;   // e.g. "cnic_front", "driving_license_front"
+
+    public Role Role { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RolePermission.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class RolePermission
+{
+    public Guid RoleId { get; set; }
+    public Role Role { get; set; } = default!;
+    public Guid PermissionId { get; set; }
+    public Permission Permission { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\User.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class User : BaseEntity
+{
+    public Guid? TenantId { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Email { get; set; }
+    public string Phone { get; set; } = default!;
+    public string PasswordHash { get; set; } = default!;
+    public bool IsActive { get; set; } = true;
+    public DateTime? LastLoginAt { get; set; }
+    public int FailedLoginAttempts { get; set; }
+    public DateTime? LockoutEnd { get; set; }
+
+    public ICollection<UserRole> Roles { get; set; } = new List<UserRole>();
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserDocument.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+/// <summary>
+/// Stores sensitive identity documents (images) for a user.
+/// </summary>
+public class UserDocument
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string DocumentType { get; set; } = default!;  // e.g. "cnic_front", "cnic_back", "passport"
+    public string ImageUrl { get; set; } = default!;      // URL or base64 data
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public User User { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserIdentity.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+/// <summary>
+/// Stores sensitive identity data (encrypted CNIC number) for a user.
+/// Only one record per user.
+/// </summary>
+public class UserIdentity
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string EncryptedCnic { get; set; } = default!;    // AES encrypted CNIC number
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public User User { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserRole.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Entities;
+
+public class UserRole
+{
+    public Guid UserId { get; set; }
+    public User User { get; set; } = default!;
+    public Guid RoleId { get; set; }
+    public Role Role { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Extensions\ServiceCollectionExtensions.cs
+==================================================
+
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Repositories;
+using AuthCoreKit.IAM.Services;
+using AuthCoreKit.IAM.Models;
+using Microsoft.Extensions.Configuration;
+
+namespace AuthCoreKit.IAM.Extensions
+{
+    public static class ServiceCollectionExtensions
+    {
+        public static IServiceCollection AddAuthCoreKit<TDbContext>(
+            this IServiceCollection services,
+            IConfigurationSection jwtSection,
+            Action<IamOptions>? configureOptions = null)
+            where TDbContext : class, IIamDbContext
+        {
+            // 1. Bind IIamDbContext to the host's DbContext
+            services.AddScoped<IIamDbContext>(sp => sp.GetRequiredService<TDbContext>());
+
+            // 2. Load JWT settings & IamOptions
+            var jwtSettings = jwtSection.Get<JwtSettings>()
+                              ?? throw new InvalidOperationException("JWT configuration section is missing.");
+
+            services.Configure<JwtSettings>(jwtSection);
+
+            var options = new IamOptions();
+            configureOptions?.Invoke(options);
+            services.AddSingleton(options);
+
+            // 3. Repositories
+            services.AddScoped<IUserRepository, UserRepository>();
+            services.AddScoped<IRoleRepository, RoleRepository>();
+            services.AddScoped<IPermissionRepository, PermissionRepository>();
+            services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+
+            // 4. Core services
+            services.AddScoped<IJwtTokenService, JwtTokenService>();
+            services.AddScoped<IPasswordHasher, PasswordHasher>();
+            services.AddScoped<IAuthService, AuthService>();
+            services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+            services.AddScoped<IPermissionService, PermissionService>();
+            services.AddScoped<IRoleManagementService, RoleManagementService>();
+            services.AddScoped<IUserManagementService, UserManagementService>();
+            services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+            // 5. Optional document‑related services
+            if (options.EnableUserDocuments)
+            {
+                services.AddScoped<IUserDocumentService, UserDocumentService>();
+
+                if (options.EnableUserIdentities)
+                {
+                    services.AddScoped<IUserIdentityService, UserIdentityService>();
+                }
+
+                if (options.EnableRoleDocumentRequirements)
+                {
+                    services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
+                }
+            }
+
+            // 6. JWT Authentication & Authorization
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(opt =>
+                {
+                    opt.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = jwtSettings.Issuer,
+                        ValidAudience = jwtSettings.Audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+                        ClockSkew = TimeSpan.Zero
+                    };
+                });
+
+            services.AddAuthorization();
+
+            return services;
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Helpers\PhoneNormalizer.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Helpers;
+
+public static class PhoneNormalizer
+{
+    public static string Normalize(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
+        return phone.Trim().Replace(" ", "").Replace("-", "");
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IAuthService.cs
+==================================================
+
+using AuthCoreKit.IAM.Models;
+
+namespace AuthCoreKit.IAM.Interfaces
+{
+    public interface IAuthService
+    {
+        Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId);
+        Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId);
+        Task LogoutAsync(string refreshToken);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\ICurrentUserService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface ICurrentUserService
+{
+    Guid? UserId { get; }
+    Guid? TenantId { get; }
+    bool IsAuthenticated { get; }
+    bool IsSuperAdmin { get; }
+    bool HasPermission(string permission);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IEncryptionService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+/// <summary>
+/// Host‑provided encryption service for sensitive data.
+/// </summary>
+public interface IEncryptionService
+{
+    string Encrypt(string plainText);
+    string Decrypt(string cipherText);
+
+    byte[] Encrypt(byte[] plainBytes);
+    byte[] Decrypt(byte[] encryptedBytes);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IIamDbContext.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IIamDbContext
+{
+    // Existing sets
+    DbSet<User> Users { get; }
+    DbSet<Role> Roles { get; }
+    DbSet<UserRole> UserRoles { get; }
+    DbSet<Permission> Permissions { get; }
+    DbSet<PermissionModule> PermissionModules { get; }
+    DbSet<RolePermission> RolePermissions { get; }
+    DbSet<RefreshToken> RefreshTokens { get; }
+
+    // NEW – document‑related sets
+    DbSet<UserDocument> UserDocuments { get; }
+    DbSet<UserIdentity> UserIdentities { get; }
+    DbSet<RoleDocumentRequirement> RoleDocumentRequirements { get; }
+
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IJwtTokenService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IJwtTokenService
+{
+    (string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
+        IEnumerable<string> roles, IEnumerable<string>? permissions = null);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPasswordHasher.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IPasswordHasher
+{
+    string Hash(string password);
+    bool Verify(string password, string passwordHash);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPermissionRepository.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IPermissionRepository
+{
+    Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+    Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module);
+    Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPermissionService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IPermissionService
+{
+    Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+    Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module);
+    Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRefreshTokenRepository.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces
+{
+    public interface IRefreshTokenRepository
+    {
+        Task AddAsync(RefreshToken token);
+        Task<RefreshToken?> GetByTokenAsync(string token);
+        Task UpdateAsync(RefreshToken token);
+        Task RevokeAsync(RefreshToken token);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRefreshTokenService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IRefreshTokenService
+{
+    Task<string> GenerateAsync(Guid userId, string jwtId, string? ipAddress = null, string? userAgent = null);
+    Task<bool> ValidateAsync(string token);
+    Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleDocumentRequirementService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IRoleDocumentRequirementService
+{
+    Task AddRequirementAsync(Guid roleId, string documentType);
+    Task RemoveRequirementAsync(Guid roleId, string documentType);
+    Task<List<string>> GetRequiredDocumentsAsync(Guid roleId);
+    Task<bool> IsRequiredAsync(Guid roleId, string documentType);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleManagementService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IRoleManagementService
+{
+    Task<List<Role>> GetRolesAsync(Guid? tenantId);
+    Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId);
+    Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null);
+    Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId);
+    Task DeleteRoleAsync(Guid roleId, Guid? tenantId);
+    Task AssignPermissionAsync(Guid roleId, Guid permissionId);
+    Task RemovePermissionAsync(Guid roleId, Guid permissionId);
+    Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleRepository.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IRoleRepository
+{
+    Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId);
+    Task<Role?> GetByIdAsync(Guid roleId);
+    void Add(Role role);
+    void Update(Role role);
+    void Delete(Role role);
+    Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
+    void AddRolePermission(RolePermission rolePermission);
+    void RemoveRolePermission(RolePermission rolePermission);
+    void AddUserRole(UserRole userRole);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserDocumentService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IUserDocumentService
+{
+    Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl);
+    Task<UserDocument?> GetAsync(Guid userId, string documentType);
+    Task<List<UserDocument>> GetByUserAsync(Guid userId);
+    Task DeleteAsync(Guid userId, string documentType);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserIdentityService.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IUserIdentityService
+{
+    Task SetCnicAsync(Guid userId, string plainCnic);
+    Task<string?> GetCnicAsync(Guid userId);
+    Task DeleteAsync(Guid userId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserManagementService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IUserManagementService
+{
+    Task<List<User>> GetUsersAsync(Guid? tenantId);
+    Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId);
+    Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId);
+    Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId);
+    Task DeleteUserAsync(Guid userId, Guid? tenantId);
+    Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+    Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+    Task LockUserAsync(Guid userId, DateTime lockoutEnd);
+    Task UnlockUserAsync(Guid userId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserRepository.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+
+namespace AuthCoreKit.IAM.Interfaces;
+
+public interface IUserRepository
+{
+    Task<User?> GetByIdAsync(Guid userId);
+    Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null);
+    Task<User?> GetByEmailAsync(string email, Guid? tenantId = null);
+    Task<List<User>> GetByTenantAsync(Guid tenantId);
+    Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null);
+    Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null);
+    void Add(User user);
+    void Update(User user);
+    void Delete(User user);
+
+    /// <summary>
+    /// Retrieves a user for login purposes, respecting the configured login identifier (phone, email, or both).
+    /// If both, the input is checked for '@' to decide which field to query.
+    /// </summary>
+    Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\AssignRoleRequest.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Models;
+
+public class AssignRoleRequest
+{
+    public Guid RoleId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\IamOptions.cs
+==================================================
+
+using Microsoft.AspNetCore.Http;
+
+namespace AuthCoreKit.IAM.Models;
+
+public class IamOptions
+{
+    /// <summary>Defines which field(s) are accepted for login ("phone", "email", "both").</summary>
+    public string LoginIdentifier { get; set; } = "phone";
+
+    /// <summary>Delegate to extract tenant ID from HttpContext.</summary>
+    public Func<HttpContext, Guid?>? TenantResolver { get; set; }
+
+    /// <summary>SuperAdmin role name (default "SuperAdmin").</summary>
+    public string SuperAdminRoleName { get; set; } = "SuperAdmin";
+
+    /// <summary>If true, users with the SuperAdmin role bypass all permission checks.</summary>
+    public bool SuperAdminBypassPermissions { get; set; } = true;
+
+    /// <summary>Minimum password length (used by validation).</summary>
+    public int MinPasswordLength { get; set; } = 8;
+
+    // ---------- Document‑related toggles ----------
+
+    /// <summary>If true, the UserDocument service is registered.</summary>
+    public bool EnableUserDocuments { get; set; } = false;
+
+    /// <summary>If true, the UserIdentity service is registered (requires EnableUserDocuments = true).</summary>
+    public bool EnableUserIdentities { get; set; } = false;
+
+    /// <summary>When true, a CNIC number is required at registration time. Only effective if EnableUserIdentities is also true.</summary>
+    public bool RequireCnic { get; set; } = true;
+
+    /// <summary>If true, the RoleDocumentRequirement service is registered (requires EnableUserDocuments = true).</summary>
+    public bool EnableRoleDocumentRequirements { get; set; } = false;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\JwtSettings.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Models;
+
+public class JwtSettings
+{
+    public string Secret { get; set; } = default!;
+    public string Issuer { get; set; } = default!;
+    public string Audience { get; set; } = default!;
+    public int AccessTokenMinutes { get; set; } = 120;
+    public int RefreshTokenDays { get; set; } = 7;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\LoginRequest.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Models;
+
+public class LoginRequest
+{
+    public string Login { get; set; } = default!;
+    public string Password { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\LoginResponse.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Models;
+
+public class LoginResponse
+{
+    public string AccessToken { get; set; } = default!;
+    public string RefreshToken { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\RefreshTokenRequest.cs
+==================================================
+
+namespace AuthCoreKit.IAM.Models;
+
+public class RefreshTokenRequest
+{
+    public string RefreshToken { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\PermissionRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Repositories;
+
+public class PermissionRepository : IPermissionRepository
+{
+    private readonly IIamDbContext _db;
+
+    public PermissionRepository(IIamDbContext db) => _db = db;
+
+    public async Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+        => await _db.UserRoles
+            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role!.RolePermissions!)
+            .AnyAsync(rp => rp.Permission != null && rp.Permission.Name == permission);
+
+    public async Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module)
+    {
+        var prefix = module + ".";
+        return await _db.UserRoles
+            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role!.RolePermissions!)
+            .AnyAsync(rp => rp.Permission != null && rp.Permission.Name.StartsWith(prefix));
+    }
+
+    public async Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId)
+        => await _db.UserRoles
+            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+            .SelectMany(ur => ur.Role!.RolePermissions!)
+            .Where(rp => rp.Permission != null)
+            .Select(rp => rp.Permission!.Name)
+            .Distinct()
+            .ToListAsync();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\RefreshTokenRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Repositories;
+
+public class RefreshTokenRepository : IRefreshTokenRepository
+{
+    private readonly IIamDbContext _db;
+
+    public RefreshTokenRepository(IIamDbContext db) => _db = db;
+
+    public async Task AddAsync(RefreshToken token)
+    {
+        await _db.RefreshTokens.AddAsync(token);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<RefreshToken?> GetByTokenAsync(string token)
+        => await _db.RefreshTokens.FirstOrDefaultAsync(t => t.Token == token);
+
+    public async Task UpdateAsync(RefreshToken token)
+    {
+        _db.RefreshTokens.Update(token);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RevokeAsync(RefreshToken token)
+    {
+        token.IsRevoked = true;
+        token.RevokedAtUtc = DateTime.UtcNow;
+        await UpdateAsync(token);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\RoleRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Repositories;
+
+public class RoleRepository : IRoleRepository
+{
+    private readonly IIamDbContext _db;
+
+    public RoleRepository(IIamDbContext db) => _db = db;
+
+    public async Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId)
+        => await _db.Roles
+            .Where(r => r.TenantId == tenantId || (tenantId == null && r.TenantId == null))
+            .ToListAsync();
+
+    public async Task<Role?> GetByIdAsync(Guid roleId)
+        => await _db.Roles.Include(r => r.RolePermissions)
+                .FirstOrDefaultAsync(r => r.Id == roleId);
+
+    public void Add(Role role) => _db.Roles.Add(role);
+    public void Update(Role role) => _db.Roles.Update(role);
+    public void Delete(Role role) => _db.Roles.Remove(role);
+
+    public async Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default)
+        => await _db.Permissions.ToListAsync(ct);
+
+    public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
+    public void RemoveRolePermission(RolePermission rp) => _db.RolePermissions.Remove(rp);
+    public void AddUserRole(UserRole ur) => _db.UserRoles.Add(ur);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\UserRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Helpers;
+
+namespace AuthCoreKit.IAM.Repositories;
+
+public class UserRepository : IUserRepository
+{
+    private readonly IIamDbContext _db;
+
+    public UserRepository(IIamDbContext db) => _db = db;
+
+    public async Task<User?> GetByIdAsync(Guid userId)
+        => await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+    public async Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null)
+    {
+        var normalized = PhoneNormalizer.Normalize(phone);
+        var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+                        .Where(u => u.Phone == normalized);
+        query = tenantId.HasValue
+            ? query.Where(u => u.TenantId == tenantId.Value)
+            : query.Where(u => u.TenantId == null);
+        return await query.FirstOrDefaultAsync();
+    }
+
+    public async Task<User?> GetByEmailAsync(string email, Guid? tenantId = null)
+    {
+        var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+                        .Where(u => u.Email == email);
+        query = tenantId.HasValue
+            ? query.Where(u => u.TenantId == tenantId.Value)
+            : query.Where(u => u.TenantId == null);
+        return await query.FirstOrDefaultAsync();
+    }
+
+    public async Task<List<User>> GetByTenantAsync(Guid tenantId)
+        => await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+
+    public async Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null)
+    {
+        var normalized = PhoneNormalizer.Normalize(phone);
+        var query = _db.Users.Where(u => u.Phone == normalized);
+        query = tenantId.HasValue
+            ? query.Where(u => u.TenantId == tenantId.Value)
+            : query.Where(u => u.TenantId == null);
+        return await query.AnyAsync();
+    }
+
+    public async Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null)
+    {
+        var query = _db.Users.Where(u => u.Email == email);
+        query = tenantId.HasValue
+            ? query.Where(u => u.TenantId == tenantId.Value)
+            : query.Where(u => u.TenantId == null);
+        return await query.AnyAsync();
+    }
+
+    public void Add(User user) => _db.Users.Add(user);
+    public void Update(User user) => _db.Users.Update(user);
+    public void Delete(User user) => _db.Users.Remove(user);
+
+    public async Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier)
+    {
+        switch (loginIdentifier.ToLowerInvariant())
+        {
+            case "email":
+                return await GetByEmailAsync(login, tenantId);
+            case "both":
+                if (login.Contains('@'))
+                    return await GetByEmailAsync(login, tenantId);
+                return await GetByPhoneAsync(login, tenantId);
+            default: // "phone"
+                return await GetByPhoneAsync(login, tenantId);
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\AuthService.cs
+==================================================
+
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class AuthService : IAuthService
+{
+    private readonly IUserRepository _userRepo;
+    private readonly IJwtTokenService _jwtService;
+    private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IRefreshTokenRepository _refreshRepo;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IamOptions _options;                     // Added
+
+    public AuthService(
+        IUserRepository userRepo,
+        IJwtTokenService jwtService,
+        IRefreshTokenService refreshTokenService,
+        IRefreshTokenRepository refreshRepo,
+        IPasswordHasher passwordHasher,
+        IamOptions options)                                   // Added
+    {
+        _userRepo = userRepo;
+        _jwtService = jwtService;
+        _refreshTokenService = refreshTokenService;
+        _refreshRepo = refreshRepo;
+        _passwordHasher = passwordHasher;
+        _options = options;
+    }
+
+    public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
+    {
+        // Use the configurable login identifier
+        var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier);
+
+        if (user == null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+            throw new UnauthorizedAccessException("Invalid credentials");
+
+        var roles = user.Roles.Select(r => r.Role.Name).ToList();
+        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+        var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+
+        return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
+    }
+
+    public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
+    {
+        var storedToken = await _refreshRepo.GetByTokenAsync(request.RefreshToken);
+        if (storedToken == null || !storedToken.IsActive)
+            throw new UnauthorizedAccessException("Invalid or expired refresh token");
+
+        var user = await _userRepo.GetByIdAsync(storedToken.UserId);
+        if (user == null)
+            throw new UnauthorizedAccessException("User not found");
+
+        await _refreshTokenService.RevokeAsync(storedToken.Token);
+
+        var roles = user.Roles.Select(r => r.Role.Name).ToList();
+        var (newAccessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+        var newRefresh = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+
+        return new LoginResponse { AccessToken = newAccessToken, RefreshToken = newRefresh };
+    }
+
+    public async Task LogoutAsync(string refreshToken)
+    {
+        await _refreshTokenService.RevokeAsync(refreshToken);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\CurrentUserService.cs
+==================================================
+
+using AuthCoreKit.IAM.Constants;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class CurrentUserService : ICurrentUserService
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IamOptions _options;
+
+    public CurrentUserService(IHttpContextAccessor httpContextAccessor, IamOptions options)
+    {
+        _httpContextAccessor = httpContextAccessor;
+        _options = options;
+    }
+
+    public Guid? UserId
+    {
+        get
+        {
+            var value = _httpContextAccessor.HttpContext?.User
+                .FindFirst(ClaimConstants.UserId)?.Value;
+            return Guid.TryParse(value, out var id) ? id : null;
+        }
+    }
+
+    public Guid? TenantId
+    {
+        get
+        {
+            if (_options.TenantResolver != null)
+                return _options.TenantResolver(_httpContextAccessor.HttpContext!);
+            return null;
+        }
+    }
+
+    public bool IsAuthenticated => UserId.HasValue;
+
+    public bool IsSuperAdmin =>
+        _httpContextAccessor.HttpContext?.User
+            .IsInRole(_options.SuperAdminRoleName) == true;
+
+    public bool HasPermission(string permission)
+        => _httpContextAccessor.HttpContext?.User
+            .FindFirst(c => c.Type == ClaimConstants.Permission && c.Value == permission) != null;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\EncryptionService.cs
+==================================================
+
+using System.Security.Cryptography;
+using System.Text;
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class EncryptionService : IEncryptionService
+{
+    private readonly byte[] _key;
+
+    public EncryptionService(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentNullException(nameof(key));
+        }
+
+        _key = Convert.FromBase64String(key);
+
+        if (_key.Length != 32)
+        {
+            throw new ArgumentException(
+                "Encryption key must be 32 bytes.");
+        }
+    }
+
+    // STRING ENCRYPTION
+
+    public string Encrypt(string plainText)
+    {
+        var plainBytes =
+            Encoding.UTF8.GetBytes(plainText);
+
+        var encrypted =
+            Encrypt(plainBytes);
+
+        return Convert.ToBase64String(encrypted);
+    }
+
+    public string Decrypt(string cipherText)
+    {
+        var encryptedBytes =
+            Convert.FromBase64String(cipherText);
+
+        var plainBytes =
+            Decrypt(encryptedBytes);
+
+        return Encoding.UTF8.GetString(plainBytes);
+    }
+
+    // BYTE[] ENCRYPTION
+
+    public byte[] Encrypt(byte[] plainBytes)
+    {
+        var nonce =
+            RandomNumberGenerator.GetBytes(12);
+
+        var cipherBytes =
+            new byte[plainBytes.Length];
+
+        var tag =
+            new byte[16];
+
+        using var aes =
+            new AesGcm(_key);
+
+        aes.Encrypt(
+            nonce,
+            plainBytes,
+            cipherBytes,
+            tag);
+
+        var result =
+            new byte[12 + cipherBytes.Length + 16];
+
+        Buffer.BlockCopy(
+            nonce,
+            0,
+            result,
+            0,
+            12);
+
+        Buffer.BlockCopy(
+            cipherBytes,
+            0,
+            result,
+            12,
+            cipherBytes.Length);
+
+        Buffer.BlockCopy(
+            tag,
+            0,
+            result,
+            12 + cipherBytes.Length,
+            16);
+
+        return result;
+    }
+
+    public byte[] Decrypt(byte[] encryptedBytes)
+    {
+        var nonce = new byte[12];
+        var tag = new byte[16];
+
+        var cipherBytes =
+            new byte[encryptedBytes.Length - 12 - 16];
+
+        Buffer.BlockCopy(
+            encryptedBytes,
+            0,
+            nonce,
+            0,
+            12);
+
+        Buffer.BlockCopy(
+            encryptedBytes,
+            12,
+            cipherBytes,
+            0,
+            cipherBytes.Length);
+
+        Buffer.BlockCopy(
+            encryptedBytes,
+            12 + cipherBytes.Length,
+            tag,
+            0,
+            16);
+
+        var plainBytes =
+            new byte[cipherBytes.Length];
+
+        using var aes =
+            new AesGcm(_key);
+
+        aes.Decrypt(
+            nonce,
+            cipherBytes,
+            tag,
+            plainBytes);
+
+        return plainBytes;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\JwtTokenService.cs
+==================================================
+
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using AuthCoreKit.IAM.Constants;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class JwtTokenService : IJwtTokenService
+{
+    private readonly JwtSettings _settings;
+
+    public JwtTokenService(IOptions<JwtSettings> options) => _settings = options.Value;
+
+    public (string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
+        IEnumerable<string> roles, IEnumerable<string>? permissions = null)
+    {
+        var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
+        var claims = new List<Claim>
+        {
+            new(ClaimConstants.UserId, user.Id.ToString()),
+            new(ClaimConstants.Email, user.Email ?? ""),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
+
+        if (tenantId.HasValue)
+            claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
+
+        foreach (var role in roles.Distinct())
+            claims.Add(new Claim(ClaimConstants.Role, role));
+
+        if (permissions != null)
+            foreach (var perm in permissions.Distinct())
+                claims.Add(new Claim(ClaimConstants.Permission, perm));
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer: _settings.Issuer,
+            audience: _settings.Audience,
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: creds);
+
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PasswordHasher.cs
+==================================================
+
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class PasswordHasher : IPasswordHasher
+{
+    public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
+    public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PermissionService.cs
+==================================================
+
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class PermissionService : IPermissionService
+{
+    private readonly IPermissionRepository _repo;
+
+    public PermissionService(IPermissionRepository repo) => _repo = repo;
+
+    public Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+        => _repo.HasPermissionAsync(userId, tenantId, permission);
+
+    public Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module)
+        => _repo.HasPermissionByModuleAsync(userId, tenantId, module);
+
+    public Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId)
+        => _repo.GetPermissionsAsync(userId, tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RefreshTokenService.cs
+==================================================
+
+using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class RefreshTokenService : IRefreshTokenService
+{
+    private readonly IRefreshTokenRepository _repo;
+    private readonly JwtSettings _settings;
+
+    public RefreshTokenService(IRefreshTokenRepository repo, IOptions<JwtSettings> options)
+    {
+        _repo = repo;
+        _settings = options.Value;
+    }
+
+    public async Task<string> GenerateAsync(Guid userId, string jwtId,
+        string? ipAddress = null, string? userAgent = null)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var refreshToken = new RefreshToken
+        {
+            UserId = userId,
+            Token = token,
+            JwtId = jwtId,
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
+            CreatedByIp = ipAddress,
+            UserAgent = userAgent
+        };
+        await _repo.AddAsync(refreshToken);
+        return token;
+    }
+
+    public async Task<bool> ValidateAsync(string token)
+    {
+        var rt = await _repo.GetByTokenAsync(token);
+        return rt is { IsActive: true };
+    }
+
+    public async Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null)
+    {
+        var rt = await _repo.GetByTokenAsync(token);
+        if (rt == null) return;
+        rt.IsRevoked = true;
+        rt.RevokedAtUtc = DateTime.UtcNow;
+        rt.ReplacedByToken = replacedByToken;
+        rt.RevokedByIp = revokedByIp;
+        await _repo.UpdateAsync(rt);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleDocumentRequirementService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class RoleDocumentRequirementService : IRoleDocumentRequirementService
+{
+    private readonly IIamDbContext _db;
+
+    public RoleDocumentRequirementService(IIamDbContext db) => _db = db;
+
+    public async Task AddRequirementAsync(Guid roleId, string documentType)
+    {
+        bool exists = await _db.RoleDocumentRequirements
+            .AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+        if (!exists)
+        {
+            _db.RoleDocumentRequirements.Add(new RoleDocumentRequirement
+            {
+                Id = Guid.NewGuid(),
+                RoleId = roleId,
+                DocumentType = documentType
+            });
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task RemoveRequirementAsync(Guid roleId, string documentType)
+    {
+        var req = await _db.RoleDocumentRequirements
+            .FirstOrDefaultAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+        if (req != null)
+        {
+            _db.RoleDocumentRequirements.Remove(req);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task<List<string>> GetRequiredDocumentsAsync(Guid roleId)
+    {
+        return await _db.RoleDocumentRequirements
+            .Where(r => r.RoleId == roleId)
+            .Select(r => r.DocumentType)
+            .ToListAsync();
+    }
+
+    public async Task<bool> IsRequiredAsync(Guid roleId, string documentType)
+    {
+        return await _db.RoleDocumentRequirements
+            .AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleManagementService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class RoleManagementService : IRoleManagementService
+{
+    private readonly IIamDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IamOptions _options;
+
+    public RoleManagementService(IIamDbContext db, ICurrentUserService currentUser, IamOptions options)
+    {
+        _db = db;
+        _currentUser = currentUser;
+        _options = options;
+    }
+
+    public async Task<List<Role>> GetRolesAsync(Guid? tenantId)
+        => await _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
+
+    public async Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
+        => await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
+
+    public async Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null)
+    {
+        if (await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId))
+            throw new InvalidOperationException("A role with this name already exists in the tenant.");
+
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Name = name,
+            Description = description,
+            IsSystem = false
+        };
+        _db.Roles.Add(role);
+        await _db.SaveChangesAsync();
+        return role;
+    }
+
+    public async Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId)
+    {
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("Role not found.");
+        if (role.IsSystem)
+            throw new UnauthorizedAccessException("System roles cannot be modified.");
+
+        if (newName != null) role.Name = newName;
+        if (newDescription != null) role.Description = newDescription;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
+    {
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("Role not found.");
+        if (role.IsSystem)
+            throw new UnauthorizedAccessException("System roles cannot be deleted.");
+
+        _db.Roles.Remove(role);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
+    {
+        var role = await _db.Roles.Include(r => r.RolePermissions)
+                        .FirstOrDefaultAsync(r => r.Id == roleId)
+                   ?? throw new KeyNotFoundException("Role not found.");
+        var permission = await _db.Permissions.FindAsync(permissionId)
+                         ?? throw new KeyNotFoundException("Permission not found.");
+
+        if (role.RolePermissions.Any(rp => rp.PermissionId == permissionId))
+            throw new InvalidOperationException("Permission already assigned.");
+
+        role.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permissionId });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
+    {
+        var rp = await _db.RolePermissions
+            .FirstOrDefaultAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId)
+            ?? throw new KeyNotFoundException("Role does not have this permission.");
+        _db.RolePermissions.Remove(rp);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
+        => await _db.RolePermissions
+            .Where(rp => rp.RoleId == roleId)
+            .Select(rp => rp.Permission)
+            .ToListAsync();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserDocumentService.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class UserDocumentService : IUserDocumentService
+{
+    private readonly IIamDbContext _db;
+
+    public UserDocumentService(IIamDbContext db) => _db = db;
+
+    public async Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl)
+    {
+        var existing = await _db.UserDocuments
+            .FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+
+        if (existing != null)
+        {
+            existing.ImageUrl = imageUrl;
+            _db.UserDocuments.Update(existing);
+        }
+        else
+        {
+            _db.UserDocuments.Add(new UserDocument
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                DocumentType = documentType,
+                ImageUrl = imageUrl
+            });
+        }
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<UserDocument?> GetAsync(Guid userId, string documentType)
+        => await _db.UserDocuments
+            .FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+
+    public async Task<List<UserDocument>> GetByUserAsync(Guid userId)
+        => await _db.UserDocuments
+            .Where(d => d.UserId == userId)
+            .ToListAsync();
+
+    public async Task DeleteAsync(Guid userId, string documentType)
+    {
+        var doc = await GetAsync(userId, documentType);
+        if (doc != null)
+        {
+            _db.UserDocuments.Remove(doc);
+            await _db.SaveChangesAsync();
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserIdentityService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class UserIdentityService : IUserIdentityService
+{
+    private readonly IIamDbContext _db;
+    private readonly IEncryptionService _crypto;
+
+    public UserIdentityService(IIamDbContext db, IEncryptionService crypto)
+    {
+        _db = db;
+        _crypto = crypto;
+    }
+
+    public async Task SetCnicAsync(Guid userId, string plainCnic)
+    {
+        var encrypted = _crypto.Encrypt(plainCnic);
+
+        var existing = await _db.UserIdentities
+            .FirstOrDefaultAsync(i => i.UserId == userId);
+
+        if (existing != null)
+        {
+            existing.EncryptedCnic = encrypted;
+            _db.UserIdentities.Update(existing);
+        }
+        else
+        {
+            _db.UserIdentities.Add(new UserIdentity
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                EncryptedCnic = encrypted
+            });
+        }
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetCnicAsync(Guid userId)
+    {
+        var identity = await _db.UserIdentities
+            .FirstOrDefaultAsync(i => i.UserId == userId);
+        return identity == null ? null : _crypto.Decrypt(identity.EncryptedCnic);
+    }
+
+    public async Task DeleteAsync(Guid userId)
+    {
+        var identity = await _db.UserIdentities
+            .FirstOrDefaultAsync(i => i.UserId == userId);
+        if (identity != null)
+        {
+            _db.UserIdentities.Remove(identity);
+            await _db.SaveChangesAsync();
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserManagementService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace AuthCoreKit.IAM.Services;
+
+public class UserManagementService : IUserManagementService
+{
+    private readonly IIamDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IamOptions _options;
+
+    public UserManagementService(
+        IIamDbContext db,
+        ICurrentUserService currentUser,
+        IPasswordHasher passwordHasher,
+        IamOptions options)
+    {
+        _db = db;
+        _currentUser = currentUser;
+        _passwordHasher = passwordHasher;
+        _options = options;
+    }
+
+    public async Task<List<User>> GetUsersAsync(Guid? tenantId)
+        => await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+
+    public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
+        => await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+                .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+
+    public async Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId)
+    {
+        // uniqueness check
+        if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
+            throw new InvalidOperationException("A user with this phone already exists in the tenant.");
+        if (!string.IsNullOrWhiteSpace(email) &&
+            await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
+            throw new InvalidOperationException("A user with this email already exists in the tenant.");
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Name = name,
+            Phone = phone,
+            Email = email,
+            PasswordHash = _passwordHasher.Hash(password),
+            IsActive = true
+        };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+        return user;
+    }
+
+    public async Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("User not found.");
+
+        if (name != null) user.Name = name;
+        if (phone != null) user.Phone = phone;
+        if (email != null) user.Email = email;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("User not found.");
+        _db.Users.Remove(user);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+    {
+        var user = await _db.Users.Include(u => u.Roles)
+                        .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("User not found.");
+
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("Role not found.");
+
+        // System account uniqueness: only one SuperAdmin
+        if (role.Name == _options.SuperAdminRoleName)
+        {
+            if (!_currentUser.IsSuperAdmin)
+                throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
+            if (await _db.UserRoles.AnyAsync(ur => ur.RoleId == roleId && ur.UserId != userId))
+                throw new InvalidOperationException("Only one system account is allowed.");
+        }
+
+        if (role.IsSystem && !_currentUser.IsSuperAdmin)
+            throw new UnauthorizedAccessException("Cannot assign a system role.");
+
+        if (user.Roles.Any(r => r.RoleId == roleId))
+            throw new InvalidOperationException("User already has this role.");
+
+        user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+    {
+        var user = await _db.Users.Include(u => u.Roles)
+                        .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+                   ?? throw new KeyNotFoundException("User not found.");
+
+        var userRole = user.Roles.FirstOrDefault(r => r.RoleId == roleId);
+        if (userRole == null)
+            throw new KeyNotFoundException("User does not have this role.");
+
+        user.Roles.Remove(userRole);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+                   ?? throw new KeyNotFoundException("User not found.");
+        user.LockoutEnd = lockoutEnd;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task UnlockUserAsync(Guid userId)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+                   ?? throw new KeyNotFoundException("User not found.");
+        user.LockoutEnd = null;
+        user.FailedLoginAttempts = 0;
+        await _db.SaveChangesAsync();
+    }
+}
+
+

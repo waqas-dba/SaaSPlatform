@@ -1,5 +1,8 @@
 ﻿
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs
+==================================================
 
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Orders.Enums;
@@ -41,7 +44,12 @@ public class Order : AuditableEntity, ITenantScoped
     public OrderType OrderType { get; set; } = OrderType.Pickup;
     public string? DeliveryAddress { get; set; }
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs
+==================================================
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -67,7 +75,12 @@ public class OrderItem : BaseEntity
 
     public ICollection<OrderItemAddon>? Addons { get; set; }
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs
+==================================================
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -80,7 +93,12 @@ public class OrderItemAddon : BaseEntity
     public string Name { get; set; } = default!;
     public decimal Price { get; set; }
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs
+==================================================
 
 using SaaSPlatform.SharedKernel.Common;
 
@@ -100,7 +118,12 @@ public class RestaurantTable : AuditableEntity, ITenantScoped
 
     public string? QRCode { get; set; }
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs
+==================================================
 
 namespace SaaSPlatform.Core.Orders.Enums;
 
@@ -110,7 +133,12 @@ public enum OrderChannel
     MobileApp,
     QRMenu
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs
+==================================================
 
 namespace SaaSPlatform.Core.Orders.Enums;
 
@@ -122,7 +150,12 @@ public enum OrderStatus
     Delivered,
     Cancelled
 }
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs
+==================================================
 
 namespace SaaSPlatform.Core.Orders.Enums;
 
@@ -132,3 +165,5 @@ public enum OrderType
     Pickup,
     DineIn
 }
+
+

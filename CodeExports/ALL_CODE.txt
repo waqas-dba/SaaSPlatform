@@ -1,8 +1,1581 @@
 ﻿
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Authorization\TenantPermissionAttribute.cs =====
+===== AuthCoreKit | D:\waqas-dba\SaaSPlatform\AuthCoreKit\Class1.cs =====
+namespace AuthCoreKit
+{
+public class Class1
+{
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Authorization\RequiresPermissionAttribute.cs =====
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using SaaSPlatform.Core.IAM.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Authorization
+{
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
+{
+private readonly string _permission;
+public RequiresPermissionAttribute(string permission) => _permission = permission;
+public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+{
+var user = context.HttpContext.User;
+if (user.Identity?.IsAuthenticated != true)
+{
+context.Result = new UnauthorizedResult();
+return;
+}
+var options = context.HttpContext.RequestServices.GetService<IamOptions>();
+if (options?.SuperAdminBypassPermissions == true && user.IsInRole(options.SuperAdminRoleName))
+return;
+var permissionService = context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
+var currentUserService = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
+if (currentUserService.UserId == null)
+{
+context.Result = new UnauthorizedObjectResult("User not authenticated.");
+return;
+}
+var tenantId = currentUserService.TenantId;
+var hasPermission = await permissionService.HasPermissionAsync(
+currentUserService.UserId.Value, tenantId, _permission);
+if (!hasPermission)
+context.Result = new ForbidResult();
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\PermissionConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
+{
+public void Configure(EntityTypeBuilder<Permission> builder)
+{
+builder.ToTable("IAM_Permissions");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => x.Name).IsUnique();
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\PermissionModuleConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class PermissionModuleConfiguration : IEntityTypeConfiguration<PermissionModule>
+{
+public void Configure(EntityTypeBuilder<PermissionModule> builder)
+{
+builder.ToTable("IAM_PermissionModules");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => x.Code).IsUnique();
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RefreshTokenConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
+{
+public void Configure(EntityTypeBuilder<RefreshToken> builder)
+{
+builder.ToTable("IAM_RefreshTokens");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => x.Token).IsUnique();
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RoleConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class RoleConfiguration : IEntityTypeConfiguration<Role>
+{
+public void Configure(EntityTypeBuilder<Role> builder)
+{
+builder.ToTable("IAM_Roles");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => new { x.TenantId, x.Name });
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RoleDocumentRequirementConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class RoleDocumentRequirementConfiguration : IEntityTypeConfiguration<RoleDocumentRequirement>
+{
+public void Configure(EntityTypeBuilder<RoleDocumentRequirement> builder)
+{
+builder.ToTable("IAM_RoleDocumentRequirements");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => new { x.RoleId, x.DocumentType }).IsUnique();
+builder.Property(x => x.DocumentType).IsRequired().HasMaxLength(50);
+builder.HasOne(x => x.Role)
+.WithMany()
+.HasForeignKey(x => x.RoleId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\RolePermissionConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration
+{
+public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
+{
+public void Configure(EntityTypeBuilder<RolePermission> builder)
+{
+builder.ToTable("IAM_RolePermissions");
+builder.HasKey(x => new { x.RoleId, x.PermissionId });
+builder.HasOne(rp => rp.Role)
+.WithMany(r => r.RolePermissions)
+.HasForeignKey(rp => rp.RoleId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasOne(rp => rp.Permission)
+.WithMany(p => p.RolePermissions)
+.HasForeignKey(rp => rp.PermissionId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration
+{
+public class UserConfiguration : IEntityTypeConfiguration<User>
+{
+public void Configure(EntityTypeBuilder<User> builder)
+{
+builder.ToTable("IAM_Users");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Phone).IsRequired().HasMaxLength(20);
+builder.Property(x => x.Email).HasMaxLength(200);
+builder.Property(x => x.PasswordHash).IsRequired();
+builder.Property(x => x.FailedLoginAttempts).HasDefaultValue(0);
+builder.Property(x => x.IsActive).HasDefaultValue(true);
+builder.HasIndex(x => x.Phone).IsUnique();
+builder.HasIndex(x => x.Email).IsUnique();
+builder.HasMany(x => x.Roles).WithOne().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserDocumentConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class UserDocumentConfiguration : IEntityTypeConfiguration<UserDocument>
+{
+public void Configure(EntityTypeBuilder<UserDocument> builder)
+{
+builder.ToTable("IAM_UserDocuments");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.DocumentType).IsRequired().HasMaxLength(50);
+builder.Property(x => x.ImageUrl).IsRequired().HasMaxLength(2000);
+builder.HasIndex(x => new { x.UserId, x.DocumentType }).IsUnique();
+builder.HasOne(x => x.User)
+.WithMany()
+.HasForeignKey(x => x.UserId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserIdentityConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration;
+public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
+{
+public void Configure(EntityTypeBuilder<UserIdentity> builder)
+{
+builder.ToTable("IAM_UserIdentities");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.EncryptedCnic).IsRequired().HasMaxLength(500);
+builder.HasIndex(x => x.UserId).IsUnique();
+builder.HasOne(x => x.User)
+.WithOne()
+.HasForeignKey<UserIdentity>(x => x.UserId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Configuration\UserRoleConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Configuration
+{
+public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
+{
+public void Configure(EntityTypeBuilder<UserRole> builder)
+{
+builder.ToTable("IAM_UserRoles");
+builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
+builder.HasOne(ur => ur.User)
+.WithMany(u => u.Roles)
+.HasForeignKey(ur => ur.UserId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasOne(ur => ur.Role)
+.WithMany(r => r.UserRoles)
+.HasForeignKey(ur => ur.RoleId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Constants\ClaimConstants.cs =====
+using System.Security.Claims;
+namespace AuthCoreKit.IAM.Constants;
+public static class ClaimConstants
+{
+public const string UserId = "userId";
+public const string TenantId = "tenantId";
+public const string Permission = "permission";
+public const string Email = ClaimTypes.Email;
+public const string Role = ClaimTypes.Role;
+public const string Name = ClaimTypes.Name;
+public const string JwtId = "jti";
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\AuditableEntity.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public abstract class AuditableEntity : BaseEntity
+{
+public DateTime CreatedAt { get; set; }
+public Guid? CreatedBy { get; set; }
+public DateTime? UpdatedAt { get; set; }
+public Guid? UpdatedBy { get; set; }
+public bool IsDeleted { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\BaseEntity.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public abstract class BaseEntity
+{
+public Guid Id { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\Permission.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class Permission : BaseEntity
+{
+public string Name { get; set; } = default!;
+public Guid PermissionModuleId { get; set; }
+public PermissionModule Module { get; set; } = default!;
+public ICollection<RolePermission>? RolePermissions { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\PermissionModule.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class PermissionModule : BaseEntity
+{
+public string Name { get; set; } = default!;
+public string Code { get; set; } = default!;
+public ICollection<Permission>? Permissions { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RefreshToken.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class RefreshToken : AuditableEntity
+{
+public Guid UserId { get; set; }
+public User? User { get; set; }
+public string Token { get; set; } = default!;
+public string JwtId { get; set; } = default!;
+public DateTime ExpiresAtUtc { get; set; }
+public bool IsRevoked { get; set; }
+public DateTime? RevokedAtUtc { get; set; }
+public string? ReplacedByToken { get; set; }
+public string? CreatedByIp { get; set; }
+public string? RevokedByIp { get; set; }
+public string? Device { get; set; }
+public string? UserAgent { get; set; }
+public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
+public bool IsActive => !IsRevoked && !IsExpired;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\Role.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class Role : BaseEntity
+{
+public Guid? TenantId { get; set; }
+public string Name { get; set; } = default!;
+public string? Description { get; set; }
+public bool IsSystem { get; set; }
+public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RoleDocumentRequirement.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class RoleDocumentRequirement
+{
+public Guid Id { get; set; }
+public Guid RoleId { get; set; }
+public string DocumentType { get; set; } = default!;
+public Role Role { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\RolePermission.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class RolePermission
+{
+public Guid RoleId { get; set; }
+public Role Role { get; set; } = default!;
+public Guid PermissionId { get; set; }
+public Permission Permission { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\User.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class User : BaseEntity
+{
+public Guid? TenantId { get; set; }
+public string Name { get; set; } = default!;
+public string? Email { get; set; }
+public string Phone { get; set; } = default!;
+public string PasswordHash { get; set; } = default!;
+public bool IsActive { get; set; } = true;
+public DateTime? LastLoginAt { get; set; }
+public int FailedLoginAttempts { get; set; }
+public DateTime? LockoutEnd { get; set; }
+public ICollection<UserRole> Roles { get; set; } = new List<UserRole>();
+public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserDocument.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class UserDocument
+{
+public Guid Id { get; set; }
+public Guid UserId { get; set; }
+public string DocumentType { get; set; } = default!;
+public string ImageUrl { get; set; } = default!;
+public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+public User User { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserIdentity.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class UserIdentity
+{
+public Guid Id { get; set; }
+public Guid UserId { get; set; }
+public string EncryptedCnic { get; set; } = default!;
+public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+public User User { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Entities\UserRole.cs =====
+namespace AuthCoreKit.IAM.Entities;
+public class UserRole
+{
+public Guid UserId { get; set; }
+public User User { get; set; } = default!;
+public Guid RoleId { get; set; }
+public Role Role { get; set; } = default!;
+public Guid? TenantId { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Extensions\ServiceCollectionExtensions.cs =====
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Repositories;
+using AuthCoreKit.IAM.Services;
+using AuthCoreKit.IAM.Models;
+using Microsoft.Extensions.Configuration;
+namespace AuthCoreKit.IAM.Extensions
+{
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddAuthCoreKit<TDbContext>(
+this IServiceCollection services,
+IConfigurationSection jwtSection,
+Action<IamOptions>? configureOptions = null)
+where TDbContext : class, IIamDbContext
+{
+services.AddScoped<IIamDbContext>(sp => sp.GetRequiredService<TDbContext>());
+var jwtSettings = jwtSection.Get<JwtSettings>()
+?? throw new InvalidOperationException("JWT configuration section is missing.");
+services.Configure<JwtSettings>(jwtSection);
+var options = new IamOptions();
+configureOptions?.Invoke(options);
+services.AddSingleton(options);
+services.AddScoped<IUserRepository, UserRepository>();
+services.AddScoped<IRoleRepository, RoleRepository>();
+services.AddScoped<IPermissionRepository, PermissionRepository>();
+services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+services.AddScoped<IJwtTokenService, JwtTokenService>();
+services.AddScoped<IPasswordHasher, PasswordHasher>();
+services.AddScoped<IAuthService, AuthService>();
+services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+services.AddScoped<IPermissionService, PermissionService>();
+services.AddScoped<IRoleManagementService, RoleManagementService>();
+services.AddScoped<IUserManagementService, UserManagementService>();
+services.AddScoped<ICurrentUserService, CurrentUserService>();
+if (options.EnableUserDocuments)
+{
+services.AddScoped<IUserDocumentService, UserDocumentService>();
+if (options.EnableUserIdentities)
+{
+services.AddScoped<IUserIdentityService, UserIdentityService>();
+}
+if (options.EnableRoleDocumentRequirements)
+{
+services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
+}
+}
+services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+.AddJwtBearer(opt =>
+{
+opt.TokenValidationParameters = new TokenValidationParameters
+{
+ValidateIssuer = true,
+ValidateAudience = true,
+ValidateLifetime = true,
+ValidateIssuerSigningKey = true,
+ValidIssuer = jwtSettings.Issuer,
+ValidAudience = jwtSettings.Audience,
+IssuerSigningKey = new SymmetricSecurityKey(
+Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+ClockSkew = TimeSpan.Zero
+};
+});
+services.AddAuthorization();
+return services;
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Helpers\PhoneNormalizer.cs =====
+namespace AuthCoreKit.IAM.Helpers;
+public static class PhoneNormalizer
+{
+public static string Normalize(string phone)
+{
+if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
+return phone.Trim().Replace(" ", "").Replace("-", "");
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IAuthService.cs =====
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Interfaces
+{
+public interface IAuthService
+{
+Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId);
+Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId);
+Task LogoutAsync(string refreshToken);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\ICurrentUserService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface ICurrentUserService
+{
+Guid? UserId { get; }
+Guid? TenantId { get; }
+bool IsAuthenticated { get; }
+bool IsSuperAdmin { get; }
+bool HasPermission(string permission);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IEncryptionService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IEncryptionService
+{
+string Encrypt(string plainText);
+string Decrypt(string cipherText);
+byte[] Encrypt(byte[] plainBytes);
+byte[] Decrypt(byte[] encryptedBytes);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IIamDbContext.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IIamDbContext
+{
+DbSet<User> Users { get; }
+DbSet<Role> Roles { get; }
+DbSet<UserRole> UserRoles { get; }
+DbSet<Permission> Permissions { get; }
+DbSet<PermissionModule> PermissionModules { get; }
+DbSet<RolePermission> RolePermissions { get; }
+DbSet<RefreshToken> RefreshTokens { get; }
+DbSet<UserDocument> UserDocuments { get; }
+DbSet<UserIdentity> UserIdentities { get; }
+DbSet<RoleDocumentRequirement> RoleDocumentRequirements { get; }
+Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IJwtTokenService.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IJwtTokenService
+{
+(string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
+IEnumerable<string> roles, IEnumerable<string>? permissions = null);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPasswordHasher.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IPasswordHasher
+{
+string Hash(string password);
+bool Verify(string password, string passwordHash);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPermissionRepository.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IPermissionRepository
+{
+Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module);
+Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IPermissionService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IPermissionService
+{
+Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module);
+Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRefreshTokenRepository.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces
+{
+public interface IRefreshTokenRepository
+{
+Task AddAsync(RefreshToken token);
+Task<RefreshToken?> GetByTokenAsync(string token);
+Task UpdateAsync(RefreshToken token);
+Task RevokeAsync(RefreshToken token);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRefreshTokenService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IRefreshTokenService
+{
+Task<string> GenerateAsync(Guid userId, string jwtId, string? ipAddress = null, string? userAgent = null);
+Task<bool> ValidateAsync(string token);
+Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleDocumentRequirementService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IRoleDocumentRequirementService
+{
+Task AddRequirementAsync(Guid roleId, string documentType);
+Task RemoveRequirementAsync(Guid roleId, string documentType);
+Task<List<string>> GetRequiredDocumentsAsync(Guid roleId);
+Task<bool> IsRequiredAsync(Guid roleId, string documentType);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IRoleManagementService
+{
+Task<List<Role>> GetRolesAsync(Guid? tenantId);
+Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId);
+Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null);
+Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId);
+Task DeleteRoleAsync(Guid roleId, Guid? tenantId);
+Task AssignPermissionAsync(Guid roleId, Guid permissionId);
+Task RemovePermissionAsync(Guid roleId, Guid permissionId);
+Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IRoleRepository.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IRoleRepository
+{
+Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId);
+Task<Role?> GetByIdAsync(Guid roleId);
+void Add(Role role);
+void Update(Role role);
+void Delete(Role role);
+Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
+void AddRolePermission(RolePermission rolePermission);
+void RemoveRolePermission(RolePermission rolePermission);
+void AddUserRole(UserRole userRole);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserDocumentService.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IUserDocumentService
+{
+Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl);
+Task<UserDocument?> GetAsync(Guid userId, string documentType);
+Task<List<UserDocument>> GetByUserAsync(Guid userId);
+Task DeleteAsync(Guid userId, string documentType);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserIdentityService.cs =====
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IUserIdentityService
+{
+Task SetCnicAsync(Guid userId, string plainCnic);
+Task<string?> GetCnicAsync(Guid userId);
+Task DeleteAsync(Guid userId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IUserManagementService
+{
+Task<List<User>> GetUsersAsync(Guid? tenantId);
+Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId);
+Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId);
+Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId);
+Task DeleteUserAsync(Guid userId, Guid? tenantId);
+Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+Task LockUserAsync(Guid userId, DateTime lockoutEnd);
+Task UnlockUserAsync(Guid userId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Interfaces\IUserRepository.cs =====
+using AuthCoreKit.IAM.Entities;
+namespace AuthCoreKit.IAM.Interfaces;
+public interface IUserRepository
+{
+Task<User?> GetByIdAsync(Guid userId);
+Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null);
+Task<User?> GetByEmailAsync(string email, Guid? tenantId = null);
+Task<List<User>> GetByTenantAsync(Guid tenantId);
+Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null);
+Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null);
+void Add(User user);
+void Update(User user);
+void Delete(User user);
+Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\AssignRoleRequest.cs =====
+namespace AuthCoreKit.IAM.Models;
+public class AssignRoleRequest
+{
+public Guid RoleId { get; set; }
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\IamOptions.cs =====
+using Microsoft.AspNetCore.Http;
+namespace AuthCoreKit.IAM.Models;
+public class IamOptions
+{
+public string LoginIdentifier { get; set; } = "phone";
+public Func<HttpContext, Guid?>? TenantResolver { get; set; }
+public string SuperAdminRoleName { get; set; } = "SuperAdmin";
+public bool SuperAdminBypassPermissions { get; set; } = true;
+public int MinPasswordLength { get; set; } = 8;
+public bool EnableUserDocuments { get; set; } = false;
+public bool EnableUserIdentities { get; set; } = false;
+public bool RequireCnic { get; set; } = true;
+public bool EnableRoleDocumentRequirements { get; set; } = false;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\JwtSettings.cs =====
+namespace AuthCoreKit.IAM.Models;
+public class JwtSettings
+{
+public string Secret { get; set; } = default!;
+public string Issuer { get; set; } = default!;
+public string Audience { get; set; } = default!;
+public int AccessTokenMinutes { get; set; } = 120;
+public int RefreshTokenDays { get; set; } = 7;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\LoginRequest.cs =====
+namespace AuthCoreKit.IAM.Models;
+public class LoginRequest
+{
+public string Login { get; set; } = default!;
+public string Password { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\LoginResponse.cs =====
+namespace AuthCoreKit.IAM.Models;
+public class LoginResponse
+{
+public string AccessToken { get; set; } = default!;
+public string RefreshToken { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Models\RefreshTokenRequest.cs =====
+namespace AuthCoreKit.IAM.Models;
+public class RefreshTokenRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\PermissionRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Repositories;
+public class PermissionRepository : IPermissionRepository
+{
+private readonly IIamDbContext _db;
+public PermissionRepository(IIamDbContext db) => _db = db;
+public async Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+=> await _db.UserRoles
+.Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+.SelectMany(ur => ur.Role!.RolePermissions!)
+.AnyAsync(rp => rp.Permission != null && rp.Permission.Name == permission);
+public async Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module)
+{
+var prefix = module + ".";
+return await _db.UserRoles
+.Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+.SelectMany(ur => ur.Role!.RolePermissions!)
+.AnyAsync(rp => rp.Permission != null && rp.Permission.Name.StartsWith(prefix));
+}
+public async Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId)
+=> await _db.UserRoles
+.Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
+.SelectMany(ur => ur.Role!.RolePermissions!)
+.Where(rp => rp.Permission != null)
+.Select(rp => rp.Permission!.Name)
+.Distinct()
+.ToListAsync();
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\RefreshTokenRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Repositories;
+public class RefreshTokenRepository : IRefreshTokenRepository
+{
+private readonly IIamDbContext _db;
+public RefreshTokenRepository(IIamDbContext db) => _db = db;
+public async Task AddAsync(RefreshToken token)
+{
+await _db.RefreshTokens.AddAsync(token);
+await _db.SaveChangesAsync();
+}
+public async Task<RefreshToken?> GetByTokenAsync(string token)
+=> await _db.RefreshTokens.FirstOrDefaultAsync(t => t.Token == token);
+public async Task UpdateAsync(RefreshToken token)
+{
+_db.RefreshTokens.Update(token);
+await _db.SaveChangesAsync();
+}
+public async Task RevokeAsync(RefreshToken token)
+{
+token.IsRevoked = true;
+token.RevokedAtUtc = DateTime.UtcNow;
+await UpdateAsync(token);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\RoleRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Repositories;
+public class RoleRepository : IRoleRepository
+{
+private readonly IIamDbContext _db;
+public RoleRepository(IIamDbContext db) => _db = db;
+public async Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId)
+=> await _db.Roles
+.Where(r => r.TenantId == tenantId || (tenantId == null && r.TenantId == null))
+.ToListAsync();
+public async Task<Role?> GetByIdAsync(Guid roleId)
+=> await _db.Roles.Include(r => r.RolePermissions)
+.FirstOrDefaultAsync(r => r.Id == roleId);
+public void Add(Role role) => _db.Roles.Add(role);
+public void Update(Role role) => _db.Roles.Update(role);
+public void Delete(Role role) => _db.Roles.Remove(role);
+public async Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default)
+=> await _db.Permissions.ToListAsync(ct);
+public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
+public void RemoveRolePermission(RolePermission rp) => _db.RolePermissions.Remove(rp);
+public void AddUserRole(UserRole ur) => _db.UserRoles.Add(ur);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Repositories\UserRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Helpers;
+namespace AuthCoreKit.IAM.Repositories;
+public class UserRepository : IUserRepository
+{
+private readonly IIamDbContext _db;
+public UserRepository(IIamDbContext db) => _db = db;
+public async Task<User?> GetByIdAsync(Guid userId)
+=> await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+.FirstOrDefaultAsync(u => u.Id == userId);
+public async Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null)
+{
+var normalized = PhoneNormalizer.Normalize(phone);
+var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+.Where(u => u.Phone == normalized);
+query = tenantId.HasValue
+? query.Where(u => u.TenantId == tenantId.Value)
+: query.Where(u => u.TenantId == null);
+return await query.FirstOrDefaultAsync();
+}
+public async Task<User?> GetByEmailAsync(string email, Guid? tenantId = null)
+{
+var query = _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+.Where(u => u.Email == email);
+query = tenantId.HasValue
+? query.Where(u => u.TenantId == tenantId.Value)
+: query.Where(u => u.TenantId == null);
+return await query.FirstOrDefaultAsync();
+}
+public async Task<List<User>> GetByTenantAsync(Guid tenantId)
+=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+public async Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null)
+{
+var normalized = PhoneNormalizer.Normalize(phone);
+var query = _db.Users.Where(u => u.Phone == normalized);
+query = tenantId.HasValue
+? query.Where(u => u.TenantId == tenantId.Value)
+: query.Where(u => u.TenantId == null);
+return await query.AnyAsync();
+}
+public async Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null)
+{
+var query = _db.Users.Where(u => u.Email == email);
+query = tenantId.HasValue
+? query.Where(u => u.TenantId == tenantId.Value)
+: query.Where(u => u.TenantId == null);
+return await query.AnyAsync();
+}
+public void Add(User user) => _db.Users.Add(user);
+public void Update(User user) => _db.Users.Update(user);
+public void Delete(User user) => _db.Users.Remove(user);
+public async Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier)
+{
+switch (loginIdentifier.ToLowerInvariant())
+{
+case "email":
+return await GetByEmailAsync(login, tenantId);
+case "both":
+if (login.Contains('@'))
+return await GetByEmailAsync(login, tenantId);
+return await GetByPhoneAsync(login, tenantId);
+default:
+return await GetByPhoneAsync(login, tenantId);
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\AuthService.cs =====
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Services;
+public class AuthService : IAuthService
+{
+private readonly IUserRepository _userRepo;
+private readonly IJwtTokenService _jwtService;
+private readonly IRefreshTokenService _refreshTokenService;
+private readonly IRefreshTokenRepository _refreshRepo;
+private readonly IPasswordHasher _passwordHasher;
+private readonly IamOptions _options;
+public AuthService(
+IUserRepository userRepo,
+IJwtTokenService jwtService,
+IRefreshTokenService refreshTokenService,
+IRefreshTokenRepository refreshRepo,
+IPasswordHasher passwordHasher,
+IamOptions options)
+{
+_userRepo = userRepo;
+_jwtService = jwtService;
+_refreshTokenService = refreshTokenService;
+_refreshRepo = refreshRepo;
+_passwordHasher = passwordHasher;
+_options = options;
+}
+public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
+{
+var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier);
+if (user == null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+throw new UnauthorizedAccessException("Invalid credentials");
+var roles = user.Roles.Select(r => r.Role.Name).ToList();
+var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
+}
+public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
+{
+var storedToken = await _refreshRepo.GetByTokenAsync(request.RefreshToken);
+if (storedToken == null || !storedToken.IsActive)
+throw new UnauthorizedAccessException("Invalid or expired refresh token");
+var user = await _userRepo.GetByIdAsync(storedToken.UserId);
+if (user == null)
+throw new UnauthorizedAccessException("User not found");
+await _refreshTokenService.RevokeAsync(storedToken.Token);
+var roles = user.Roles.Select(r => r.Role.Name).ToList();
+var (newAccessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+var newRefresh = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+return new LoginResponse { AccessToken = newAccessToken, RefreshToken = newRefresh };
+}
+public async Task LogoutAsync(string refreshToken)
+{
+await _refreshTokenService.RevokeAsync(refreshToken);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\CurrentUserService.cs =====
+using AuthCoreKit.IAM.Constants;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+namespace AuthCoreKit.IAM.Services;
+public class CurrentUserService : ICurrentUserService
+{
+private readonly IHttpContextAccessor _httpContextAccessor;
+private readonly IamOptions _options;
+public CurrentUserService(IHttpContextAccessor httpContextAccessor, IamOptions options)
+{
+_httpContextAccessor = httpContextAccessor;
+_options = options;
+}
+public Guid? UserId
+{
+get
+{
+var value = _httpContextAccessor.HttpContext?.User
+.FindFirst(ClaimConstants.UserId)?.Value;
+return Guid.TryParse(value, out var id) ? id : null;
+}
+}
+public Guid? TenantId
+{
+get
+{
+if (_options.TenantResolver != null)
+return _options.TenantResolver(_httpContextAccessor.HttpContext!);
+return null;
+}
+}
+public bool IsAuthenticated => UserId.HasValue;
+public bool IsSuperAdmin =>
+_httpContextAccessor.HttpContext?.User
+.IsInRole(_options.SuperAdminRoleName) == true;
+public bool HasPermission(string permission)
+=> _httpContextAccessor.HttpContext?.User
+.FindFirst(c => c.Type == ClaimConstants.Permission && c.Value == permission) != null;
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\EncryptionService.cs =====
+using System.Security.Cryptography;
+using System.Text;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
+public class EncryptionService : IEncryptionService
+{
+private readonly byte[] _key;
+public EncryptionService(string key)
+{
+if (string.IsNullOrWhiteSpace(key))
+{
+throw new ArgumentNullException(nameof(key));
+}
+_key = Convert.FromBase64String(key);
+if (_key.Length != 32)
+{
+throw new ArgumentException(
+"Encryption key must be 32 bytes.");
+}
+}
+public string Encrypt(string plainText)
+{
+var plainBytes =
+Encoding.UTF8.GetBytes(plainText);
+var encrypted =
+Encrypt(plainBytes);
+return Convert.ToBase64String(encrypted);
+}
+public string Decrypt(string cipherText)
+{
+var encryptedBytes =
+Convert.FromBase64String(cipherText);
+var plainBytes =
+Decrypt(encryptedBytes);
+return Encoding.UTF8.GetString(plainBytes);
+}
+public byte[] Encrypt(byte[] plainBytes)
+{
+var nonce =
+RandomNumberGenerator.GetBytes(12);
+var cipherBytes =
+new byte[plainBytes.Length];
+var tag =
+new byte[16];
+using var aes =
+new AesGcm(_key);
+aes.Encrypt(
+nonce,
+plainBytes,
+cipherBytes,
+tag);
+var result =
+new byte[12 + cipherBytes.Length + 16];
+Buffer.BlockCopy(
+nonce,
+0,
+result,
+0,
+12);
+Buffer.BlockCopy(
+cipherBytes,
+0,
+result,
+12,
+cipherBytes.Length);
+Buffer.BlockCopy(
+tag,
+0,
+result,
+12 + cipherBytes.Length,
+16);
+return result;
+}
+public byte[] Decrypt(byte[] encryptedBytes)
+{
+var nonce = new byte[12];
+var tag = new byte[16];
+var cipherBytes =
+new byte[encryptedBytes.Length - 12 - 16];
+Buffer.BlockCopy(
+encryptedBytes,
+0,
+nonce,
+0,
+12);
+Buffer.BlockCopy(
+encryptedBytes,
+12,
+cipherBytes,
+0,
+cipherBytes.Length);
+Buffer.BlockCopy(
+encryptedBytes,
+12 + cipherBytes.Length,
+tag,
+0,
+16);
+var plainBytes =
+new byte[cipherBytes.Length];
+using var aes =
+new AesGcm(_key);
+aes.Decrypt(
+nonce,
+cipherBytes,
+tag,
+plainBytes);
+return plainBytes;
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\JwtTokenService.cs =====
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using AuthCoreKit.IAM.Constants;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Services;
+public class JwtTokenService : IJwtTokenService
+{
+private readonly JwtSettings _settings;
+public JwtTokenService(IOptions<JwtSettings> options) => _settings = options.Value;
+public (string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
+IEnumerable<string> roles, IEnumerable<string>? permissions = null)
+{
+var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
+var claims = new List<Claim>
+{
+new(ClaimConstants.UserId, user.Id.ToString()),
+new(ClaimConstants.Email, user.Email ?? ""),
+new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+};
+if (tenantId.HasValue)
+claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
+foreach (var role in roles.Distinct())
+claims.Add(new Claim(ClaimConstants.Role, role));
+if (permissions != null)
+foreach (var perm in permissions.Distinct())
+claims.Add(new Claim(ClaimConstants.Permission, perm));
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+var token = new JwtSecurityToken(
+issuer: _settings.Issuer,
+audience: _settings.Audience,
+claims: claims,
+expires: expiresAt,
+signingCredentials: creds);
+return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PasswordHasher.cs =====
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
+public class PasswordHasher : IPasswordHasher
+{
+public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
+public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\PermissionService.cs =====
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
+public class PermissionService : IPermissionService
+{
+private readonly IPermissionRepository _repo;
+public PermissionService(IPermissionRepository repo) => _repo = repo;
+public Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+=> _repo.HasPermissionAsync(userId, tenantId, permission);
+public Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module)
+=> _repo.HasPermissionByModuleAsync(userId, tenantId, module);
+public Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId)
+=> _repo.GetPermissionsAsync(userId, tenantId);
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RefreshTokenService.cs =====
+using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+namespace AuthCoreKit.IAM.Services;
+public class RefreshTokenService : IRefreshTokenService
+{
+private readonly IRefreshTokenRepository _repo;
+private readonly JwtSettings _settings;
+public RefreshTokenService(IRefreshTokenRepository repo, IOptions<JwtSettings> options)
+{
+_repo = repo;
+_settings = options.Value;
+}
+public async Task<string> GenerateAsync(Guid userId, string jwtId,
+string? ipAddress = null, string? userAgent = null)
+{
+var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+var refreshToken = new RefreshToken
+{
+UserId = userId,
+Token = token,
+JwtId = jwtId,
+ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
+CreatedByIp = ipAddress,
+UserAgent = userAgent
+};
+await _repo.AddAsync(refreshToken);
+return token;
+}
+public async Task<bool> ValidateAsync(string token)
+{
+var rt = await _repo.GetByTokenAsync(token);
+return rt is { IsActive: true };
+}
+public async Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null)
+{
+var rt = await _repo.GetByTokenAsync(token);
+if (rt == null) return;
+rt.IsRevoked = true;
+rt.RevokedAtUtc = DateTime.UtcNow;
+rt.ReplacedByToken = replacedByToken;
+rt.RevokedByIp = revokedByIp;
+await _repo.UpdateAsync(rt);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace AuthCoreKit.IAM.Services;
+public class RoleDocumentRequirementService : IRoleDocumentRequirementService
+{
+private readonly IIamDbContext _db;
+public RoleDocumentRequirementService(IIamDbContext db) => _db = db;
+public async Task AddRequirementAsync(Guid roleId, string documentType)
+{
+bool exists = await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (!exists)
+{
+_db.RoleDocumentRequirements.Add(new RoleDocumentRequirement
+{
+Id = Guid.NewGuid(),
+RoleId = roleId,
+DocumentType = documentType
+});
+await _db.SaveChangesAsync();
+}
+}
+public async Task RemoveRequirementAsync(Guid roleId, string documentType)
+{
+var req = await _db.RoleDocumentRequirements
+.FirstOrDefaultAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (req != null)
+{
+_db.RoleDocumentRequirements.Remove(req);
+await _db.SaveChangesAsync();
+}
+}
+public async Task<List<string>> GetRequiredDocumentsAsync(Guid roleId)
+{
+return await _db.RoleDocumentRequirements
+.Where(r => r.RoleId == roleId)
+.Select(r => r.DocumentType)
+.ToListAsync();
+}
+public async Task<bool> IsRequiredAsync(Guid roleId, string documentType)
+{
+return await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\RoleManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace AuthCoreKit.IAM.Services;
+public class RoleManagementService : IRoleManagementService
+{
+private readonly IIamDbContext _db;
+private readonly ICurrentUserService _currentUser;
+private readonly IamOptions _options;
+public RoleManagementService(IIamDbContext db, ICurrentUserService currentUser, IamOptions options)
+{
+_db = db;
+_currentUser = currentUser;
+_options = options;
+}
+public async Task<List<Role>> GetRolesAsync(Guid? tenantId)
+=> await _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
+public async Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
+=> await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
+public async Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null)
+{
+if (await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId))
+throw new InvalidOperationException("A role with this name already exists in the tenant.");
+var role = new Role
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = name,
+Description = description,
+IsSystem = false
+};
+_db.Roles.Add(role);
+await _db.SaveChangesAsync();
+return role;
+}
+public async Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId)
+{
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.IsSystem)
+throw new UnauthorizedAccessException("System roles cannot be modified.");
+if (newName != null) role.Name = newName;
+if (newDescription != null) role.Description = newDescription;
+await _db.SaveChangesAsync();
+}
+public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
+{
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.IsSystem)
+throw new UnauthorizedAccessException("System roles cannot be deleted.");
+_db.Roles.Remove(role);
+await _db.SaveChangesAsync();
+}
+public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
+{
+var role = await _db.Roles.Include(r => r.RolePermissions)
+.FirstOrDefaultAsync(r => r.Id == roleId)
+?? throw new KeyNotFoundException("Role not found.");
+var permission = await _db.Permissions.FindAsync(permissionId)
+?? throw new KeyNotFoundException("Permission not found.");
+if (role.RolePermissions.Any(rp => rp.PermissionId == permissionId))
+throw new InvalidOperationException("Permission already assigned.");
+role.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permissionId });
+await _db.SaveChangesAsync();
+}
+public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
+{
+var rp = await _db.RolePermissions
+.FirstOrDefaultAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId)
+?? throw new KeyNotFoundException("Role does not have this permission.");
+_db.RolePermissions.Remove(rp);
+await _db.SaveChangesAsync();
+}
+public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
+=> await _db.RolePermissions
+.Where(rp => rp.RoleId == roleId)
+.Select(rp => rp.Permission)
+.ToListAsync();
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserDocumentService.cs =====
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+namespace AuthCoreKit.IAM.Services;
+public class UserDocumentService : IUserDocumentService
+{
+private readonly IIamDbContext _db;
+public UserDocumentService(IIamDbContext db) => _db = db;
+public async Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl)
+{
+var existing = await _db.UserDocuments
+.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+if (existing != null)
+{
+existing.ImageUrl = imageUrl;
+_db.UserDocuments.Update(existing);
+}
+else
+{
+_db.UserDocuments.Add(new UserDocument
+{
+Id = Guid.NewGuid(),
+UserId = userId,
+DocumentType = documentType,
+ImageUrl = imageUrl
+});
+}
+await _db.SaveChangesAsync();
+}
+public async Task<UserDocument?> GetAsync(Guid userId, string documentType)
+=> await _db.UserDocuments
+.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
+public async Task<List<UserDocument>> GetByUserAsync(Guid userId)
+=> await _db.UserDocuments
+.Where(d => d.UserId == userId)
+.ToListAsync();
+public async Task DeleteAsync(Guid userId, string documentType)
+{
+var doc = await GetAsync(userId, documentType);
+if (doc != null)
+{
+_db.UserDocuments.Remove(doc);
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserIdentityService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace AuthCoreKit.IAM.Services;
+public class UserIdentityService : IUserIdentityService
+{
+private readonly IIamDbContext _db;
+private readonly IEncryptionService _crypto;
+public UserIdentityService(IIamDbContext db, IEncryptionService crypto)
+{
+_db = db;
+_crypto = crypto;
+}
+public async Task SetCnicAsync(Guid userId, string plainCnic)
+{
+var encrypted = _crypto.Encrypt(plainCnic);
+var existing = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+if (existing != null)
+{
+existing.EncryptedCnic = encrypted;
+_db.UserIdentities.Update(existing);
+}
+else
+{
+_db.UserIdentities.Add(new UserIdentity
+{
+Id = Guid.NewGuid(),
+UserId = userId,
+EncryptedCnic = encrypted
+});
+}
+await _db.SaveChangesAsync();
+}
+public async Task<string?> GetCnicAsync(Guid userId)
+{
+var identity = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+return identity == null ? null : _crypto.Decrypt(identity.EncryptedCnic);
+}
+public async Task DeleteAsync(Guid userId)
+{
+var identity = await _db.UserIdentities
+.FirstOrDefaultAsync(i => i.UserId == userId);
+if (identity != null)
+{
+_db.UserIdentities.Remove(identity);
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== AuthCoreKit.IAM | D:\waqas-dba\SaaSPlatform\AuthCoreKit.IAM\Services\UserManagementService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace AuthCoreKit.IAM.Services;
+public class UserManagementService : IUserManagementService
+{
+private readonly IIamDbContext _db;
+private readonly ICurrentUserService _currentUser;
+private readonly IPasswordHasher _passwordHasher;
+private readonly IamOptions _options;
+public UserManagementService(
+IIamDbContext db,
+ICurrentUserService currentUser,
+IPasswordHasher passwordHasher,
+IamOptions options)
+{
+_db = db;
+_currentUser = currentUser;
+_passwordHasher = passwordHasher;
+_options = options;
+}
+public async Task<List<User>> GetUsersAsync(Guid? tenantId)
+=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
+=> await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+public async Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId)
+{
+if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
+throw new InvalidOperationException("A user with this phone already exists in the tenant.");
+if (!string.IsNullOrWhiteSpace(email) &&
+await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
+throw new InvalidOperationException("A user with this email already exists in the tenant.");
+var user = new User
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = name,
+Phone = phone,
+Email = email,
+PasswordHash = _passwordHasher.Hash(password),
+IsActive = true
+};
+_db.Users.Add(user);
+await _db.SaveChangesAsync();
+return user;
+}
+public async Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+if (name != null) user.Name = name;
+if (phone != null) user.Phone = phone;
+if (email != null) user.Email = email;
+await _db.SaveChangesAsync();
+}
+public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+_db.Users.Remove(user);
+await _db.SaveChangesAsync();
+}
+public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+{
+var user = await _db.Users.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.Name == _options.SuperAdminRoleName)
+{
+if (!_currentUser.IsSuperAdmin)
+throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
+if (await _db.UserRoles.AnyAsync(ur => ur.RoleId == roleId && ur.UserId != userId))
+throw new InvalidOperationException("Only one system account is allowed.");
+}
+if (role.IsSystem && !_currentUser.IsSuperAdmin)
+throw new UnauthorizedAccessException("Cannot assign a system role.");
+if (user.Roles.Any(r => r.RoleId == roleId))
+throw new InvalidOperationException("User already has this role.");
+user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+await _db.SaveChangesAsync();
+}
+public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+{
+var user = await _db.Users.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+var userRole = user.Roles.FirstOrDefault(r => r.RoleId == roleId);
+if (userRole == null)
+throw new KeyNotFoundException("User does not have this role.");
+user.Roles.Remove(userRole);
+await _db.SaveChangesAsync();
+}
+public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = lockoutEnd;
+await _db.SaveChangesAsync();
+}
+public async Task UnlockUserAsync(Guid userId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = null;
+user.FailedLoginAttempts = 0;
+await _db.SaveChangesAsync();
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Authorization\TenantPermissionAttribute.cs =====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using AuthCoreKit.IAM.Interfaces;
 namespace SaaSPlatform.Api.Host.Authorization;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public class TenantPermissionAttribute : Attribute, IAsyncAuthorizationFilter
@@ -34,12 +1607,12 @@ context.Result = new ForbidResult();
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\AuthController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\AuthController.cs =====
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Controllers;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.IAM.Models;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
 [ApiController]
 [Route("api/auth")]
 public class AuthController : BaseApiController
@@ -69,7 +1642,7 @@ return Success(result, "Token refreshed");
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\TenantApprovalController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Admin\TenantApprovalController.cs =====
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Authorization;
 using SaaSPlatform.Api.Host.Controllers;
@@ -100,7 +1673,7 @@ return Success(new { }, message);
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Products\ProductsController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Products\ProductsController.cs =====
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Controllers;
 using SaaSPlatform.Application.Services;
@@ -126,11 +1699,12 @@ return Success(created);
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\StoresController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\StoresController.cs =====
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Api.Host.Authorization;
+using AuthCoreKit.IAM.Authorization;
+using SaaSPlatform.Api.Host.Controllers;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -138,7 +1712,7 @@ namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 [Authorize]
 [ApiController]
 [Route("api/tenant")]
-public class StoresController : ControllerBase
+public class StoresController : BaseApiController
 {
 private readonly ITenantStoreService _storeService;
 private readonly SaaSPlatformDbContext _db;
@@ -147,17 +1721,21 @@ public StoresController(ITenantStoreService storeService, SaaSPlatformDbContext 
 _storeService = storeService;
 _db = db;
 }
-[TenantPermission("store.update")]
+[RequiresPermission("store.update")]
 [HttpGet("store")]
 public async Task<IActionResult> GetStore()
 {
 var tenantId = (Guid)HttpContext.Items["TenantId"]!;
 var store = await _db.Stores
-.Include(s => s.StoreCuisines).ThenInclude(sc => sc.Cuisine)
-.Include(s => s.DeliveryZones).ThenInclude(sz => sz.Zone)
+.IgnoreQueryFilters()
+.Include(s => s.StoreCuisines)
+.ThenInclude(sc => sc.Cuisine)
+.Include(s => s.DeliveryZones)
+.ThenInclude(sz => sz.Zone)
 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-if (store is null) return NotFound();
-return Ok(new
+if (store is null)
+return Fail("Store not found", status: 404);
+return Success(new
 {
 store.Id,
 store.Name,
@@ -174,7 +1752,7 @@ Cuisines = store.StoreCuisines.Select(sc => sc.Cuisine.Name),
 Zones = store.DeliveryZones.Select(sz => new { sz.Zone.City, sz.Zone.Name })
 });
 }
-[TenantPermission("store.update")]
+[RequiresPermission("store.update")]
 [HttpPut("store")]
 public async Task<IActionResult> UpdateStore(UpdateStoreRequest request)
 {
@@ -184,7 +1762,7 @@ return NoContent();
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\TenantsController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\TenantsController.cs =====
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Controllers;
@@ -207,7 +1785,7 @@ _tenantRepo = tenantRepo;
 [HttpPost("register")]
 public async Task<IActionResult> Register(TenantRegistrationRequest request)
 {
-var (tenantId, message) = await _registrationService.RegisterAsync(
+var result = await _registrationService.RegisterAsync(
 request.RestaurantName,
 request.CuisineIds,
 request.ZoneIds,
@@ -224,10 +1802,12 @@ request.NtnNumber,
 request.HasFoodLicense,
 request.CnicFrontImageUrl,
 request.CnicBackImageUrl);
+if (!result.Succeeded)
+return Fail(result.Message, status: 400);
 return Success(new TenantRegistrationResponse
 {
-TenantId = tenantId,
-Message = message
+TenantId = result.Data,
+Message = result.Message
 });
 }
 [HttpGet]
@@ -248,7 +1828,7 @@ tenant.IsActive
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\BaseApiController.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\BaseApiController.cs =====
 using Microsoft.AspNetCore.Mvc;
 using SaaSPlatform.Api.Host.Responses;
 namespace SaaSPlatform.Api.Host.Controllers;
@@ -279,9 +1859,10 @@ protected Guid? TenantId =>
 HttpContext.Items["TenantId"] as Guid?;
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\ExceptionMiddleware.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\ExceptionMiddleware.cs =====
 using System.Net;
 using System.Text.Json;
+using FluentValidation;
 using SaaSPlatform.Api.Host.Responses;
 namespace SaaSPlatform.Api.Host.Middleware;
 public class ExceptionMiddleware
@@ -309,19 +1890,52 @@ await HandleExceptionAsync(context, ex);
 }
 private static async Task HandleExceptionAsync(HttpContext context, Exception ex)
 {
-context.Response.ContentType = "application/json";
-context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+var (statusCode, message, code, errors) = ex switch
+{
+UnauthorizedAccessException => (
+(int)HttpStatusCode.Unauthorized,
+ex.Message,
+"UNAUTHORIZED",
+null as List<string>
+),
+ValidationException validationEx => (
+(int)HttpStatusCode.BadRequest,
+"Validation failed",
+"VALIDATION_ERROR",
+validationEx.Errors.Select(e => e.ErrorMessage).ToList()
+),
+ArgumentException => (
+(int)HttpStatusCode.BadRequest,
+ex.Message,
+"BAD_REQUEST",
+null
+),
+InvalidOperationException => (
+(int)HttpStatusCode.BadRequest,
+ex.Message,
+"INVALID_OPERATION",
+null
+),
+_ => (
+(int)HttpStatusCode.InternalServerError,
+"An unexpected error occurred",
+"SERVER_ERROR",
+new List<string> { ex.Message }
+)
+};
 var response = ApiResponse<object>.FailResponse(
-message: "An unexpected error occurred",
-code: "SERVER_ERROR",
-errors: new List<string> { ex.Message },
-traceId: context.TraceIdentifier);
-await context.Response.WriteAsync(
-JsonSerializer.Serialize(response));
+message: message,
+code: code,
+errors: errors,
+traceId: context.TraceIdentifier
+);
+context.Response.ContentType = "application/json";
+context.Response.StatusCode = statusCode;
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\SubscriptionMiddleware.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\SubscriptionMiddleware.cs =====
 using System.Text.Json;
 using SaaSPlatform.Api.Host.Responses;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -401,9 +2015,12 @@ await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\TenantMiddleware.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\TenantMiddleware.cs =====
+using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
 using SaaSPlatform.Core.Tenant.Interfaces;
-namespace SaaSPlatform.Api.Host.Middleware;
+namespace SaaSPlatform.Api.Host.Middleware
+{
 public class TenantMiddleware
 {
 private readonly RequestDelegate _next;
@@ -411,15 +2028,10 @@ public TenantMiddleware(RequestDelegate next)
 {
 _next = next;
 }
-public async Task InvokeAsync(
-HttpContext context,
-ITenantContext tenantContext)
+public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
 {
 var path = context.Request.Path.Value?.ToLower();
-if (path!.StartsWith("/api/auth/login") ||
-path.StartsWith("/api/auth/refresh") ||
-path.StartsWith("/api/tenants/register") ||
-path.StartsWith("/swagger"))
+if (path!.StartsWith("/swagger") || path.StartsWith("/api/tenants/register"))
 {
 await _next(context);
 return;
@@ -428,7 +2040,12 @@ var tenantHeader = context.Request.Headers["x-tenant-id"].FirstOrDefault();
 if (!Guid.TryParse(tenantHeader, out var tenantId))
 {
 context.Response.StatusCode = 400;
-await context.Response.WriteAsync("Missing tenant context");
+context.Response.ContentType = "application/json";
+var error = ApiResponse<object>.FailResponse(
+message: "Missing or invalid tenant context. Include 'x-tenant-id' header.",
+code: "MISSING_TENANT",
+traceId: context.TraceIdentifier);
+await context.Response.WriteAsync(JsonSerializer.Serialize(error));
 return;
 }
 tenantContext.SetTenantId(tenantId);
@@ -436,8 +2053,9 @@ context.Items["TenantId"] = tenantId;
 await _next(context);
 }
 }
+}
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Responses\ApiResponse.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Responses\ApiResponse.cs =====
 namespace SaaSPlatform.Api.Host.Responses;
 public class ApiResponse<T>
 {
@@ -454,79 +2072,192 @@ List<string>? errors = null, string? traceId = null)
 => new() { Success = false, Message = message, Code = code, Errors = errors, TraceId = traceId };
 }
 
-===== SaaSPlatform.Api.Host | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Services\DocumentStorageService.cs =====
+using AuthCoreKit.IAM.Interfaces;
+using SkiaSharp;
+namespace SaaSPlatform.Api.Host.Services;
+public class DocumentStorageService
+{
+private readonly IEncryptionService _crypto;
+private readonly string _storageRoot;
+public DocumentStorageService(
+IEncryptionService crypto,
+IConfiguration config)
+{
+_crypto = crypto;
+_storageRoot = config["DocumentStoragePath"]
+?? throw new InvalidOperationException(
+"DocumentStoragePath is missing.");
+Directory.CreateDirectory(_storageRoot);
+}
+public async Task<string> SaveAsync(
+Guid userId,
+string documentType,
+Stream fileStream)
+{
+using var input = new MemoryStream();
+await fileStream.CopyToAsync(input);
+input.Position = 0;
+using var originalBitmap = SKBitmap.Decode(input);
+if (originalBitmap == null)
+{
+throw new InvalidOperationException(
+"Invalid image.");
+}
+SKBitmap finalBitmap = originalBitmap;
+if (originalBitmap.Width > 1024)
+{
+var ratio = 1024f / originalBitmap.Width;
+var width = 1024;
+var height = (int)(originalBitmap.Height * ratio);
+var resizedBitmap =
+new SKBitmap(width, height);
+using var canvas =
+new SKCanvas(resizedBitmap);
+canvas.Scale(
+width / (float)originalBitmap.Width,
+height / (float)originalBitmap.Height);
+canvas.DrawBitmap(
+originalBitmap,
+0,
+0);
+finalBitmap = resizedBitmap;
+}
+using var image =
+SKImage.FromBitmap(finalBitmap);
+using var data =
+image.Encode(
+SKEncodedImageFormat.Jpeg,
+80);
+var plainBytes = data.ToArray();
+var encrypted =
+_crypto.Encrypt(plainBytes);
+var fileName =
+$"{documentType}_{DateTime.UtcNow:yyyyMMddHHmmss}.enc";
+var relativePath =
+Path.Combine(
+userId.ToString(),
+fileName);
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+var directory =
+Path.GetDirectoryName(fullPath);
+if (!string.IsNullOrWhiteSpace(directory))
+{
+Directory.CreateDirectory(directory);
+}
+await File.WriteAllBytesAsync(
+fullPath,
+encrypted);
+if (!ReferenceEquals(
+finalBitmap,
+originalBitmap))
+{
+finalBitmap.Dispose();
+}
+return relativePath;
+}
+public async Task<byte[]> ReadAsync(
+string relativePath)
+{
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+if (!File.Exists(fullPath))
+{
+throw new FileNotFoundException(
+"Encrypted document not found.",
+fullPath);
+}
+var encrypted =
+await File.ReadAllBytesAsync(fullPath);
+return _crypto.Decrypt(encrypted);
+}
+public void Delete(string relativePath)
+{
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+if (File.Exists(fullPath))
+{
+File.Delete(fullPath);
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs =====
+using AuthCoreKit.IAM.Extensions;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Services;
 using FluentValidation;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using SaaSPlatform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Api.Host.Services;
 using SaaSPlatform.Application.Services;
 using SaaSPlatform.Application.Validators.Auth;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Billing.Services;
 using SaaSPlatform.Core.Catalog.Interfaces;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.IAM.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Persistence.Repositories;
 using SaaSPlatform.Infrastructure.Persistence.Seed;
 using SaaSPlatform.Infrastructure.Services;
-using SaaSPlatform.Infrastructure.Services.Auth;
 using SaaSPlatform.Infrastructure.Services.Billing;
 using SaaSPlatform.Infrastructure.Services.Common;
-using SaaSPlatform.Infrastructure.Services.IAM;
 using SaaSPlatform.Infrastructure.Services.Subscriptions;
 using SaaSPlatform.Infrastructure.Services.TenantServices;
 using SaaSPlatform.SharedKernel.Interfaces;
-using System.Text;
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+.ConfigureApiBehaviorOptions(options =>
+{
+options.InvalidModelStateResponseFactory = context =>
+{
+var errors = context.ModelState
+.Where(e => e.Value?.Errors.Count > 0)
+.SelectMany(e => e.Value!.Errors.Select(x => x.ErrorMessage))
+.ToList();
+var response = ApiResponse<object>.FailResponse(
+message: "Validation failed",
+code: "VALIDATION_ERROR",
+errors: errors,
+traceId: context.HttpContext.TraceIdentifier);
+return new BadRequestObjectResult(response);
+};
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
-builder.Services.Configure<JwtSettings>(
-builder.Configuration.GetSection("Jwt"));
-var jwtSettings = builder.Configuration
-.GetSection("Jwt")
-.Get<JwtSettings>();
-if (jwtSettings == null ||
-string.IsNullOrWhiteSpace(jwtSettings.Secret) ||
-string.IsNullOrWhiteSpace(jwtSettings.Issuer) ||
-string.IsNullOrWhiteSpace(jwtSettings.Audience))
+builder.Services.AddAuthCoreKit<SaaSPlatformDbContext>(
+builder.Configuration.GetSection("Jwt"),
+options =>
 {
-throw new Exception(
-"Invalid JWT configuration");
-}
-builder.Services
-.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-.AddJwtBearer(options =>
+options.LoginIdentifier = "phone";
+options.TenantResolver = ctx =>
 {
-options.TokenValidationParameters =
-new TokenValidationParameters
-{
-ValidateIssuer = true,
-ValidateAudience = true,
-ValidateLifetime = true,
-ValidateIssuerSigningKey = true,
-ValidIssuer = jwtSettings.Issuer,
-ValidAudience = jwtSettings.Audience,
-IssuerSigningKey =
-new SymmetricSecurityKey(
-Encoding.UTF8.GetBytes(jwtSettings.Secret)),
-ClockSkew = TimeSpan.Zero
+var header = ctx.Request.Headers["x-tenant-id"].FirstOrDefault();
+return Guid.TryParse(header, out var tid) ? tid : null;
 };
+options.SuperAdminRoleName = "SuperAdmin";
+options.SuperAdminBypassPermissions = true;
+options.EnableUserDocuments = true;
+options.EnableUserIdentities = true;
+options.RequireCnic = true;
+options.EnableRoleDocumentRequirements = true;
 });
-builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(options =>
 {
-options.AddFixedWindowLimiter(
-"default",
-config =>
+options.AddFixedWindowLimiter("default", config =>
 {
 config.Window = TimeSpan.FromMinutes(1);
 config.PermitLimit = 100;
@@ -537,49 +2268,45 @@ builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
 builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
 builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+{
+var config =
+sp.GetRequiredService<IConfiguration>();
+var key =
+config["EncryptionKey"]
+?? throw new Exception("EncryptionKey missing.");
+return new EncryptionService(key);
+});
 builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-builder.Services.AddScoped<CurrentUserService>();
-builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
 builder.Services.AddScoped<IStoreRepository, StoreRepository>();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
 builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
-builder.Services.AddScoped<IPermissionRepository, PermissionRepository>();
-builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-builder.Services.AddScoped<IPermissionService, PermissionService>();
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
-builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
 builder.Services.AddScoped<TenantApprovalService>();
 builder.Services.AddScoped<TenantRegistrationAppService>();
 builder.Services.AddScoped<ProductManagementService>();
+builder.Services.AddScoped<DocumentStorageService>();
 var provider = builder.Configuration["DatabaseProvider"];
 builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
 {
 switch (provider)
 {
 case "Postgres":
-options.UseNpgsql(
-builder.Configuration.GetConnectionString("Postgres"));
+options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
 break;
 default:
-throw new Exception(
-$"Unsupported database provider: {provider}");
+throw new Exception($"Unsupported database provider: {provider}");
 }
 });
 var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
-var db = scope.ServiceProvider
-.GetRequiredService<SaaSPlatformDbContext>();
+var db = scope.ServiceProvider.GetRequiredService<SaaSPlatformDbContext>();
 await DbSeeder.SeedAsync(db);
 }
 if (app.Environment.IsDevelopment())
@@ -597,7 +2324,7 @@ app.UseMiddleware<SubscriptionMiddleware>();
 app.MapControllers();
 app.Run();
 
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
 namespace SaaSPlatform.Application.DTOs.Auth;
 public class AuthTokenResponse
 {
@@ -607,7 +2334,7 @@ public string RefreshToken { get; set; } = default!;
 public DateTime RefreshTokenExpiresAtUtc { get; set; }
 }
 
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.Catalog.Interfaces;
 using SaaSPlatform.SharedKernel.Interfaces;
@@ -647,7 +2374,7 @@ await _unitOfWork.SaveChangesAsync();
 }
 }
 
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Tenant.Enums;
@@ -698,17 +2425,20 @@ return (true, "Tenant rejected.");
 }
 }
 
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
+using Microsoft.Extensions.DependencyInjection;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.SharedKernel.Interfaces;
+using SaaSPlatform.SharedKernel.Results;
 namespace SaaSPlatform.Application.Services;
 public class TenantRegistrationAppService
 {
@@ -721,6 +2451,8 @@ private readonly ISubscriptionRepository _subscriptionRepo;
 private readonly IPasswordHasher _passwordHasher;
 private readonly ISlugGenerator _slugGenerator;
 private readonly IUnitOfWork _unitOfWork;
+private readonly IamOptions _iamOptions;
+private readonly IServiceProvider _serviceProvider;
 public TenantRegistrationAppService(
 ITenantAccountRepository tenantRepo,
 IStoreRepository storeRepo,
@@ -730,7 +2462,9 @@ ITenantLegalInfoRepository legalRepo,
 ISubscriptionRepository subscriptionRepo,
 IPasswordHasher passwordHasher,
 ISlugGenerator slugGenerator,
-IUnitOfWork unitOfWork)
+IUnitOfWork unitOfWork,
+IamOptions iamOptions,
+IServiceProvider serviceProvider)
 {
 _tenantRepo = tenantRepo;
 _storeRepo = storeRepo;
@@ -741,30 +2475,51 @@ _subscriptionRepo = subscriptionRepo;
 _passwordHasher = passwordHasher;
 _slugGenerator = slugGenerator;
 _unitOfWork = unitOfWork;
+_iamOptions = iamOptions;
+_serviceProvider = serviceProvider;
 }
-public async Task<(Guid tenantId, string message)> RegisterAsync(TenantRegistrationRequest request)
+public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
 {
+if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
+return Result<Guid>.Failure("A tenant with this name already exists.");
+if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
+return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
+if (!string.IsNullOrWhiteSpace(request.Email) &&
+await _userRepo.ExistsByEmailAsync(request.Email, tenantId: null))
+return Result<Guid>.Failure("A user with this email already exists.");
 return await ExecuteRegistrationAsync(request);
 }
-private async Task<(Guid tenantId, string message)> ExecuteRegistrationAsync(TenantRegistrationRequest request)
+private async Task<Result<Guid>> ExecuteRegistrationAsync(TenantRegistrationRequest request)
 {
 await _unitOfWork.BeginTransactionAsync();
 try
 {
 var tenant = CreateTenant(request);
 var store = CreateStore(tenant.Id, request);
-var user = CreateUser(request);
+var user = CreateUser(tenant.Id, request);
 var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
 LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
 CreateLegalInfo(tenant.Id, request);
 await CreateStarterSubscriptionAsync(tenant.Id);
+if (_iamOptions.EnableUserIdentities && _iamOptions.RequireCnic)
+{
+if (string.IsNullOrWhiteSpace(request.CnicNumber))
+throw new InvalidOperationException("CNIC number is required.");
+var cnic = request.CnicNumber.Replace("-", "").Trim();
+if (cnic.Length != 13 || !cnic.All(char.IsDigit))
+throw new InvalidOperationException("Invalid CNIC number format.");
+var identityService = _serviceProvider.GetRequiredService<IUserIdentityService>();
+await identityService.SetCnicAsync(user.Id, cnic);
+}
 await _unitOfWork.SaveChangesAsync();
 await _unitOfWork.CommitAsync();
-return (tenant.Id, "Registration submitted successfully. Awaiting approval.");
+return Result<Guid>.Success(tenant.Id, "Registration submitted successfully. Awaiting approval.");
 }
-catch
+catch (Exception ex)
 {
 await _unitOfWork.RollbackAsync();
+if (ex.InnerException?.Message.Contains("duplicate key") == true)
+return Result<Guid>.Failure("A record with the same details already exists.");
 throw;
 }
 }
@@ -804,18 +2559,19 @@ store.DeliveryZones.Add(new StoreDeliveryZone { ZoneId = z });
 _storeRepo.Add(store);
 return store;
 }
-private User CreateUser(TenantRegistrationRequest request)
+private User CreateUser(Guid tenantId, TenantRegistrationRequest request)
 {
 var user = new User
 {
 Id = Guid.NewGuid(),
+TenantId = tenantId,
 Name = $"{request.FirstName} {request.LastName}",
 Phone = request.Phone,
 Email = request.Email,
 PasswordHash = _passwordHasher.Hash(request.Password),
 IsActive = true
 };
-_userRepo.AddAsync(user);
+_userRepo.Add(user);
 return user;
 }
 private async Task<Role> CreateOwnerRoleAsync(Guid tenantId)
@@ -836,14 +2592,11 @@ return ownerRole;
 }
 private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
 {
-_roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-_roleRepo.AddTenantUser(new TenantUser
+_roleRepo.AddUserRole(new UserRole
 {
-Id = Guid.NewGuid(),
-TenantId = tenantId,
 UserId = userId,
-IsOwner = true,
-IsActive = true
+RoleId = roleId,
+TenantId = tenantId
 });
 }
 private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
@@ -877,20 +2630,18 @@ PriceSnapshot = 0
 }
 }
 
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs =====
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs =====
 using FluentValidation;
-using SaaSPlatform.Core.IAM.Models;
+using AuthCoreKit.IAM.Models;
 using System.Text.RegularExpressions;
 namespace SaaSPlatform.Application.Validators.Auth;
 public class LoginRequestValidator : AbstractValidator<LoginRequest>
 {
 public LoginRequestValidator()
 {
-RuleFor(x => x.Phone)
+RuleFor(x => x.Login)
 .NotEmpty()
-.WithMessage("Phone number is required")
-.Must(BeValidPhone)
-.WithMessage("Invalid phone number format");
+.WithMessage("Login (phone or email) is required");
 RuleFor(x => x.Password)
 .NotEmpty()
 .WithMessage("Password is required")
@@ -915,7 +2666,7 @@ return phone.Trim()
 }
 }
 
-===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs =====
+===== SaaSPlatform.Core.Agents | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\Agent.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Agents.Entities;
 public class Agent : AuditableEntity
@@ -927,7 +2678,7 @@ public bool IsActive { get; set; } = true;
 public decimal CommissionRate { get; set; }
 }
 
-===== SaaSPlatform.Core.Agents | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs =====
+===== SaaSPlatform.Core.Agents | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Agents\Entities\AgentCommission.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Agents.Entities;
 public class AgentCommission : AuditableEntity
@@ -940,7 +2691,7 @@ public bool IsPaid { get; set; } = false;
 public DateTime? PaidAt { get; set; }
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Payment.cs =====
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Billing.Entities;
@@ -958,7 +2709,7 @@ public string? Notes { get; set; }
 public string? ReferenceNumber { get; set; }
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Plan.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Billing.Entities;
 public class Plan : AuditableEntity
@@ -979,7 +2730,7 @@ public bool AllowAdminAccess { get; set; } = true;
 public bool IsActive { get; set; } = true;
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\Subscription.cs =====
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Billing.Entities;
@@ -999,7 +2750,7 @@ public decimal PriceSnapshot { get; set; }
 public bool IsAutoRenew { get; set; } = true;
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsage.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Billing.Entities;
 public class TenantUsage : BaseEntity
@@ -1011,7 +2762,7 @@ public int OrderCountThisMonth { get; set; }
 public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Entities\TenantUsageLedger.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Billing.Entities;
 public class TenantUsageLedger : BaseEntity, ITenantScoped
@@ -1025,7 +2776,7 @@ public int StoreCount { get; set; }
 public int UserCount { get; set; }
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\PaymentStatus.cs =====
 namespace SaaSPlatform.Core.Billing.Enums;
 public enum PaymentStatus
 {
@@ -1033,7 +2784,7 @@ Pending,
 Paid
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Enums\SubscriptionStatus.cs =====
 namespace SaaSPlatform.Core.Billing.Enums;
 public enum SubscriptionStatus
 {
@@ -1046,21 +2797,21 @@ Expired,
 GracePeriod
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\IPaymentService.cs =====
 namespace SaaSPlatform.Core.Billing.Interfaces;
 public interface IPaymentService
 {
 Task MarkAsPaidAsync(Guid paymentId);
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionAccessService.cs =====
 namespace SaaSPlatform.Core.Billing.Interfaces;
 public interface ISubscriptionAccessService
 {
 Task<bool> IsTenantAllowedAsync(Guid tenantId);
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRepository.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRepository.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 namespace SaaSPlatform.Core.Billing.Interfaces;
 public interface ISubscriptionRepository
@@ -1071,7 +2822,7 @@ Task<Subscription?> GetActiveByTenantIdAsync(Guid tenantId, CancellationToken ct
 Task<Plan?> GetPlanByNameAsync(string planName, CancellationToken ct = default);
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Interfaces\ISubscriptionRuleEngine.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 namespace SaaSPlatform.Core.Billing.Interfaces;
 public interface ISubscriptionRuleEngine
@@ -1081,7 +2832,7 @@ Subscription subscription,
 Plan plan);
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionRuleEngine.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -1121,7 +2872,7 @@ return Task.FromResult(false);
 }
 }
 
-===== SaaSPlatform.Core.Billing | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs =====
+===== SaaSPlatform.Core.Billing | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Billing\Services\SubscriptionService.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 namespace SaaSPlatform.Core.Billing.Services;
@@ -1161,7 +2912,7 @@ or SubscriptionStatus.GracePeriod;
 }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Addon.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class Addon : BaseTenantEntity
@@ -1172,7 +2923,7 @@ public decimal Price { get; set; }
 public bool IsActive { get; set; } = true;
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroup.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class AddonGroup : BaseTenantEntity
@@ -1189,7 +2940,7 @@ public int DisplayOrder { get; set; }
 public ICollection<AddonGroupItem> Items { get; set; } = new List<AddonGroupItem>();
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\AddonGroupItem.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class AddonGroupItem : BaseEntity
@@ -1203,7 +2954,7 @@ public bool IsDefault { get; set; } = false;
 public int DisplayOrder { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Category.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class Category : AuditableEntity, ITenantScoped
@@ -1218,7 +2969,7 @@ public int DisplayOrder { get; set; }
 public bool IsActive { get; set; } = true;
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Cuisine.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class Cuisine : BaseEntity
@@ -1226,7 +2977,7 @@ public class Cuisine : BaseEntity
 public string Name { get; set; } = default!;
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\FeaturedProduct.cs =====
 using SaaSPlatform.Core.Catalog.Enums;
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
@@ -1243,7 +2994,7 @@ public DateTime FeaturedFrom { get; set; }
 public DateTime? FeaturedUntil { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\Product.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class Product : AuditableEntity, ITenantScoped
@@ -1260,7 +3011,7 @@ public string? MainImageUrl { get; set; }
 public ICollection<ProductImage>? Images { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddon.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class ProductAddon : BaseEntity
@@ -1269,7 +3020,7 @@ public Guid ProductId { get; set; }
 public Guid AddonId { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductAddonGroup.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class ProductAddonGroup : BaseEntity
@@ -1282,7 +3033,7 @@ public bool IsRequired { get; set; } = true;
 public int DisplayOrder { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductImage.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class ProductImage : BaseEntity
@@ -1293,7 +3044,7 @@ public int DisplayOrder { get; set; }
 public bool IsPrimary { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Entities\ProductVariant.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Catalog.Entities;
 public class ProductVariant : BaseEntity
@@ -1303,7 +3054,7 @@ public string Name { get; set; } = default!;
 public decimal Price { get; set; }
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Enums\ProductFeatureSection.cs =====
 namespace SaaSPlatform.Core.Catalog.Enums;
 public enum ProductFeatureSection
 {
@@ -1311,7 +3062,7 @@ MainPage,
 Category
 }
 
-===== SaaSPlatform.Core.Catalog | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
+===== SaaSPlatform.Core.Catalog | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Catalog\Interfaces\IProductRepository.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
 namespace SaaSPlatform.Core.Catalog.Interfaces;
 public interface IProductRepository
@@ -1323,467 +3074,7 @@ void Update(Product product);
 void Delete(Product product);
 }
 
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\ClaimConstants.cs =====
-using System.Security.Claims;
-namespace SaaSPlatform.Core.IAM.Constants;
-public static class ClaimConstants
-{
-public const string UserId = "userId";
-public const string TenantId = "tenantId";
-public const string Permission = "permission";
-public const string Email = ClaimTypes.Email;
-public const string Role = ClaimTypes.Role;
-public const string Name = ClaimTypes.Name;
-public const string NameIdentifier = ClaimTypes.NameIdentifier;
-public const string Subject = "sub";
-public const string JwtId = "jti";
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Constants\Permissions.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Constants;
-public static class Permissions
-{
-public const string TenantView = "tenant.view";
-public const string TenantCreate = "tenant.create";
-public const string TenantApprove = "tenant.approve";
-public const string TenantReject = "tenant.reject";
-public const string UserView = "user.view";
-public const string UserCreate = "user.create";
-public const string UserUpdate = "user.update";
-public const string UserDelete = "user.delete";
-public const string BillingView = "billing.view";
-public const string BillingManage = "billing.manage";
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Permission.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class Permission : BaseEntity
-{
-public string Name { get; set; } = default!;
-public Guid PermissionModuleId { get; set; }
-public PermissionModule Module { get; set; } = default!;
-public ICollection<RolePermission>? RolePermissions { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\PermissionModule.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class PermissionModule : BaseEntity
-{
-public string Name { get; set; } = default!;
-public string Code { get; set; } = default!;
-public ICollection<Permission>? Permissions { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RefreshToken.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class RefreshToken : AuditableEntity
-{
-public Guid UserId { get; set; }
-public User? User { get; set; }
-public string Token { get; set; } = default!;
-public string JwtId { get; set; } = default!;
-public DateTime ExpiresAtUtc { get; set; }
-public bool IsRevoked { get; set; }
-public DateTime? RevokedAtUtc { get; set; }
-public string? ReplacedByToken { get; set; }
-public string? CreatedByIp { get; set; }
-public string? RevokedByIp { get; set; }
-public string? Device { get; set; }
-public string? UserAgent { get; set; }
-public Guid? SessionId { get; set; }
-public bool IsExpired =>
-DateTime.UtcNow >= ExpiresAtUtc;
-public bool IsActive =>
-!IsRevoked && !IsExpired;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\Role.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class Role : BaseEntity
-{
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Description { get; set; }
-public bool IsSystem { get; set; }
-public ICollection<UserRole> UserRoles { get; set; }
-= new List<UserRole>();
-public ICollection<RolePermission> RolePermissions { get; set; }
-= new List<RolePermission>();
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\RolePermission.cs =====
-namespace SaaSPlatform.Core.IAM.Entities;
-public class RolePermission
-{
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid PermissionId { get; set; }
-public Permission Permission { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\TenantUser.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class TenantUser : BaseEntity
-{
-public Guid TenantId { get; set; }
-public Guid UserId { get; set; }
-public bool IsOwner { get; set; }
-public bool IsActive { get; set; } = true;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\User.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.IAM.Entities;
-public class User : BaseEntity
-{
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Email { get; set; }
-public string Phone { get; set; } = default!;
-public string PasswordHash { get; set; } = default!;
-public bool IsActive { get; set; } = true;
-public DateTime? LastLoginAt { get; set; }
-public int FailedLoginAttempts { get; set; }
-public DateTime? LockoutEnd { get; set; }
-public ICollection<UserRole> Roles { get; set; }
-= new List<UserRole>();
-public ICollection<RefreshToken> RefreshTokens { get; set; }
-= new List<RefreshToken>();
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Entities\UserRole.cs =====
-namespace SaaSPlatform.Core.IAM.Entities;
-public class UserRole
-{
-public Guid UserId { get; set; }
-public User User { get; set; } = default!;
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid TenantId { get; set; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IAuthService.cs =====
-using SaaSPlatform.Core.IAM.Models;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IAuthService
-{
-Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId);
-Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId);
-Task LogoutAsync(string refreshToken);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\ICurrentUserService.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface ICurrentUserService
-{
-Guid? UserId { get; }
-Guid? TenantId { get; }
-bool IsAuthenticated { get; }
-bool IsSuperAdmin { get; }
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IJwtTokenService.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IJwtTokenService
-{
-(string Token, DateTime ExpiresAt) GenerateAccessToken(
-User user,
-Guid tenantId,
-IEnumerable<string> roles,
-IEnumerable<string>? permissions = null);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPasswordHasher.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IPasswordHasher
-{
-string Hash(string password);
-bool Verify(string password, string passwordHash);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionRepository.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IPermissionRepository
-{
-Task<bool> HasPermissionAsync(Guid userId, Guid tenantId, string permission);
-Task<bool> HasPermissionByModuleAsync(Guid userId, Guid tenantId, string module);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IPermissionService.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.IAM.Interfaces
-{
-public interface IPermissionService
-{
-Task<bool> HasPermissionAsync(Guid userId, Guid tenantId, string permission);
-Task<bool> HasModuleAccessAsync(Guid userId, Guid tenantId, string module);
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRefreshTokenRepository
-{
-Task AddAsync(RefreshToken token);
-Task<RefreshToken?> GetByTokenAsync(string token);
-Task UpdateAsync(RefreshToken token);
-Task RevokeAsync(RefreshToken token);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRefreshTokenService.cs =====
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRefreshTokenService
-{
-Task<string> GenerateAsync(
-Guid userId,
-string jwtId,
-string? ipAddress = null,
-string? userAgent = null);
-Task<bool> ValidateAsync(string token);
-Task RevokeAsync(
-string token,
-string? replacedByToken = null,
-string? revokedByIp = null);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IRoleRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IRoleRepository
-{
-void Add(Role role);
-Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
-void AddRolePermission(RolePermission rolePermission);
-void AddUserRole(UserRole userRole);
-void AddTenantUser(TenantUser tenantUser);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Interfaces\IUserRepository.cs =====
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Core.IAM.Interfaces;
-public interface IUserRepository
-{
-Task<User?> GetByIdAsync(Guid userId);
-Task<User?> GetByPhoneAsync(string phone, Guid tenantId);
-Task<User?> GetByEmailAsync(string email, Guid tenantId);
-Task<List<User>> GetByTenantAsync(Guid tenantId);
-Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId);
-Task<bool> ExistsByEmailAsync(string email, Guid tenantId);
-Task AddAsync(User user);
-Task UpdateAsync(User user);
-Task DeleteAsync(User user);
-Task IncrementFailedLoginAttemptsAsync(Guid userId);
-Task ResetFailedLoginAttemptsAsync(Guid userId);
-Task LockUserAsync(Guid userId, DateTime lockoutEnd);
-Task<DateTime?> GetLockoutEndAsync(Guid userId);
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\JwtSettings.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace SaaSPlatform.Core.Tenant.Models
-{
-public class JwtSettings
-{
-public string Secret { get; set; } = default!;
-public string Issuer { get; set; } = default!;
-public string Audience { get; set; } = default!;
-public int AccessTokenMinutes { get; set; } = 120;
-public int RefreshTokenDays { get; set; } = 7;
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginRequest.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class LoginRequest
-{
-public string Phone { get; set; } = default!;
-public string Password { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\LoginResponse.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class LoginResponse
-{
-public string AccessToken { get; set; } = default!;
-public string RefreshToken { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Models\RefreshTokenRequest.cs =====
-namespace SaaSPlatform.Core.IAM.Models;
-public class RefreshTokenRequest
-{
-public string RefreshToken { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\JwtTokenService.cs =====
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using SaaSPlatform.Core.IAM.Constants;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
-namespace SaaSPlatform.Infrastructure.Services;
-public class JwtTokenService : IJwtTokenService
-{
-private readonly JwtSettings _jwtSettings;
-public JwtTokenService(
-IOptions<JwtSettings> jwtOptions)
-{
-_jwtSettings = jwtOptions.Value;
-}
-public (string Token, DateTime ExpiresAt) GenerateAccessToken(
-User user,
-Guid tenantId,
-IEnumerable<string> roles,
-IEnumerable<string>? permissions = null)
-{
-var expiresAt = DateTime.UtcNow.AddMinutes(
-_jwtSettings.AccessTokenMinutes);
-var claims = new List<Claim>
-{
-new(
-ClaimConstants.UserId,
-user.Id.ToString()),
-new(
-ClaimConstants.TenantId,
-tenantId.ToString()),
-new(
-ClaimConstants.Email,
-user.Email),
-new(
-ClaimConstants.Subject,
-user.Id.ToString()),
-new(
-ClaimConstants.JwtId,
-Guid.NewGuid().ToString())
-};
-foreach (var role in roles.Distinct())
-{
-claims.Add(new Claim(
-ClaimConstants.Role,
-role));
-}
-if (permissions != null)
-{
-foreach (var permission in permissions.Distinct())
-{
-claims.Add(new Claim(
-ClaimConstants.Permission,
-permission));
-}
-}
-var key = new SymmetricSecurityKey(
-Encoding.UTF8.GetBytes(_jwtSettings.Secret));
-var credentials = new SigningCredentials(
-key,
-SecurityAlgorithms.HmacSha256);
-var token = new JwtSecurityToken(
-issuer: _jwtSettings.Issuer,
-audience: _jwtSettings.Audience,
-claims: claims,
-expires: expiresAt,
-signingCredentials: credentials);
-var tokenValue = new JwtSecurityTokenHandler()
-.WriteToken(token);
-return (tokenValue, expiresAt);
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PasswordHasher.cs =====
-using SaaSPlatform.Core.IAM.Interfaces;
-using System.Security.Cryptography;
-using System.Text;
-namespace SaaSPlatform.Infrastructure.Services.IAM;
-public class PasswordHasher : IPasswordHasher
-{
-public string Hash(string password)
-{
-using var pbkdf2 = new Rfc2898DeriveBytes(
-password,
-saltSize: 16,
-iterations: 100_000,
-HashAlgorithmName.SHA256);
-var salt = pbkdf2.Salt;
-var hash = pbkdf2.GetBytes(32);
-return $"{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
-}
-public bool Verify(string password, string passwordHash)
-{
-var parts = passwordHash.Split(':');
-if (parts.Length != 2) return false;
-var salt = Convert.FromBase64String(parts[0]);
-var expectedHash = Convert.FromBase64String(parts[1]);
-using var pbkdf2 = new Rfc2898DeriveBytes(
-password,
-salt,
-100_000,
-HashAlgorithmName.SHA256);
-var actualHash = pbkdf2.GetBytes(32);
-return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PermissionService.cs =====
-using SaaSPlatform.Core.IAM.Interfaces;
-namespace SaaSPlatform.Core.IAM.Services;
-public class PermissionService : IPermissionService
-{
-private readonly IPermissionRepository _repo;
-public PermissionService(IPermissionRepository repo)
-{
-_repo = repo;
-}
-public Task<bool> HasPermissionAsync(
-Guid userId,
-Guid tenantId,
-string permission)
-{
-return _repo.HasPermissionAsync(userId, tenantId, permission);
-}
-public async Task<bool> HasModuleAccessAsync(
-Guid userId,
-Guid tenantId,
-string module)
-{
-return await _repo.HasPermissionByModuleAsync(userId, tenantId, module);
-}
-}
-
-===== SaaSPlatform.Core.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.IAM\Services\PhoneNormalizer.cs =====
-namespace SaaSPlatform.Core.IAM.Services;
-public static class PhoneNormalizer
-{
-public static string Normalize(string phone)
-{
-if (string.IsNullOrWhiteSpace(phone))
-return string.Empty;
-return phone.Trim()
-.Replace(" ", "")
-.Replace("-", "");
-}
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Orders.Enums;
 using SaaSPlatform.SharedKernel.Common;
@@ -1808,7 +3099,7 @@ public OrderType OrderType { get; set; } = OrderType.Pickup;
 public string? DeliveryAddress { get; set; }
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Orders.Entities;
 public class OrderItem : BaseEntity
@@ -1824,7 +3115,7 @@ public decimal LineTotal { get; set; }
 public ICollection<OrderItemAddon>? Addons { get; set; }
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Orders.Entities;
 public class OrderItemAddon : BaseEntity
@@ -1834,7 +3125,7 @@ public string Name { get; set; } = default!;
 public decimal Price { get; set; }
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Orders.Entities;
 public class RestaurantTable : AuditableEntity, ITenantScoped
@@ -1847,7 +3138,7 @@ public bool IsActive { get; set; } = true;
 public string? QRCode { get; set; }
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
 namespace SaaSPlatform.Core.Orders.Enums;
 public enum OrderChannel
 {
@@ -1856,7 +3147,7 @@ MobileApp,
 QRMenu
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
 namespace SaaSPlatform.Core.Orders.Enums;
 public enum OrderStatus
 {
@@ -1867,7 +3158,7 @@ Delivered,
 Cancelled
 }
 
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
+===== SaaSPlatform.Core.Orders | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
 namespace SaaSPlatform.Core.Orders.Enums;
 public enum OrderType
 {
@@ -1876,7 +3167,7 @@ Pickup,
 DineIn
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
 namespace SaaSPlatform.Core.Tenant.Constants;
 public static class TenantConstants
 {
@@ -1884,7 +3175,7 @@ public const string TenantHeader = "X-Tenant-ID";
 public const string TenantContextKey = "TenantId";
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
@@ -1910,7 +3201,7 @@ public bool SupportsDineIn { get; set; } = false;
 public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
@@ -1922,7 +3213,7 @@ public Guid CuisineId { get; set; }
 public Cuisine Cuisine { get; set; } = default!;
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
 public class StoreDeliveryZone : BaseEntity
@@ -1933,7 +3224,7 @@ public Guid ZoneId { get; set; }
 public Zone Zone { get; set; } = default!;
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.SharedKernel.Common;
 using SaaSPlatform.Core.Tenant.Enums;
@@ -1957,7 +3248,7 @@ public ICollection<TenantDomain>? Domains { get; set; }
 public ICollection<Subscription>? Subscriptions { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
 public class TenantDomain : AuditableEntity
@@ -1969,7 +3260,7 @@ public bool IsVerified { get; set; }
 public DateTime? VerifiedAt { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
 public class TenantLegalInfo : AuditableEntity
@@ -1982,7 +3273,7 @@ public string? CnicFrontImageUrl { get; set; }
 public string? CnicBackImageUrl { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs =====
 using SaaSPlatform.SharedKernel.Common;
 namespace SaaSPlatform.Core.Tenant.Entities;
 public class Zone : BaseEntity
@@ -1991,7 +3282,7 @@ public string Name { get; set; } = default!;
 public string City { get; set; } = default!;
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs =====
 namespace SaaSPlatform.Core.Tenant.Enums;
 public enum RegistrationStatus
 {
@@ -2000,7 +3291,7 @@ Approved,
 Rejected
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface IStoreRepository
@@ -2008,14 +3299,14 @@ public interface IStoreRepository
 void Add(Store store);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs =====
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantAccessService
 {
 Task<bool> TenantExistsAsync(Guid tenantId);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantAccountRepository
@@ -2023,9 +3314,10 @@ public interface ITenantAccountRepository
 Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
 void Add(TenantAccount tenant);
 void Update(TenantAccount tenant);
+Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs =====
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantContext
 {
@@ -2033,7 +3325,7 @@ Guid? TenantId { get; }
 void SetTenantId(Guid tenantId);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantLegalInfoRepository
@@ -2041,11 +3333,13 @@ public interface ITenantLegalInfoRepository
 void Add(TenantLegalInfo info);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs =====
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantRegistrationService
 {
-Task<(Guid tenantId, string message)> RegisterAsync(
+Task<Result<Guid>> RegisterAsync(
 string restaurantName,
 List<Guid> cuisineIds,
 List<Guid> zoneIds,
@@ -2064,7 +3358,7 @@ string? cnicFrontUrl,
 string? cnicBackUrl);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantRepository
@@ -2073,7 +3367,7 @@ Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default)
 void Update(TenantAccount tenant);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs =====
 using SaaSPlatform.Core.Tenant.Models;
 namespace SaaSPlatform.Core.Tenant.Interfaces;
 public interface ITenantStoreService
@@ -2081,7 +3375,7 @@ public interface ITenantStoreService
 Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs =====
 namespace SaaSPlatform.Core.Tenant.Models;
 public class TenantRegistrationRequest
 {
@@ -2103,7 +3397,7 @@ public string? CnicFrontImageUrl { get; set; }
 public string? CnicBackImageUrl { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs =====
 namespace SaaSPlatform.Core.Tenant.Models;
 public class TenantRegistrationResponse
 {
@@ -2111,7 +3405,7 @@ public Guid TenantId { get; set; }
 public string Message { get; set; } = default!;
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs =====
 namespace SaaSPlatform.Core.Tenant.Models;
 public class UpdateStoreRequest
 {
@@ -2129,7 +3423,7 @@ public string? CoverPhotoUrl { get; set; }
 public string? LogoUrl { get; set; }
 }
 
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs =====
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs =====
 using SaaSPlatform.Core.Tenant.Interfaces;
 namespace SaaSPlatform.Infrastructure.Services;
 public class TenantContext : ITenantContext
@@ -2142,7 +3436,7 @@ _tenantId = tenantId;
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Billing.Entities;
@@ -2163,7 +3457,7 @@ builder.HasIndex(x => x.NextBillingDate);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Billing.Entities;
@@ -2182,7 +3476,7 @@ builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Billing.Entities;
@@ -2199,7 +3493,7 @@ x.UsageMonthYear
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2217,7 +3511,7 @@ builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2235,7 +3529,7 @@ builder.HasMany(g => g.Items)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2257,7 +3551,7 @@ builder.HasOne(i => i.Addon)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2277,7 +3571,7 @@ builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2290,7 +3584,7 @@ builder.HasIndex(c => c.Name).IsUnique();
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2313,7 +3607,7 @@ builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2334,7 +3628,7 @@ builder.HasOne(x => x.AddonGroup)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2357,7 +3651,7 @@ builder.HasMany(p => p.Images)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2373,7 +3667,7 @@ builder.Property(x => x.ImageUrl).HasMaxLength(500);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -2390,143 +3684,7 @@ builder.HasOne<Product>()
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
-{
-public void Configure(EntityTypeBuilder<Permission> builder)
-{
-builder.HasIndex(x => x.Name).IsUnique();
-builder.HasIndex(x => x.PermissionModuleId);
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\PermissionModuleConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class PermissionModuleConfiguration : IEntityTypeConfiguration<PermissionModule>
-{
-public void Configure(EntityTypeBuilder<PermissionModule> builder)
-{
-builder.HasIndex(x => x.Code).IsUnique();
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RefreshTokenConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
-{
-public void Configure(EntityTypeBuilder<RefreshToken> builder)
-{
-builder.HasIndex(x => x.Token)
-.IsUnique();
-builder.HasIndex(x => new
-{
-x.UserId,
-x.IsRevoked
-});
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RoleConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class RoleConfiguration : IEntityTypeConfiguration<Role>
-{
-public void Configure(EntityTypeBuilder<Role> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.Name });
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\RolePermissionConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
-{
-public void Configure(EntityTypeBuilder<RolePermission> builder)
-{
-builder.HasKey(x => new { x.RoleId, x.PermissionId });
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class UserConfiguration : IEntityTypeConfiguration<User>
-{
-public void Configure(EntityTypeBuilder<User> builder)
-{
-builder.ToTable("Users");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.IsRequired()
-.HasMaxLength(200);
-builder.Property(x => x.Phone)
-.IsRequired()
-.HasMaxLength(20);
-builder.Property(x => x.Email)
-.HasMaxLength(200);
-builder.Property(x => x.PasswordHash)
-.IsRequired();
-builder.Property(x => x.TenantId)
-.IsRequired();
-builder.HasIndex(x => new { x.TenantId, x.Phone })
-.IsUnique();
-builder.HasIndex(x => new { x.TenantId, x.Email });
-builder.Property(x => x.FailedLoginAttempts)
-.HasDefaultValue(0);
-builder.Property(x => x.IsActive)
-.HasDefaultValue(true);
-builder.HasMany(x => x.Roles)
-.WithOne()
-.HasForeignKey(x => x.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\IAM\UserRoleConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.IAM.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.IAM;
-public class UserRoleConfiguration
-: IEntityTypeConfiguration<UserRole>
-{
-public void Configure(EntityTypeBuilder<UserRole> builder)
-{
-builder.HasKey(x => new
-{
-x.UserId,
-x.RoleId,
-x.TenantId
-});
-builder.HasOne(x => x.User)
-.WithMany(x => x.Roles)
-.HasForeignKey(x => x.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasOne(x => x.Role)
-.WithMany(x => x.UserRoles)
-.HasForeignKey(x => x.RoleId)
-.OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Orders.Entities;
@@ -2564,7 +3722,7 @@ builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2582,7 +3740,7 @@ builder.HasIndex(x => x.IsOnline);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreCuisineConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreCuisineConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2603,7 +3761,7 @@ builder.HasOne(sc => sc.Cuisine)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreDeliveryZoneConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\StoreDeliveryZoneConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2618,7 +3776,7 @@ builder.HasOne(x => x.Zone).WithMany().HasForeignKey(x => x.ZoneId);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantAccountConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantAccountConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2638,7 +3796,7 @@ builder.HasIndex(x => x.Slug)
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantLegalInfoConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\TenantLegalInfoConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2651,7 +3809,7 @@ builder.HasIndex(x => x.TenantId).IsUnique();
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\ZoneConfiguration.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\TenantConfig\ZoneConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SaaSPlatform.Core.Tenant.Entities;
@@ -2664,7 +3822,7 @@ builder.HasIndex(z => new { z.City, z.Name }).IsUnique();
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Extensions\QueryFilterExtensions.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Extensions\QueryFilterExtensions.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -2710,7 +3868,7 @@ tenantContext.TenantId);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\ProductRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\ProductRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.Catalog.Interfaces;
@@ -2728,60 +3886,7 @@ public void Update(Product product) => _db.Products.Update(product);
 public void Delete(Product product) => _db.Products.Remove(product);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\RefreshTokenRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Infrastructure.Persistence;
-namespace SaaSPlatform.Infrastructure.Persistence.Repositories;
-public class RefreshTokenRepository : IRefreshTokenRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public RefreshTokenRepository(SaaSPlatformDbContext db)
-{
-_db = db;
-}
-public async Task AddAsync(RefreshToken token)
-{
-await _db.RefreshTokens.AddAsync(token);
-await _db.SaveChangesAsync();
-}
-public async Task<RefreshToken?> GetByTokenAsync(string token)
-{
-return await _db.RefreshTokens.FirstOrDefaultAsync(x => x.Token == token);
-}
-public async Task UpdateAsync(RefreshToken token)
-{
-_db.RefreshTokens.Update(token);
-await _db.SaveChangesAsync();
-}
-public async Task RevokeAsync(RefreshToken token)
-{
-token.IsRevoked = true;
-token.RevokedAtUtc = DateTime.UtcNow;
-_db.RefreshTokens.Update(token);
-await _db.SaveChangesAsync();
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\RoleRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-namespace SaaSPlatform.Infrastructure.Persistence.Repositories;
-public class RoleRepository : IRoleRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public RoleRepository(SaaSPlatformDbContext db) => _db = db;
-public void Add(Role role) => _db.Roles.Add(role);
-public async Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct)
-=> await _db.Permissions.ToListAsync(ct);
-public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
-public void AddUserRole(UserRole ur) => _db.UserRoles.Add(ur);
-public void AddTenantUser(TenantUser tu) => _db.TenantUsers.Add(tu);
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\StoreRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\StoreRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
 namespace SaaSPlatform.Infrastructure.Persistence.Repositories;
@@ -2792,7 +3897,7 @@ public StoreRepository(SaaSPlatformDbContext db) => _db = db;
 public void Add(Store store) => _db.Stores.Add(store);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\SubscriptionRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\SubscriptionRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -2809,7 +3914,7 @@ public async Task<Plan?> GetPlanByNameAsync(string planName, CancellationToken c
 => await _db.Plans.FirstOrDefaultAsync(p => p.Name == planName, ct);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantAccountRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantAccountRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -2822,9 +3927,11 @@ public async Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken 
 => await _db.TenantAccounts.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.Id == tenantId, ct);
 public void Add(TenantAccount tenant) => _db.TenantAccounts.Add(tenant);
 public void Update(TenantAccount tenant) => _db.TenantAccounts.Update(tenant);
+public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
+=> await _db.TenantAccounts.AnyAsync(t => t.Name == name, ct);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantLegalInfoRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantLegalInfoRepository.cs =====
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
 namespace SaaSPlatform.Infrastructure.Persistence.Repositories;
@@ -2835,7 +3942,7 @@ public TenantLegalInfoRepository(SaaSPlatformDbContext db) => _db = db;
 public void Add(TenantLegalInfo info) => _db.TenantLegalInfos.Add(info);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantRepository.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -2850,118 +3957,15 @@ public async Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken 
 public void Update(TenantAccount tenant) => _db.TenantAccounts.Update(tenant);
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\UserRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Core.IAM.Services;
-namespace SaaSPlatform.Infrastructure.Services.IAM;
-public class UserRepository : IUserRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public UserRepository(SaaSPlatformDbContext db)
-{
-_db = db;
-}
-public async Task<User?> GetByIdAsync(Guid userId)
-{
-return await _db.Users
-.Include(x => x.Roles)
-.ThenInclude(x => x.Role)
-.FirstOrDefaultAsync(x => x.Id == userId);
-}
-public async Task<User?> GetByPhoneAsync(string phone, Guid tenantId)
-{
-var normalized = PhoneNormalizer.Normalize(phone);
-return await _db.Users
-.Include(x => x.Roles)
-.FirstOrDefaultAsync(x =>
-x.Phone == normalized &&
-x.TenantId == tenantId);
-}
-public async Task<User?> GetByEmailAsync(string email, Guid tenantId)
-{
-return await _db.Users
-.Include(x => x.Roles)
-.FirstOrDefaultAsync(x =>
-x.Email == email &&
-x.TenantId == tenantId);
-}
-public async Task<List<User>> GetByTenantAsync(Guid tenantId)
-{
-return await _db.Users
-.Where(x => x.TenantId == tenantId)
-.ToListAsync();
-}
-public async Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId)
-{
-var normalized = PhoneNormalizer.Normalize(phone);
-return await _db.Users
-.AnyAsync(x =>
-x.Phone == normalized &&
-x.TenantId == tenantId);
-}
-public async Task<bool> ExistsByEmailAsync(string email, Guid tenantId)
-{
-return await _db.Users
-.AnyAsync(x =>
-x.Email == email &&
-x.TenantId == tenantId);
-}
-public async Task AddAsync(User user)
-{
-await _db.Users.AddAsync(user);
-await _db.SaveChangesAsync();
-}
-public async Task UpdateAsync(User user)
-{
-_db.Users.Update(user);
-await _db.SaveChangesAsync();
-}
-public async Task DeleteAsync(User user)
-{
-_db.Users.Remove(user);
-await _db.SaveChangesAsync();
-}
-public async Task IncrementFailedLoginAttemptsAsync(Guid userId)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.FailedLoginAttempts++;
-await _db.SaveChangesAsync();
-}
-public async Task ResetFailedLoginAttemptsAsync(Guid userId)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.FailedLoginAttempts = 0;
-await _db.SaveChangesAsync();
-}
-public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.LockoutEnd = lockoutEnd;
-await _db.SaveChangesAsync();
-}
-public async Task<DateTime?> GetLockoutEndAsync(Guid userId)
-{
-return await _db.Users
-.Where(x => x.Id == userId)
-.Select(x => x.LockoutEnd)
-.FirstOrDefaultAsync();
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\DbSeeder.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\DbSeeder.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Services;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Infrastructure.Services.IAM;
-namespace SaaSPlatform.Infrastructure.Persistence.Seed;
+namespace SaaSPlatform.Infrastructure.Persistence.Seed
+{
 public static class DbSeeder
 {
 public static async Task SeedAsync(SaaSPlatformDbContext db)
@@ -3041,13 +4045,15 @@ await db.SaveChangesAsync();
 const string superAdminPhone = "0000000000";
 if (!await db.Users.AnyAsync(x => x.Phone == superAdminPhone))
 {
+var hasher = new PasswordHasher();
 var adminUser = new User
 {
 Id = Guid.NewGuid(),
+TenantId = SeedData.SystemTenantId,
 Name = "Super Admin",
 Phone = superAdminPhone,
 Email = "admin@system.com",
-PasswordHash = new PasswordHasher().Hash("Admin@123"),
+PasswordHash = hasher.Hash("Admin@123"),
 IsActive = true
 };
 await db.Users.AddAsync(adminUser);
@@ -3058,26 +4064,20 @@ UserId = adminUser.Id,
 RoleId = SeedData.SuperAdminRoleId,
 TenantId = SeedData.SystemTenantId
 });
-await db.TenantUsers.AddAsync(new TenantUser
-{
-Id = Guid.NewGuid(),
-TenantId = SeedData.SystemTenantId,
-UserId = adminUser.Id,
-IsOwner = false,
-IsActive = true
-});
 await db.SaveChangesAsync();
 }
 const string approverPhone = "1111111111";
 if (!await db.Users.AnyAsync(x => x.Phone == approverPhone))
 {
+var hasher = new PasswordHasher();
 var approverUser = new User
 {
 Id = Guid.NewGuid(),
+TenantId = SeedData.SystemTenantId,
 Name = "Approver",
 Phone = approverPhone,
 Email = "approver@system.com",
-PasswordHash = new PasswordHasher().Hash("Approver@123"),
+PasswordHash = hasher.Hash("Approver@123"),
 IsActive = true
 };
 await db.Users.AddAsync(approverUser);
@@ -3088,23 +4088,16 @@ UserId = approverUser.Id,
 RoleId = SeedData.ApproverRoleId,
 TenantId = SeedData.SystemTenantId
 });
-await db.TenantUsers.AddAsync(new TenantUser
-{
-Id = Guid.NewGuid(),
-TenantId = SeedData.SystemTenantId,
-UserId = approverUser.Id,
-IsOwner = false,
-IsActive = true
-});
 await db.SaveChangesAsync();
 }
 }
 }
+}
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\SeedData.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\SeedData.cs =====
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
+using AuthCoreKit.IAM.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
 namespace SaaSPlatform.Infrastructure.Persistence.Seed;
 public static class SeedData
@@ -3244,18 +4237,17 @@ new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = 
 };
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\AuditableDbContext.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\AuditableDbContext.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
-using SaaSPlatform.Infrastructure.Services.IAM;
-using SaaSPlatform.Infrastructure.Services;
+using AuthCoreKit.IAM.Interfaces;
 namespace SaaSPlatform.Infrastructure.Persistence;
 public abstract class AuditableDbContext : DbContext
 {
-private readonly CurrentUserService? _currentUser;
+private readonly ICurrentUserService? _currentUser;
 protected AuditableDbContext(
 DbContextOptions options,
-CurrentUserService? currentUser = null)
+ICurrentUserService? currentUser = null)
 : base(options)
 {
 _currentUser = currentUser;
@@ -3272,22 +4264,19 @@ switch (entry.State)
 {
 case EntityState.Added:
 entry.Entity.CreatedAt = DateTime.UtcNow;
-entry.Entity.CreatedBy =
-_currentUser?.UserId;
+entry.Entity.CreatedBy = _currentUser?.UserId;
 break;
 case EntityState.Modified:
 entry.Entity.UpdatedAt = DateTime.UtcNow;
-entry.Entity.UpdatedBy =
-_currentUser?.UserId;
+entry.Entity.UpdatedBy = _currentUser?.UserId;
 break;
 }
 }
-return await base.SaveChangesAsync(
-cancellationToken);
+return await base.SaveChangesAsync(cancellationToken);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\DbContextFactory.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\DbContextFactory.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -3298,7 +4287,7 @@ public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContex
 public SaaSPlatformDbContext CreateDbContext(string[] args)
 {
 var options = new DbContextOptionsBuilder<SaaSPlatformDbContext>()
-.UseNpgsql("Host=localhost;Database=saas;Username=postgres;Password=123")
+.UseNpgsql("Host=localhost;Database=saas_db;Username=postgres;Password=123")
 .Options;
 return new SaaSPlatformDbContext(
 options,
@@ -3307,38 +4296,31 @@ null);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\SaaSPlatformDbContext.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\SaaSPlatformDbContext.cs =====
+using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence.Extensions;
 using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.TenantServices;
 namespace SaaSPlatform.Infrastructure.Persistence;
-public class SaaSPlatformDbContext : AuditableDbContext
+public class SaaSPlatformDbContext : AuditableDbContext, IIamDbContext
 {
 private readonly ITenantContext _tenantContext;
 public SaaSPlatformDbContext(
 DbContextOptions<SaaSPlatformDbContext> options,
 ITenantContext tenantContext,
-CurrentUserService? currentUser = null)
+ICurrentUserService? currentUser = null)
 : base(options, currentUser)
 {
 _tenantContext = tenantContext ?? new NullTenantContext();
 }
 public DbSet<TenantAccount> TenantAccounts => Set<TenantAccount>();
-public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
 public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
-public DbSet<User> Users => Set<User>();
-public DbSet<Role> Roles => Set<Role>();
-public DbSet<UserRole> UserRoles => Set<UserRole>();
-public DbSet<Permission> Permissions => Set<Permission>();
-public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
-public DbSet<PermissionModule> PermissionModules => Set<PermissionModule>();
-public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 public DbSet<Store> Stores => Set<Store>();
 public DbSet<Product> Products => Set<Product>();
 public DbSet<Addon> Addons => Set<Addon>();
@@ -3351,16 +4333,28 @@ public DbSet<Zone> Zones => Set<Zone>();
 public DbSet<Cuisine> Cuisines => Set<Cuisine>();
 public DbSet<StoreCuisine> StoreCuisines => Set<StoreCuisine>();
 public DbSet<StoreDeliveryZone> StoreDeliveryZones => Set<StoreDeliveryZone>();
+public DbSet<AuthCoreKit.IAM.Entities.User> Users => Set<AuthCoreKit.IAM.Entities.User>();
+public DbSet<AuthCoreKit.IAM.Entities.Role> Roles => Set<AuthCoreKit.IAM.Entities.Role>();
+public DbSet<AuthCoreKit.IAM.Entities.UserRole> UserRoles => Set<AuthCoreKit.IAM.Entities.UserRole>();
+public DbSet<AuthCoreKit.IAM.Entities.Permission> Permissions => Set<AuthCoreKit.IAM.Entities.Permission>();
+public DbSet<AuthCoreKit.IAM.Entities.PermissionModule> PermissionModules => Set<AuthCoreKit.IAM.Entities.PermissionModule>();
+public DbSet<AuthCoreKit.IAM.Entities.RolePermission> RolePermissions => Set<AuthCoreKit.IAM.Entities.RolePermission>();
+public DbSet<AuthCoreKit.IAM.Entities.RefreshToken> RefreshTokens => Set<AuthCoreKit.IAM.Entities.RefreshToken>();
+public DbSet<AuthCoreKit.IAM.Entities.UserDocument> UserDocuments => Set<AuthCoreKit.IAM.Entities.UserDocument>();
+public DbSet<AuthCoreKit.IAM.Entities.UserIdentity> UserIdentities => Set<AuthCoreKit.IAM.Entities.UserIdentity>();
+public DbSet<AuthCoreKit.IAM.Entities.RoleDocumentRequirement> RoleDocumentRequirements => Set<AuthCoreKit.IAM.Entities.RoleDocumentRequirement>();
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
 base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(
+typeof(AuthCoreKit.IAM.Configuration.UserConfiguration).Assembly);
 modelBuilder.ApplyConfigurationsFromAssembly(
 typeof(SaaSPlatformDbContext).Assembly);
 modelBuilder.ApplyTenantFilters(_tenantContext);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\UnitOfWork.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\UnitOfWork.cs =====
 using Microsoft.EntityFrameworkCore.Storage;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.SharedKernel.Interfaces;
@@ -3381,7 +4375,7 @@ public async Task<int> SaveChangesAsync(CancellationToken ct = default)
 public void Dispose() => _transaction?.Dispose();
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Billing\PaymentService.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Billing\PaymentService.cs =====
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -3406,7 +4400,7 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Common\SlugGenerator.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Common\SlugGenerator.cs =====
 using SaaSPlatform.SharedKernel.Interfaces;
 namespace SaaSPlatform.Infrastructure.Services.Common;
 public class SlugGenerator : ISlugGenerator
@@ -3421,233 +4415,7 @@ return baseSlug + "-" + Guid.NewGuid().ToString("N")[..6];
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\AuthService.cs =====
-using BCrypt.Net;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.IAM.Models;
-namespace SaaSPlatform.Core.IAM.Services;
-public class AuthService : IAuthService
-{
-private readonly IUserRepository _userRepository;
-private readonly IJwtTokenService _jwtService;
-private readonly IRefreshTokenRepository _refreshRepo;
-public AuthService(
-IUserRepository userRepository,
-IJwtTokenService jwtService,
-IRefreshTokenRepository refreshRepo)
-{
-_userRepository = userRepository;
-_jwtService = jwtService;
-_refreshRepo = refreshRepo;
-}
-public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid tenantId)
-{
-var user = await _userRepository.GetByPhoneAsync(request.Phone, tenantId);
-if (user == null)
-throw new UnauthorizedAccessException("Invalid credentials");
-if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-throw new UnauthorizedAccessException("Invalid credentials");
-var roles = user.Roles.Select(x => x.Role.Name).ToList();
-var (token, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
-var refresh = new RefreshToken
-{
-UserId = user.Id,
-Token = Guid.NewGuid().ToString("N"),
-JwtId = Guid.NewGuid().ToString(),
-ExpiresAtUtc = DateTime.UtcNow.AddDays(7)
-};
-await _refreshRepo.AddAsync(refresh);
-return new LoginResponse
-{
-AccessToken = token,
-RefreshToken = refresh.Token
-};
-}
-public Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid tenantId)
-=> throw new NotImplementedException();
-public Task LogoutAsync(string refreshToken)
-=> throw new NotImplementedException();
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\CurrentUserService.cs =====
-using Microsoft.AspNetCore.Http;
-using SaaSPlatform.Core.IAM.Constants;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.Tenant.Constants;
-public class CurrentUserService : ICurrentUserService
-{
-private readonly IHttpContextAccessor _httpContextAccessor;
-public CurrentUserService(
-IHttpContextAccessor httpContextAccessor)
-{
-_httpContextAccessor = httpContextAccessor;
-}
-public Guid? UserId
-{
-get
-{
-var value = _httpContextAccessor.HttpContext?
-.User
-.FindFirst(ClaimConstants.UserId)?
-.Value;
-return Guid.TryParse(value, out var id)
-? id
-: null;
-}
-}
-public Guid? TenantId
-{
-get
-{
-var context = _httpContextAccessor.HttpContext;
-if (context?.Items[TenantConstants.TenantContextKey] is Guid tenantId)
-return tenantId;
-var value = context?
-.User
-.FindFirst(ClaimConstants.TenantId)?
-.Value;
-return Guid.TryParse(value, out var id)
-? id
-: null;
-}
-}
-public bool IsAuthenticated =>
-UserId.HasValue;
-public bool IsSuperAdmin =>
-_httpContextAccessor.HttpContext?
-.User
-.IsInRole("SuperAdmin") == true;
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\PermissionRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Infrastructure.Persistence;
-namespace SaaSPlatform.Infrastructure.Services.IAM;
-public class PermissionRepository : IPermissionRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public PermissionRepository(SaaSPlatformDbContext db)
-{
-_db = db;
-}
-public async Task<bool> HasPermissionAsync(
-Guid userId,
-Guid tenantId,
-string permission)
-{
-return await _db.UserRoles
-.AsNoTracking()
-.IgnoreQueryFilters()
-.Where(x =>
-x.UserId == userId &&
-x.TenantId == tenantId)
-.SelectMany(x => x.Role!.RolePermissions!)
-.AnyAsync(x =>
-x.Permission != null &&
-x.Permission.Name == permission);
-}
-public async Task<bool> HasPermissionByModuleAsync(
-Guid userId,
-Guid tenantId,
-string module)
-{
-var prefix = module + ".";
-return await _db.UserRoles
-.AsNoTracking()
-.IgnoreQueryFilters()
-.Where(x =>
-x.UserId == userId &&
-x.TenantId == tenantId)
-.SelectMany(x => x.Role!.RolePermissions!)
-.AnyAsync(x =>
-x.Permission != null &&
-x.Permission.Name.StartsWith(prefix));
-}
-public async Task<List<string>> GetPermissionsAsync(
-Guid userId,
-Guid tenantId)
-{
-return await _db.UserRoles
-.AsNoTracking()
-.IgnoreQueryFilters()
-.Where(x =>
-x.UserId == userId &&
-x.TenantId == tenantId)
-.SelectMany(x => x.Role!.RolePermissions!)
-.Where(x => x.Permission != null)
-.Select(x => x.Permission!.Name)
-.Distinct()
-.ToListAsync();
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\IAM\RefreshTokenService.cs =====
-using System.Security.Cryptography;
-using Microsoft.Extensions.Options;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
-namespace SaaSPlatform.Infrastructure.Services.Auth;
-public class RefreshTokenService : IRefreshTokenService
-{
-private readonly IRefreshTokenRepository _repository;
-private readonly JwtSettings _jwtSettings;
-public RefreshTokenService(
-IRefreshTokenRepository repository,
-IOptions<JwtSettings> jwtOptions)
-{
-_repository = repository;
-_jwtSettings = jwtOptions.Value;
-}
-public async Task<string> GenerateAsync(
-Guid userId,
-string jwtId,
-string? ipAddress = null,
-string? userAgent = null)
-{
-var token = Convert.ToBase64String(
-RandomNumberGenerator.GetBytes(64));
-var refreshToken = new RefreshToken
-{
-UserId = userId,
-Token = token,
-JwtId = jwtId,
-ExpiresAtUtc = DateTime.UtcNow.AddDays(
-_jwtSettings.RefreshTokenDays),
-IsRevoked = false,
-CreatedByIp = ipAddress,
-UserAgent = userAgent
-};
-await _repository.AddAsync(refreshToken);
-return token;
-}
-public async Task<bool> ValidateAsync(string token)
-{
-var refreshToken = await _repository
-.GetByTokenAsync(token);
-return refreshToken != null &&
-refreshToken.IsActive;
-}
-public async Task RevokeAsync(
-string token,
-string? replacedByToken = null,
-string? revokedByIp = null)
-{
-var refreshToken = await _repository
-.GetByTokenAsync(token);
-if (refreshToken == null)
-return;
-refreshToken.IsRevoked = true;
-refreshToken.RevokedAtUtc = DateTime.UtcNow;
-refreshToken.ReplacedByToken = replacedByToken;
-refreshToken.RevokedByIp = revokedByIp;
-await _repository.UpdateAsync(refreshToken);
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Subscriptions\SubscriptionAccessService.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\Subscriptions\SubscriptionAccessService.cs =====
 using Microsoft.Extensions.Caching.Memory;
 using SaaSPlatform.Core.Billing.Interfaces;
 using System;
@@ -3680,7 +4448,7 @@ return allowed;
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\NullTenantContext.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\NullTenantContext.cs =====
 using SaaSPlatform.Core.Tenant.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -3692,7 +4460,7 @@ public Guid? TenantId => Guid.Empty;
 public void SetTenantId(Guid tenantId) { }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantAccessService.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantAccessService.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
@@ -3712,16 +4480,17 @@ return await _db.TenantAccounts
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantRegistrationService.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantRegistrationService.cs =====
 using SaaSPlatform.Application.Services;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
 namespace SaaSPlatform.Infrastructure.Services.TenantServices;
 public class TenantRegistrationService : ITenantRegistrationService
 {
 private readonly TenantRegistrationAppService _appService;
 public TenantRegistrationService(TenantRegistrationAppService appService) => _appService = appService;
-public Task<(Guid tenantId, string message)> RegisterAsync(
+public async Task<Result<Guid>> RegisterAsync(
 string restaurantName, List<Guid> cuisineIds, List<Guid> zoneIds,
 string? address, int minPrepTime, int maxPrepTime,
 string firstName, string lastName, string phone, string email,
@@ -3747,11 +4516,11 @@ HasFoodLicense = hasFoodLicense,
 CnicFrontImageUrl = cnicFrontUrl,
 CnicBackImageUrl = cnicBackUrl
 };
-return _appService.RegisterAsync(request);
+return await _appService.RegisterAsync(request);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantStoreService.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Services\TenantServices\TenantStoreService.cs =====
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Interfaces;
@@ -3768,6 +4537,7 @@ _db = db;
 public async Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request)
 {
 var store = await _db.Stores
+.IgnoreQueryFilters()
 .Include(s => s.StoreCuisines)
 .Include(s => s.DeliveryZones)
 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
@@ -3799,7 +4569,7 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
 namespace SaaSPlatform.SharedKernel.Common;
 public abstract class AuditableEntity : BaseEntity
 {
@@ -3810,14 +4580,14 @@ public Guid? UpdatedBy { get; set; }
 public bool IsDeleted { get; set; }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
 namespace SaaSPlatform.SharedKernel.Common;
 public abstract class BaseEntity
 {
 public Guid Id { get; set; }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
 namespace SaaSPlatform.SharedKernel.Common;
 public abstract class BaseTenantEntity
 : AuditableEntity,
@@ -3826,7 +4596,7 @@ ITenantScoped
 public Guid TenantId { get; set; }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
 namespace SaaSPlatform.SharedKernel.Interfaces
 {
 public interface IAggregateRoot
@@ -3834,21 +4604,21 @@ public interface IAggregateRoot
 }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
 namespace SaaSPlatform.SharedKernel.Interfaces;
 public interface ISlugGenerator
 {
 string Generate(string input);
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs =====
 namespace SaaSPlatform.SharedKernel.Common;
 public interface ITenantScoped
 {
 Guid TenantId { get; set; }
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
 namespace SaaSPlatform.SharedKernel.Interfaces;
 public interface IUnitOfWork : IDisposable
 {
@@ -3858,7 +4628,7 @@ Task RollbackAsync(CancellationToken cancellationToken = default);
 Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
 
-===== SaaSPlatform.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
+===== SaaSPlatform.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
 namespace SaaSPlatform.SharedKernel.Results;
 public class Result
 {

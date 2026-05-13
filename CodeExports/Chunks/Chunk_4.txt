@@ -1,531 +1,727 @@
 ﻿
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\Order.cs =====
-using SaaSPlatform.Core.Billing.Enums;
-using SaaSPlatform.Core.Orders.Enums;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class Order : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public Guid? TableId { get; set; }
-public long OrderNumber { get; set; }
-public OrderStatus Status { get; set; } = OrderStatus.Pending;
-public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
-public OrderChannel Channel { get; set; } = OrderChannel.QRMenu;
-public decimal Subtotal { get; set; }
-public decimal DiscountAmount { get; set; }
-public decimal TaxAmount { get; set; }
-public decimal TotalAmount { get; set; }
-public string? Notes { get; set; }
-public Guid? CreatedByUserId { get; set; }
-public ICollection<OrderItem>? Items { get; set; }
-public OrderType OrderType { get; set; } = OrderType.Pickup;
-public string? DeliveryAddress { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItem.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class OrderItem : BaseEntity
-{
-public Guid OrderId { get; set; }
-public Guid ProductId { get; set; }
-public Guid? ProductVariantId { get; set; }
-public string ProductNameSnapshot { get; set; } = default!;
-public string? VariantNameSnapshot { get; set; }
-public decimal UnitPrice { get; set; }
-public int Quantity { get; set; }
-public decimal LineTotal { get; set; }
-public ICollection<OrderItemAddon>? Addons { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\OrderItemAddon.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class OrderItemAddon : BaseEntity
-{
-public Guid OrderItemId { get; set; }
-public string Name { get; set; } = default!;
-public decimal Price { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Entities\RestaurantTable.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Orders.Entities;
-public class RestaurantTable : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid StoreId { get; set; }
-public string Name { get; set; } = default!;
-public int Capacity { get; set; }
-public bool IsActive { get; set; } = true;
-public string? QRCode { get; set; }
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderChannel.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderChannel
-{
-Web,
-MobileApp,
-QRMenu
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderStatus.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderStatus
-{
-Pending,
-Confirmed,
-Preparing,
-Delivered,
-Cancelled
-}
-
-===== SaaSPlatform.Core.Orders | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Orders\Enums\OrderType.cs =====
-namespace SaaSPlatform.Core.Orders.Enums;
-public enum OrderType
-{
-Delivery,
-Pickup,
-DineIn
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs =====
-namespace SaaSPlatform.Core.Tenant.Constants;
-public static class TenantConstants
-{
-public const string TenantHeader = "X-Tenant-ID";
-public const string TenantContextKey = "TenantId";
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
-using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class Store : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Slug { get; set; }
-public ICollection<StoreCuisine>? StoreCuisines { get; set; }
-public string? Address { get; set; }
-public string? City { get; set; }
-public string? ZoneName { get; set; }
-public double Latitude { get; set; }
-public double Longitude { get; set; }
-public int MinPreparingTime { get; set; }
-public int MaxPreparingTime { get; set; }
-public string? CoverPhotoUrl { get; set; }
-public string? LogoUrl { get; set; }
-public bool IsOnline { get; set; } = true;
-public bool SupportsDelivery { get; set; } = true;
-public bool SupportsPickup { get; set; } = true;
-public bool SupportsDineIn { get; set; } = false;
-public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs =====
-using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class StoreCuisine : BaseEntity
-{
-public Guid StoreId { get; set; }
-public Store Store { get; set; } = default!;
-public Guid CuisineId { get; set; }
-public Cuisine Cuisine { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class StoreDeliveryZone : BaseEntity
-{
-public Guid StoreId { get; set; }
-public Store Store { get; set; } = default!;
-public Guid ZoneId { get; set; }
-public Zone Zone { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs =====
-using SaaSPlatform.Core.Billing.Entities;
-using SaaSPlatform.SharedKernel.Common;
-using SaaSPlatform.Core.Tenant.Enums;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class TenantAccount : AuditableEntity
-{
-public string Name { get; set; } = default!;
-public string? Email { get; set; }
-public string? Phone { get; set; }
-public string? Address { get; set; }
-public decimal? Latitude { get; set; }
-public decimal? Longitude { get; set; }
-public bool IsActive { get; set; } = true;
-public RegistrationStatus RegistrationStatus { get; set; } = RegistrationStatus.Pending;
-public string? LogoUrl { get; set; }
-public string? Slug { get; set; }
-public Guid? AgentId { get; set; }
-public Guid? ActiveSubscriptionId { get; set; }
-public DateTime? OnboardedAt { get; set; }
-public ICollection<TenantDomain>? Domains { get; set; }
-public ICollection<Subscription>? Subscriptions { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class TenantDomain : AuditableEntity
-{
-public Guid TenantId { get; set; }
-public string Domain { get; set; } = default!;
-public bool IsPrimary { get; set; }
-public bool IsVerified { get; set; }
-public DateTime? VerifiedAt { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class TenantLegalInfo : AuditableEntity
-{
-public Guid TenantId { get; set; }
-public string CnicNumber { get; set; } = default!;
-public string? NtnNumber { get; set; }
-public bool HasFoodLicense { get; set; }
-public string? CnicFrontImageUrl { get; set; }
-public string? CnicBackImageUrl { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs =====
-using SaaSPlatform.SharedKernel.Common;
-namespace SaaSPlatform.Core.Tenant.Entities;
-public class Zone : BaseEntity
-{
-public string Name { get; set; } = default!;
-public string City { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs =====
-namespace SaaSPlatform.Core.Tenant.Enums;
-public enum RegistrationStatus
-{
-Pending,
-Approved,
-Rejected
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs =====
-using SaaSPlatform.Core.Tenant.Entities;
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface IStoreRepository
-{
-void Add(Store store);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs =====
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantAccessService
-{
-Task<bool> TenantExistsAsync(Guid tenantId);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs =====
-using SaaSPlatform.Core.Tenant.Entities;
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantAccountRepository
-{
-Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
-void Add(TenantAccount tenant);
-void Update(TenantAccount tenant);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs =====
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantContext
-{
-Guid? TenantId { get; }
-void SetTenantId(Guid tenantId);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
-using SaaSPlatform.Core.Tenant.Entities;
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantLegalInfoRepository
-{
-void Add(TenantLegalInfo info);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs =====
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantRegistrationService
-{
-Task<(Guid tenantId, string message)> RegisterAsync(
-string restaurantName,
-List<Guid> cuisineIds,
-List<Guid> zoneIds,
-string? address,
-int minPrepTime,
-int maxPrepTime,
-string firstName,
-string lastName,
-string phone,
-string email,
-string password,
-string cnic,
-string? ntn,
-bool hasFoodLicense,
-string? cnicFrontUrl,
-string? cnicBackUrl);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs =====
-using SaaSPlatform.Core.Tenant.Entities;
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantRepository
-{
-Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
-void Update(TenantAccount tenant);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs =====
-using SaaSPlatform.Core.Tenant.Models;
-namespace SaaSPlatform.Core.Tenant.Interfaces;
-public interface ITenantStoreService
-{
-Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs =====
-namespace SaaSPlatform.Core.Tenant.Models;
-public class TenantRegistrationRequest
-{
-public string RestaurantName { get; set; } = default!;
-public List<Guid> CuisineIds { get; set; } = new();
-public List<Guid> ZoneIds { get; set; } = new();
-public string? Address { get; set; }
-public int MinPreparingTime { get; set; }
-public int MaxPreparingTime { get; set; }
-public string FirstName { get; set; } = default!;
-public string LastName { get; set; } = default!;
-public string Phone { get; set; } = default!;
-public string Email { get; set; } = default!;
-public string Password { get; set; } = default!;
-public string CnicNumber { get; set; } = default!;
-public string? NtnNumber { get; set; }
-public bool HasFoodLicense { get; set; }
-public string? CnicFrontImageUrl { get; set; }
-public string? CnicBackImageUrl { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs =====
-namespace SaaSPlatform.Core.Tenant.Models;
-public class TenantRegistrationResponse
-{
-public Guid TenantId { get; set; }
-public string Message { get; set; } = default!;
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs =====
-namespace SaaSPlatform.Core.Tenant.Models;
-public class UpdateStoreRequest
-{
-public string? Name { get; set; }
-public List<Guid>? CuisineIds { get; set; }
-public List<Guid>? ZoneIds { get; set; }
-public string? Address { get; set; }
-public int? MinPreparingTime { get; set; }
-public int? MaxPreparingTime { get; set; }
-public bool? IsOnline { get; set; }
-public bool? SupportsDelivery { get; set; }
-public bool? SupportsPickup { get; set; }
-public bool? SupportsDineIn { get; set; }
-public string? CoverPhotoUrl { get; set; }
-public string? LogoUrl { get; set; }
-}
-
-===== SaaSPlatform.Core.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\StoresController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AuthCoreKit.IAM.Authorization;
+using SaaSPlatform.Api.Host.Controllers;
 using SaaSPlatform.Core.Tenant.Interfaces;
-namespace SaaSPlatform.Infrastructure.Services;
-public class TenantContext : ITenantContext
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.Infrastructure.Persistence;
+namespace SaaSPlatform.Api.Host.Controllers.Tenant;
+[Authorize]
+[ApiController]
+[Route("api/tenant")]
+public class StoresController : BaseApiController
 {
-private Guid? _tenantId;
-public Guid? TenantId => _tenantId;
-public void SetTenantId(Guid tenantId)
+private readonly ITenantStoreService _storeService;
+private readonly SaaSPlatformDbContext _db;
+public StoresController(ITenantStoreService storeService, SaaSPlatformDbContext db)
 {
-_tenantId = tenantId;
+_storeService = storeService;
+_db = db;
+}
+[RequiresPermission("store.update")]
+[HttpGet("store")]
+public async Task<IActionResult> GetStore()
+{
+var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+var store = await _db.Stores
+.IgnoreQueryFilters()
+.Include(s => s.StoreCuisines)
+.ThenInclude(sc => sc.Cuisine)
+.Include(s => s.DeliveryZones)
+.ThenInclude(sz => sz.Zone)
+.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+if (store is null)
+return Fail("Store not found", status: 404);
+return Success(new
+{
+store.Id,
+store.Name,
+store.Address,
+store.IsOnline,
+store.MinPreparingTime,
+store.MaxPreparingTime,
+store.CoverPhotoUrl,
+store.LogoUrl,
+store.SupportsDelivery,
+store.SupportsPickup,
+store.SupportsDineIn,
+Cuisines = store.StoreCuisines.Select(sc => sc.Cuisine.Name),
+Zones = store.DeliveryZones.Select(sz => new { sz.Zone.City, sz.Zone.Name })
+});
+}
+[RequiresPermission("store.update")]
+[HttpPut("store")]
+public async Task<IActionResult> UpdateStore(UpdateStoreRequest request)
+{
+var tenantId = (Guid)HttpContext.Items["TenantId"]!;
+await _storeService.UpdateStoreAsync(tenantId, request);
+return NoContent();
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Billing.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
-public class PlanConfiguration : IEntityTypeConfiguration<Plan>
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\Tenant\TenantsController.cs =====
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Controllers;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+[ApiController]
+[Route("api/tenants")]
+public class TenantsController : BaseApiController
 {
-public void Configure(EntityTypeBuilder<Plan> builder)
+private readonly ITenantRegistrationService _registrationService;
+private readonly ITenantAccountRepository _tenantRepo;
+public TenantsController(
+ITenantRegistrationService registrationService,
+ITenantAccountRepository tenantRepo)
 {
-builder.HasIndex(x => x.Name).IsUnique();
+_registrationService = registrationService;
+_tenantRepo = tenantRepo;
 }
+[AllowAnonymous]
+[HttpPost("register")]
+public async Task<IActionResult> Register(TenantRegistrationRequest request)
+{
+var result = await _registrationService.RegisterAsync(
+request.RestaurantName,
+request.CuisineIds,
+request.ZoneIds,
+request.Address,
+request.MinPreparingTime,
+request.MaxPreparingTime,
+request.FirstName,
+request.LastName,
+request.Phone,
+request.Email,
+request.Password,
+request.CnicNumber,
+request.NtnNumber,
+request.HasFoodLicense,
+request.CnicFrontImageUrl,
+request.CnicBackImageUrl);
+if (!result.Succeeded)
+return Fail(result.Message, status: 400);
+return Success(new TenantRegistrationResponse
+{
+TenantId = result.Data,
+Message = result.Message
+});
 }
-public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
+[HttpGet]
+public async Task<IActionResult> GetTenantInfo()
 {
-public void Configure(EntityTypeBuilder<Subscription> builder)
+if (TenantId is null)
+return Fail("Missing tenant context", status: 401);
+var tenant = await _tenantRepo.GetByIdAsync(TenantId.Value);
+if (tenant is null)
+return Fail("Tenant not found", status: 404);
+return Success(new
 {
-builder.HasIndex(x => new { x.TenantId, x.Status });
-builder.HasIndex(x => x.NextBillingDate);
+tenant.Id,
+tenant.Name,
+tenant.Slug,
+tenant.IsActive
+});
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Billing.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
-public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Controllers\BaseApiController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Api.Host.Responses;
+namespace SaaSPlatform.Api.Host.Controllers;
+[ApiController]
+public abstract class BaseApiController : ControllerBase
 {
-public void Configure(EntityTypeBuilder<Payment> builder)
+protected IActionResult Success<T>(T data, string message = "")
 {
-builder.HasIndex(x => new { x.TenantId, x.Status });
-builder.HasIndex(x => new { x.TenantId, x.StoreId });
-builder.Property(x => x.Amount).HasPrecision(18, 2);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(p => p.StoreId)
-.IsRequired(false);
+return Ok(ApiResponse<T>.SuccessResponse(
+data,
+message,
+HttpContext.TraceIdentifier));
+}
+protected IActionResult Fail(
+string message,
+string? code = null,
+int status = 400,
+List<string>? errors = null)
+{
+return StatusCode(status,
+ApiResponse<object>.FailResponse(
+message,
+code,
+errors,
+HttpContext.TraceIdentifier));
+}
+protected Guid? TenantId =>
+HttpContext.Items["TenantId"] as Guid?;
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\ExceptionMiddleware.cs =====
+using System.Net;
+using System.Text.Json;
+using FluentValidation;
+using SaaSPlatform.Api.Host.Responses;
+namespace SaaSPlatform.Api.Host.Middleware;
+public class ExceptionMiddleware
+{
+private readonly RequestDelegate _next;
+private readonly ILogger<ExceptionMiddleware> _logger;
+public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+{
+_next = next;
+_logger = logger;
+}
+public async Task InvokeAsync(HttpContext context)
+{
+try
+{
+await _next(context);
+}
+catch (Exception ex)
+{
+_logger.LogError(ex,
+"Unhandled exception | TraceId: {TraceId}",
+context.TraceIdentifier);
+await HandleExceptionAsync(context, ex);
+}
+}
+private static async Task HandleExceptionAsync(HttpContext context, Exception ex)
+{
+var (statusCode, message, code, errors) = ex switch
+{
+UnauthorizedAccessException => (
+(int)HttpStatusCode.Unauthorized,
+ex.Message,
+"UNAUTHORIZED",
+null as List<string>
+),
+ValidationException validationEx => (
+(int)HttpStatusCode.BadRequest,
+"Validation failed",
+"VALIDATION_ERROR",
+validationEx.Errors.Select(e => e.ErrorMessage).ToList()
+),
+ArgumentException => (
+(int)HttpStatusCode.BadRequest,
+ex.Message,
+"BAD_REQUEST",
+null
+),
+InvalidOperationException => (
+(int)HttpStatusCode.BadRequest,
+ex.Message,
+"INVALID_OPERATION",
+null
+),
+_ => (
+(int)HttpStatusCode.InternalServerError,
+"An unexpected error occurred",
+"SERVER_ERROR",
+new List<string> { ex.Message }
+)
+};
+var response = ApiResponse<object>.FailResponse(
+message: message,
+code: code,
+errors: errors,
+traceId: context.TraceIdentifier
+);
+context.Response.ContentType = "application/json";
+context.Response.StatusCode = statusCode;
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Billing.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
-public class TenantUsageLedgerConfiguration : IEntityTypeConfiguration<TenantUsageLedger>
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\SubscriptionMiddleware.cs =====
+using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Core.Billing.Interfaces;
+namespace SaaSPlatform.Api.Host.Middleware;
+public class SubscriptionMiddleware
 {
-public void Configure(EntityTypeBuilder<TenantUsageLedger> builder)
+private readonly RequestDelegate _next;
+private readonly ILogger<SubscriptionMiddleware> _logger;
+private static readonly string[] PublicPaths =
 {
-builder.HasIndex(x => new
+"/api/auth",
+"/api/tenants/register",
+"/swagger"
+};
+private static readonly Guid SystemTenantId =
+Guid.Parse("11111111-1111-1111-1111-111111111111");
+public SubscriptionMiddleware(RequestDelegate next, ILogger<SubscriptionMiddleware> logger)
 {
-x.TenantId,
-x.UsageMonthYear
-}).IsUnique();
+_next = next;
+_logger = logger;
+}
+public async Task InvokeAsync(HttpContext context, ISubscriptionAccessService subscriptionService)
+{
+if (PublicPaths.Any(p => context.Request.Path.StartsWithSegments(p)))
+{
+await _next(context);
+return;
+}
+var tenantIdObj = context.Items["TenantId"];
+if (tenantIdObj is not Guid tenantId)
+{
+await _next(context);
+return;
+}
+if (tenantId == SystemTenantId)
+{
+await _next(context);
+return;
+}
+if (context.User.IsInRole("SuperAdmin"))
+{
+await _next(context);
+return;
+}
+try
+{
+var isAllowed = await subscriptionService.IsTenantAllowedAsync(tenantId);
+if (!isAllowed)
+{
+_logger.LogWarning("Subscription blocked for tenant: {TenantId}", tenantId);
+context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
+context.Response.ContentType = "application/json";
+var response = ApiResponse<object>.FailResponse(
+message: "Subscription expired, suspended, or payment pending",
+code: "SUBSCRIPTION_BLOCKED",
+errors: new List<string> { "ACCESS_DENIED" },
+traceId: context.TraceIdentifier
+);
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+return;
+}
+await _next(context);
+}
+catch (Exception ex)
+{
+_logger.LogError(ex, "Error in SubscriptionMiddleware for tenant {TenantId}", tenantId);
+context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+context.Response.ContentType = "application/json";
+var response = ApiResponse<object>.FailResponse(
+message: "Internal subscription validation error",
+code: "SUBSCRIPTION_ERROR",
+errors: new List<string> { "INTERNAL_ERROR" },
+traceId: context.TraceIdentifier
+);
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+}
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs =====
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Middleware\TenantMiddleware.cs =====
+using System.Text.Json;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Core.Tenant.Interfaces;
+namespace SaaSPlatform.Api.Host.Middleware
+{
+public class TenantMiddleware
+{
+private readonly RequestDelegate _next;
+public TenantMiddleware(RequestDelegate next)
+{
+_next = next;
+}
+public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
+{
+var path = context.Request.Path.Value?.ToLower();
+if (path!.StartsWith("/swagger") || path.StartsWith("/api/tenants/register"))
+{
+await _next(context);
+return;
+}
+var tenantHeader = context.Request.Headers["x-tenant-id"].FirstOrDefault();
+if (!Guid.TryParse(tenantHeader, out var tenantId))
+{
+context.Response.StatusCode = 400;
+context.Response.ContentType = "application/json";
+var error = ApiResponse<object>.FailResponse(
+message: "Missing or invalid tenant context. Include 'x-tenant-id' header.",
+code: "MISSING_TENANT",
+traceId: context.TraceIdentifier);
+await context.Response.WriteAsync(JsonSerializer.Serialize(error));
+return;
+}
+tenantContext.SetTenantId(tenantId);
+context.Items["TenantId"] = tenantId;
+await _next(context);
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Responses\ApiResponse.cs =====
+namespace SaaSPlatform.Api.Host.Responses;
+public class ApiResponse<T>
+{
+public bool Success { get; set; }
+public string Message { get; set; } = string.Empty;
+public string? Code { get; set; }
+public string? TraceId { get; set; }
+public T? Data { get; set; }
+public List<string>? Errors { get; set; }
+public static ApiResponse<T> SuccessResponse(T data, string message = "", string? traceId = null)
+=> new() { Success = true, Message = message, Data = data, TraceId = traceId };
+public static ApiResponse<T> FailResponse(string message, string? code = null,
+List<string>? errors = null, string? traceId = null)
+=> new() { Success = false, Message = message, Code = code, Errors = errors, TraceId = traceId };
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Services\DocumentStorageService.cs =====
+using AuthCoreKit.IAM.Interfaces;
+using SkiaSharp;
+namespace SaaSPlatform.Api.Host.Services;
+public class DocumentStorageService
+{
+private readonly IEncryptionService _crypto;
+private readonly string _storageRoot;
+public DocumentStorageService(
+IEncryptionService crypto,
+IConfiguration config)
+{
+_crypto = crypto;
+_storageRoot = config["DocumentStoragePath"]
+?? throw new InvalidOperationException(
+"DocumentStoragePath is missing.");
+Directory.CreateDirectory(_storageRoot);
+}
+public async Task<string> SaveAsync(
+Guid userId,
+string documentType,
+Stream fileStream)
+{
+using var input = new MemoryStream();
+await fileStream.CopyToAsync(input);
+input.Position = 0;
+using var originalBitmap = SKBitmap.Decode(input);
+if (originalBitmap == null)
+{
+throw new InvalidOperationException(
+"Invalid image.");
+}
+SKBitmap finalBitmap = originalBitmap;
+if (originalBitmap.Width > 1024)
+{
+var ratio = 1024f / originalBitmap.Width;
+var width = 1024;
+var height = (int)(originalBitmap.Height * ratio);
+var resizedBitmap =
+new SKBitmap(width, height);
+using var canvas =
+new SKCanvas(resizedBitmap);
+canvas.Scale(
+width / (float)originalBitmap.Width,
+height / (float)originalBitmap.Height);
+canvas.DrawBitmap(
+originalBitmap,
+0,
+0);
+finalBitmap = resizedBitmap;
+}
+using var image =
+SKImage.FromBitmap(finalBitmap);
+using var data =
+image.Encode(
+SKEncodedImageFormat.Jpeg,
+80);
+var plainBytes = data.ToArray();
+var encrypted =
+_crypto.Encrypt(plainBytes);
+var fileName =
+$"{documentType}_{DateTime.UtcNow:yyyyMMddHHmmss}.enc";
+var relativePath =
+Path.Combine(
+userId.ToString(),
+fileName);
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+var directory =
+Path.GetDirectoryName(fullPath);
+if (!string.IsNullOrWhiteSpace(directory))
+{
+Directory.CreateDirectory(directory);
+}
+await File.WriteAllBytesAsync(
+fullPath,
+encrypted);
+if (!ReferenceEquals(
+finalBitmap,
+originalBitmap))
+{
+finalBitmap.Dispose();
+}
+return relativePath;
+}
+public async Task<byte[]> ReadAsync(
+string relativePath)
+{
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+if (!File.Exists(fullPath))
+{
+throw new FileNotFoundException(
+"Encrypted document not found.",
+fullPath);
+}
+var encrypted =
+await File.ReadAllBytesAsync(fullPath);
+return _crypto.Decrypt(encrypted);
+}
+public void Delete(string relativePath)
+{
+var fullPath =
+Path.Combine(
+_storageRoot,
+relativePath);
+if (File.Exists(fullPath))
+{
+File.Delete(fullPath);
+}
+}
+}
+
+===== SaaSPlatform.Api.Host | D:\waqas-dba\SaaSPlatform\SaaSPlateform.Api.Host\Program.cs =====
+using AuthCoreKit.IAM.Extensions;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Services;
+using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Api.Host.Middleware;
+using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Api.Host.Services;
+using SaaSPlatform.Application.Services;
+using SaaSPlatform.Application.Validators.Auth;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Billing.Services;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Infrastructure.Persistence;
+using SaaSPlatform.Infrastructure.Persistence.Repositories;
+using SaaSPlatform.Infrastructure.Persistence.Seed;
+using SaaSPlatform.Infrastructure.Services;
+using SaaSPlatform.Infrastructure.Services.Billing;
+using SaaSPlatform.Infrastructure.Services.Common;
+using SaaSPlatform.Infrastructure.Services.Subscriptions;
+using SaaSPlatform.Infrastructure.Services.TenantServices;
+using SaaSPlatform.SharedKernel.Interfaces;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers()
+.ConfigureApiBehaviorOptions(options =>
+{
+options.InvalidModelStateResponseFactory = context =>
+{
+var errors = context.ModelState
+.Where(e => e.Value?.Errors.Count > 0)
+.SelectMany(e => e.Value!.Errors.Select(x => x.ErrorMessage))
+.ToList();
+var response = ApiResponse<object>.FailResponse(
+message: "Validation failed",
+code: "VALIDATION_ERROR",
+errors: errors,
+traceId: context.HttpContext.TraceIdentifier);
+return new BadRequestObjectResult(response);
+};
+});
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
+builder.Services.AddAuthCoreKit<SaaSPlatformDbContext>(
+builder.Configuration.GetSection("Jwt"),
+options =>
+{
+options.LoginIdentifier = "phone";
+options.TenantResolver = ctx =>
+{
+var header = ctx.Request.Headers["x-tenant-id"].FirstOrDefault();
+return Guid.TryParse(header, out var tid) ? tid : null;
+};
+options.SuperAdminRoleName = "SuperAdmin";
+options.SuperAdminBypassPermissions = true;
+options.EnableUserDocuments = true;
+options.EnableUserIdentities = true;
+options.RequireCnic = true;
+options.EnableRoleDocumentRequirements = true;
+});
+builder.Services.AddRateLimiter(options =>
+{
+options.AddFixedWindowLimiter("default", config =>
+{
+config.Window = TimeSpan.FromMinutes(1);
+config.PermitLimit = 100;
+config.QueueLimit = 0;
+});
+});
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
+builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
+builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+{
+var config =
+sp.GetRequiredService<IConfiguration>();
+var key =
+config["EncryptionKey"]
+?? throw new Exception("EncryptionKey missing.");
+return new EncryptionService(key);
+});
+builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
+builder.Services.AddScoped<IStoreRepository, StoreRepository>();
+builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
+builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
+builder.Services.AddScoped<TenantApprovalService>();
+builder.Services.AddScoped<TenantRegistrationAppService>();
+builder.Services.AddScoped<ProductManagementService>();
+builder.Services.AddScoped<DocumentStorageService>();
+var provider = builder.Configuration["DatabaseProvider"];
+builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
+{
+switch (provider)
+{
+case "Postgres":
+options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
+break;
+default:
+throw new Exception($"Unsupported database provider: {provider}");
+}
+});
+var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+var db = scope.ServiceProvider.GetRequiredService<SaaSPlatformDbContext>();
+await DbSeeder.SeedAsync(db);
+}
+if (app.Environment.IsDevelopment())
+{
+app.UseSwagger();
+app.UseSwaggerUI();
+}
+app.UseRouting();
+app.UseRateLimiter();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseMiddleware<TenantMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<SubscriptionMiddleware>();
+app.MapControllers();
+app.Run();
+
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
+namespace SaaSPlatform.Application.DTOs.Auth;
+public class AuthTokenResponse
+{
+public string AccessToken { get; set; } = default!;
+public DateTime AccessTokenExpiresAtUtc { get; set; }
+public string RefreshToken { get; set; } = default!;
+public DateTime RefreshTokenExpiresAtUtc { get; set; }
+}
+
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonConfiguration : IEntityTypeConfiguration<Addon>
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+namespace SaaSPlatform.Application.Services;
+public class ProductManagementService
 {
-public void Configure(EntityTypeBuilder<Addon> builder)
+private readonly IProductRepository _productRepo;
+private readonly IUnitOfWork _unitOfWork;
+public ProductManagementService(IProductRepository productRepo, IUnitOfWork unitOfWork)
 {
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
-builder.Property(x => x.Price).HasPrecision(18, 2);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(a => a.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
+_productRepo = productRepo;
+_unitOfWork = unitOfWork;
 }
+public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
+=> await _productRepo.GetByStoreAsync(storeId);
+public async Task<Product?> GetProductAsync(Guid productId)
+=> await _productRepo.GetByIdAsync(productId);
+public async Task<Product> CreateProductAsync(Product product)
+{
+_productRepo.Add(product);
+await _unitOfWork.SaveChangesAsync();
+return product;
 }
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonGroupConfiguration : IEntityTypeConfiguration<AddonGroup>
+public async Task UpdateProductAsync(Product product)
 {
-public void Configure(EntityTypeBuilder<AddonGroup> builder)
-{
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
-builder.Property(x => x.Name).HasMaxLength(200);
-builder.HasMany(g => g.Items)
-.WithOne(i => i.AddonGroup)
-.HasForeignKey(i => i.AddonGroupId)
-.OnDelete(DeleteBehavior.Cascade);
+_productRepo.Update(product);
+await _unitOfWork.SaveChangesAsync();
 }
+public async Task DeleteProductAsync(Guid productId)
+{
+var product = await _productRepo.GetByIdAsync(productId);
+if (product != null)
+{
+_productRepo.Delete(product);
+await _unitOfWork.SaveChangesAsync();
 }
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class AddonGroupItemConfiguration : IEntityTypeConfiguration<AddonGroupItem>
-{
-public void Configure(EntityTypeBuilder<AddonGroupItem> builder)
-{
-builder.HasIndex(x => new { x.AddonGroupId, x.AddonId }).IsUnique();
-builder.Property(x => x.PriceAdjustment).HasPrecision(18, 2);
-builder.HasOne(i => i.AddonGroup)
-.WithMany(g => g.Items)
-.HasForeignKey(i => i.AddonGroupId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasOne(i => i.Addon)
-.WithMany()
-.HasForeignKey(i => i.AddonId)
-.OnDelete(DeleteBehavior.Restrict);
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+===== SaaSPlatform.Application | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+public class TenantApprovalService
 {
-public void Configure(EntityTypeBuilder<Category> builder)
+private readonly ITenantAccountRepository _tenantRepo;
+private readonly ISubscriptionRepository _subRepo;
+private readonly IUnitOfWork _unitOfWork;
+public TenantApprovalService(
+ITenantAccountRepository tenantRepo,
+ISubscriptionRepository subRepo,
+IUnitOfWork unitOfWork)
 {
-builder.HasIndex(x => new { x.TenantId, x.StoreId, x.ParentCategoryId });
-builder.HasIndex(x => new { x.StoreId, x.Name });
-builder.Property(x => x.PhotoUrl).HasMaxLength(500);
-builder.Property(x => x.Icon).HasMaxLength(200);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(c => c.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
+_tenantRepo = tenantRepo;
+_subRepo = subRepo;
+_unitOfWork = unitOfWork;
 }
+public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+if (tenant.RegistrationStatus == RegistrationStatus.Approved)
+return (false, "Tenant is already approved.");
+tenant.RegistrationStatus = RegistrationStatus.Approved;
+tenant.IsActive = true;
+_tenantRepo.Update(tenant);
+var subscription = await _subRepo.GetActiveByTenantIdAsync(tenantId);
+if (subscription is not null && subscription.Status == SubscriptionStatus.Trialing)
+{
+subscription.Status = SubscriptionStatus.Active;
+subscription.TrialEndsAt = DateTime.UtcNow.AddDays(14);
+subscription.NextBillingDate = DateTime.UtcNow.AddDays(14);
+_subRepo.Update(subscription);
 }
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class CuisineConfiguration : IEntityTypeConfiguration<Cuisine>
-{
-public void Configure(EntityTypeBuilder<Cuisine> builder)
-{
-builder.HasIndex(c => c.Name).IsUnique();
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant approved successfully.");
 }
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using SaaSPlatform.Core.Catalog.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
-public class FeaturedProductConfiguration : IEntityTypeConfiguration<FeaturedProduct>
+public async Task<(bool Success, string Message)> RejectAsync(Guid tenantId)
 {
-public void Configure(EntityTypeBuilder<FeaturedProduct> builder)
-{
-builder.HasIndex(fp => new { fp.TenantId, fp.StoreId, fp.Section, fp.ProductId })
-.IsUnique();
-builder.HasIndex(fp => new { fp.StoreId, fp.Section, fp.CategoryId });
-builder.HasOne(fp => fp.Product)
-.WithMany()
-.HasForeignKey(fp => fp.ProductId)
-.OnDelete(DeleteBehavior.Restrict);
-builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
-.WithMany()
-.HasForeignKey(fp => fp.StoreId)
-.OnDelete(DeleteBehavior.Cascade);
+var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+if (tenant is null) return (false, "Tenant not found.");
+tenant.RegistrationStatus = RegistrationStatus.Rejected;
+_tenantRepo.Update(tenant);
+await _unitOfWork.SaveChangesAsync();
+return (true, "Tenant rejected.");
 }
 }
 

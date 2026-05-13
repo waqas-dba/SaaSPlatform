@@ -1,12 +1,13 @@
 using AuthCoreKit.IAM.Extensions;
 using AuthCoreKit.IAM.Interfaces;
-using AuthCoreKit.IAM.Models;
+using AuthCoreKit.IAM.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Api.Host.Middleware;
 using SaaSPlatform.Api.Host.Responses;
+using SaaSPlatform.Api.Host.Services;
 using SaaSPlatform.Application.Services;
 using SaaSPlatform.Application.Validators.Auth;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -75,6 +76,12 @@ builder.Services.AddAuthCoreKit<SaaSPlatformDbContext>(
 
         options.SuperAdminRoleName = "SuperAdmin";
         options.SuperAdminBypassPermissions = true;
+
+        // ---------- DOCUMENT FEATURES ----------
+        options.EnableUserDocuments = true;
+        options.EnableUserIdentities = true;
+        options.RequireCnic = true;
+        options.EnableRoleDocumentRequirements = true;
     });
 
 // ======================================================
@@ -97,6 +104,19 @@ builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
 builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
 builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+
+// ---- ENCRYPTION (before AddAuthCoreKit) ----
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+{
+    var config =
+        sp.GetRequiredService<IConfiguration>();
+
+    var key =
+        config["EncryptionKey"]
+        ?? throw new Exception("EncryptionKey missing.");
+
+    return new EncryptionService(key);
+});
 
 // ======================================================
 // COMMON & INFRASTRUCTURE
@@ -126,6 +146,9 @@ builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService
 builder.Services.AddScoped<TenantApprovalService>();
 builder.Services.AddScoped<TenantRegistrationAppService>();
 builder.Services.AddScoped<ProductManagementService>();
+
+// ---- DOCUMENT STORAGE SERVICE ----
+builder.Services.AddScoped<DocumentStorageService>();
 
 // ======================================================
 // DATABASE

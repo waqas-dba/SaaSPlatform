@@ -1,0 +1,16 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\AuthCoreKit\Class1.cs
+==================================================
+
+namespace AuthCoreKit
+{
+    public class Class1
+    {
+
+    }
+}
+
+
+

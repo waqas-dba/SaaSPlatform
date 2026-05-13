@@ -1,4 +1,5 @@
-﻿using AuthCoreKit.IAM.Interfaces;
+﻿using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
@@ -48,6 +49,11 @@ public class SaaSPlatformDbContext : AuditableDbContext, IIamDbContext
     public DbSet<AuthCoreKit.IAM.Entities.RolePermission> RolePermissions => Set<AuthCoreKit.IAM.Entities.RolePermission>();
     public DbSet<AuthCoreKit.IAM.Entities.RefreshToken> RefreshTokens => Set<AuthCoreKit.IAM.Entities.RefreshToken>();
 
+    public DbSet<AuthCoreKit.IAM.Entities.UserDocument> UserDocuments => Set<AuthCoreKit.IAM.Entities.UserDocument>();
+
+    public DbSet<AuthCoreKit.IAM.Entities.UserIdentity> UserIdentities => Set<AuthCoreKit.IAM.Entities.UserIdentity>();
+
+    public DbSet<AuthCoreKit.IAM.Entities.RoleDocumentRequirement> RoleDocumentRequirements => Set<AuthCoreKit.IAM.Entities.RoleDocumentRequirement>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

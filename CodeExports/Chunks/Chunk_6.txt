@@ -1,473 +1,548 @@
 ﻿
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\TenantRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.Tenant.Entities;
-using SaaSPlatform.Core.Tenant.Interfaces;
-namespace SaaSPlatform.Infrastructure.Persistence.Repositories;
-public class TenantRepository : ITenantRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public TenantRepository(SaaSPlatformDbContext db) => _db = db;
-public async Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct)
-=> await _db.TenantAccounts.IgnoreQueryFilters()
-.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
-public void Update(TenantAccount tenant) => _db.TenantAccounts.Update(tenant);
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Repositories\UserRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
-using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Core.IAM.Services;
-namespace SaaSPlatform.Infrastructure.Services.IAM;
-public class UserRepository : IUserRepository
-{
-private readonly SaaSPlatformDbContext _db;
-public UserRepository(SaaSPlatformDbContext db)
-{
-_db = db;
-}
-public async Task<User?> GetByIdAsync(Guid userId)
-{
-return await _db.Users
-.Include(x => x.Roles)
-.ThenInclude(x => x.Role)
-.FirstOrDefaultAsync(x => x.Id == userId);
-}
-public async Task<User?> GetByPhoneAsync(string phone, Guid tenantId)
-{
-var normalized = PhoneNormalizer.Normalize(phone);
-return await _db.Users
-.Include(x => x.Roles)
-.FirstOrDefaultAsync(x =>
-x.Phone == normalized &&
-x.TenantId == tenantId);
-}
-public async Task<User?> GetByEmailAsync(string email, Guid tenantId)
-{
-return await _db.Users
-.Include(x => x.Roles)
-.FirstOrDefaultAsync(x =>
-x.Email == email &&
-x.TenantId == tenantId);
-}
-public async Task<List<User>> GetByTenantAsync(Guid tenantId)
-{
-return await _db.Users
-.Where(x => x.TenantId == tenantId)
-.ToListAsync();
-}
-public async Task<bool> ExistsByPhoneAsync(string phone, Guid tenantId)
-{
-var normalized = PhoneNormalizer.Normalize(phone);
-return await _db.Users
-.AnyAsync(x =>
-x.Phone == normalized &&
-x.TenantId == tenantId);
-}
-public async Task<bool> ExistsByEmailAsync(string email, Guid tenantId)
-{
-return await _db.Users
-.AnyAsync(x =>
-x.Email == email &&
-x.TenantId == tenantId);
-}
-public async Task AddAsync(User user)
-{
-await _db.Users.AddAsync(user);
-await _db.SaveChangesAsync();
-}
-public async Task UpdateAsync(User user)
-{
-_db.Users.Update(user);
-await _db.SaveChangesAsync();
-}
-public async Task DeleteAsync(User user)
-{
-_db.Users.Remove(user);
-await _db.SaveChangesAsync();
-}
-public async Task IncrementFailedLoginAttemptsAsync(Guid userId)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.FailedLoginAttempts++;
-await _db.SaveChangesAsync();
-}
-public async Task ResetFailedLoginAttemptsAsync(Guid userId)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.FailedLoginAttempts = 0;
-await _db.SaveChangesAsync();
-}
-public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
-{
-var user = await _db.Users.FindAsync(userId);
-if (user == null) return;
-user.LockoutEnd = lockoutEnd;
-await _db.SaveChangesAsync();
-}
-public async Task<DateTime?> GetLockoutEndAsync(Guid userId)
-{
-return await _db.Users
-.Where(x => x.Id == userId)
-.Select(x => x.LockoutEnd)
-.FirstOrDefaultAsync();
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\DbSeeder.cs =====
-using Microsoft.EntityFrameworkCore;
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs =====
 using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.Tenant.Entities;
-using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Infrastructure.Services.IAM;
-namespace SaaSPlatform.Infrastructure.Persistence.Seed;
-public static class DbSeeder
-{
-public static async Task SeedAsync(SaaSPlatformDbContext db)
-{
-await db.Database.MigrateAsync();
-if (!await db.TenantAccounts.AnyAsync(x => x.Id == SeedData.SystemTenantId))
-{
-await db.TenantAccounts.AddAsync(new TenantAccount
-{
-Id = SeedData.SystemTenantId,
-Name = "System",
-Slug = "system",
-IsActive = true,
-RegistrationStatus = RegistrationStatus.Approved
-});
-await db.SaveChangesAsync();
-}
-if (!await db.Stores.IgnoreQueryFilters().AnyAsync(x => x.Id == SeedData.SystemStoreId))
-{
-await db.Stores.AddAsync(new Store
-{
-Id = SeedData.SystemStoreId,
-TenantId = SeedData.SystemTenantId,
-Name = "System Store",
-Slug = "system-store",
-IsOnline = false
-});
-await db.SaveChangesAsync();
-}
-if (!await db.PermissionModules.AnyAsync())
-await db.PermissionModules.AddRangeAsync(SeedData.Modules);
-if (!await db.Permissions.AnyAsync())
-await db.Permissions.AddRangeAsync(SeedData.Permissions);
-if (!await db.Plans.AnyAsync())
-await db.Plans.AddRangeAsync(SeedData.Plans);
-if (!await db.Roles.IgnoreQueryFilters().AnyAsync(x => x.Name == "SuperAdmin"))
-{
-await db.Roles.AddAsync(SeedData.SuperAdminRole);
-await db.SaveChangesAsync();
-}
-if (!await db.Roles.IgnoreQueryFilters().AnyAsync(x => x.Name == "Approver"))
-{
-await db.Roles.AddAsync(SeedData.ApproverRole);
-await db.SaveChangesAsync();
-}
-if (!await db.RolePermissions.AnyAsync())
-{
-var rps = SeedData.Permissions.Select(p => new RolePermission
-{
-RoleId = SeedData.SuperAdminRoleId,
-PermissionId = p.Id
-});
-await db.RolePermissions.AddRangeAsync(rps);
-await db.SaveChangesAsync();
-}
-var approvePermId = Guid.Parse("40000000-0000-0000-0000-00000000000B");
-if (!await db.RolePermissions.AnyAsync(rp => rp.RoleId == SeedData.ApproverRoleId && rp.PermissionId == approvePermId))
-{
-await db.RolePermissions.AddAsync(new RolePermission
-{
-RoleId = SeedData.ApproverRoleId,
-PermissionId = approvePermId
-});
-await db.SaveChangesAsync();
-}
-if (!await db.Cuisines.AnyAsync())
-await db.Cuisines.AddRangeAsync(SeedData.Cuisines);
-if (!await db.Zones.AnyAsync())
-await db.Zones.AddRangeAsync(SeedData.Zones);
-if (!await db.Addons.IgnoreQueryFilters().AnyAsync())
-await db.Addons.AddRangeAsync(SeedData.Addons);
-if (!await db.AddonGroups.IgnoreQueryFilters().AnyAsync())
-await db.AddonGroups.AddRangeAsync(SeedData.AddonGroups);
-if (!await db.AddonGroupItems.AnyAsync())
-await db.AddonGroupItems.AddRangeAsync(SeedData.AddonGroupItems);
-await db.SaveChangesAsync();
-const string superAdminPhone = "0000000000";
-if (!await db.Users.AnyAsync(x => x.Phone == superAdminPhone))
-{
-var adminUser = new User
-{
-Id = Guid.NewGuid(),
-Name = "Super Admin",
-Phone = superAdminPhone,
-Email = "admin@system.com",
-PasswordHash = new PasswordHasher().Hash("Admin@123"),
-IsActive = true
-};
-await db.Users.AddAsync(adminUser);
-await db.SaveChangesAsync();
-await db.UserRoles.AddAsync(new UserRole
-{
-UserId = adminUser.Id,
-RoleId = SeedData.SuperAdminRoleId,
-TenantId = SeedData.SystemTenantId
-});
-await db.TenantUsers.AddAsync(new TenantUser
-{
-Id = Guid.NewGuid(),
-TenantId = SeedData.SystemTenantId,
-UserId = adminUser.Id,
-IsOwner = false,
-IsActive = true
-});
-await db.SaveChangesAsync();
-}
-const string approverPhone = "1111111111";
-if (!await db.Users.AnyAsync(x => x.Phone == approverPhone))
-{
-var approverUser = new User
-{
-Id = Guid.NewGuid(),
-Name = "Approver",
-Phone = approverPhone,
-Email = "approver@system.com",
-PasswordHash = new PasswordHasher().Hash("Approver@123"),
-IsActive = true
-};
-await db.Users.AddAsync(approverUser);
-await db.SaveChangesAsync();
-await db.UserRoles.AddAsync(new UserRole
-{
-UserId = approverUser.Id,
-RoleId = SeedData.ApproverRoleId,
-TenantId = SeedData.SystemTenantId
-});
-await db.TenantUsers.AddAsync(new TenantUser
-{
-Id = Guid.NewGuid(),
-TenantId = SeedData.SystemTenantId,
-UserId = approverUser.Id,
-IsOwner = false,
-IsActive = true
-});
-await db.SaveChangesAsync();
-}
-}
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Seed\SeedData.cs =====
-using SaaSPlatform.Core.Billing.Entities;
-using SaaSPlatform.Core.Catalog.Entities;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.Tenant.Entities;
-namespace SaaSPlatform.Infrastructure.Persistence.Seed;
-public static class SeedData
-{
-public static readonly Guid SystemTenantId =
-Guid.Parse("11111111-1111-1111-1111-111111111111");
-public static readonly Guid SystemStoreId =
-Guid.Parse("22222222-3333-4444-5555-666666666666");
-public static readonly Guid SuperAdminRoleId =
-Guid.Parse("22222222-2222-2222-2222-222222222222");
-public static readonly Guid ApproverRoleId = Guid.Parse("22222222-2222-2222-2222-222222222223");
-public static readonly Role ApproverRole = new()
-{
-Id = ApproverRoleId,
-TenantId = SystemTenantId,
-Name = "Approver",
-Description = "Can approve new tenants",
-IsSystem = true
-};
-public static readonly List<PermissionModule> Modules =
-[
-new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000001"), Name = "Catalog", Code = "catalog" },
-new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000002"), Name = "Orders",  Code = "orders"  },
-new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000003"), Name = "Billing", Code = "billing" },
-new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000004"), Name = "IAM",     Code = "iam"     }
-];
-public static readonly List<Permission> Permissions =
-[
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000001"), Name = "catalog.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000002"), Name = "catalog.create", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000003"), Name = "catalog.update", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000004"), Name = "orders.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000005"), Name = "orders.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000006"), Name = "billing.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000007"), Name = "billing.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000008"), Name = "users.manage",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000009"), Name = "tenant.view",    PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000A"), Name = "store.update",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
-new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000B"), Name = "tenant.approve", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") }
-];
-public static readonly List<Plan> Plans =
-[
-new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000001"), Name = "Starter",    PriceMonthly = 0,   PriceYearly = 0,    MaxStores = 1, MaxUsers = 2,   MaxProducts = 50,     MaxCategories = 10,    MaxOrdersPerMonth = 1000,   IsActive = true },
-new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000002"), Name = "Pro",        PriceMonthly = 29,  PriceYearly = 290,  MaxStores = 5, MaxUsers = 20,  MaxProducts = 1000,   MaxCategories = 100,   MaxOrdersPerMonth = 50000,  IsActive = true },
-new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000003"), Name = "Enterprise", PriceMonthly = 199, PriceYearly = 1990, MaxStores = 999, MaxUsers = 999, MaxProducts = 999999, MaxCategories = 999999, MaxOrdersPerMonth = 999999, IsActive = true }
-];
-public static readonly Role SuperAdminRole = new()
-{
-Id = SuperAdminRoleId,
-TenantId = SystemTenantId,
-Name = "SuperAdmin",
-Description = "System Super Administrator",
-IsSystem = true
-};
-public static readonly List<Cuisine> Cuisines = new()
-{
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000001"), Name = "Fast Food" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000002"), Name = "Dessert" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000003"), Name = "BBQ" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000004"), Name = "Sea Food" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000005"), Name = "Hot Beverages" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000006"), Name = "Continental" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000007"), Name = "Drinks & Beverages" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000008"), Name = "Broast" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000009"), Name = "Chinese" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000A"), Name = "Karahi and Handi" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000B"), Name = "Pizza" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000C"), Name = "Steak" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000D"), Name = "Vegetarian" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000E"), Name = "Middle Eastern" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-00000000000F"), Name = "Ice Cream" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000010"), Name = "Savouries" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000011"), Name = "Biryani" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000012"), Name = "Pulao" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000013"), Name = "Rice" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000014"), Name = "Sandwiches" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000015"), Name = "Street Food" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000016"), Name = "Desi" },
-new() { Id = Guid.Parse("60000000-0000-0000-0000-000000000017"), Name = "Breakfast" }
-};
-public static readonly List<Zone> Zones = new()
-{
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000001"), Name = "H-Sectors", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000002"), Name = "F-Sectors", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000003"), Name = "G-Sectors", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000004"), Name = "I-Sectors", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000005"), Name = "Blue Area", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000006"), Name = "Bahria Town", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000007"), Name = "DHA", City = "Islamabad" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000008"), Name = "Saddar", City = "Rawalpindi" },
-new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
-};
-public static readonly List<Addon> Addons = new()
-{
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000001"), Name = "Extra Cheese", Price = 1.50m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000002"), Name = "Pepperoni",      Price = 2.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000003"), Name = "Mushrooms",      Price = 1.80m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000004"), Name = "Olives",         Price = 1.20m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000005"), Name = "Ketchup",        Price = 0.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000006"), Name = "Mayo",           Price = 0.00m, TenantId = SystemTenantId, StoreId = SystemStoreId },
-new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000007"), Name = "Hot Sauce",      Price = 0.50m, TenantId = SystemTenantId, StoreId = SystemStoreId }
-};
-public static readonly Guid ToppingsGroupId = Guid.Parse("90000000-0000-0000-0000-000000000001");
-public static readonly Guid SaucesGroupId = Guid.Parse("90000000-0000-0000-0000-000000000002");
-public static readonly List<AddonGroup> AddonGroups = new()
-{
-new AddonGroup
-{
-Id = ToppingsGroupId,
-TenantId = SystemTenantId,
-StoreId = SystemStoreId,
-Name = "Choose your toppings",
-MaxSelect = 3,
-IsRequired = false,
-DisplayOrder = 1
-},
-new AddonGroup
-{
-Id = SaucesGroupId,
-TenantId = SystemTenantId,
-StoreId = SystemStoreId,
-Name = "Select sauces",
-MaxSelect = 2,
-IsRequired = false,
-DisplayOrder = 2
-}
-};
-public static readonly List<AddonGroupItem> AddonGroupItems = new()
-{
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000001"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000001"), PriceAdjustment = 0, DisplayOrder = 1 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000002"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000002"), PriceAdjustment = 0, DisplayOrder = 2 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000003"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000003"), PriceAdjustment = 0, DisplayOrder = 3 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000004"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000004"), PriceAdjustment = 0, DisplayOrder = 4 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000005"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000005"), PriceAdjustment = 0, DisplayOrder = 1 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000006"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000006"), PriceAdjustment = 0, DisplayOrder = 2 },
-new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000007"), PriceAdjustment = 0, DisplayOrder = 3 }
-};
-}
-
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\AuditableDbContext.cs =====
-using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
-using SaaSPlatform.Infrastructure.Services.IAM;
-using SaaSPlatform.Infrastructure.Services;
-namespace SaaSPlatform.Infrastructure.Persistence;
-public abstract class AuditableDbContext : DbContext
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class Store : AuditableEntity, ITenantScoped
 {
-private readonly CurrentUserService? _currentUser;
-protected AuditableDbContext(
-DbContextOptions options,
-CurrentUserService? currentUser = null)
-: base(options)
-{
-_currentUser = currentUser;
+public Guid TenantId { get; set; }
+public string Name { get; set; } = default!;
+public string? Slug { get; set; }
+public ICollection<StoreCuisine>? StoreCuisines { get; set; }
+public string? Address { get; set; }
+public string? City { get; set; }
+public string? ZoneName { get; set; }
+public double Latitude { get; set; }
+public double Longitude { get; set; }
+public int MinPreparingTime { get; set; }
+public int MaxPreparingTime { get; set; }
+public string? CoverPhotoUrl { get; set; }
+public string? LogoUrl { get; set; }
+public bool IsOnline { get; set; } = true;
+public bool SupportsDelivery { get; set; } = true;
+public bool SupportsPickup { get; set; } = true;
+public bool SupportsDineIn { get; set; } = false;
+public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
 }
-public override async Task<int> SaveChangesAsync(
-CancellationToken cancellationToken = default)
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs =====
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class StoreCuisine : BaseEntity
 {
-var entries =
-ChangeTracker
-.Entries<AuditableEntity>();
-foreach (var entry in entries)
-{
-switch (entry.State)
-{
-case EntityState.Added:
-entry.Entity.CreatedAt = DateTime.UtcNow;
-entry.Entity.CreatedBy =
-_currentUser?.UserId;
-break;
-case EntityState.Modified:
-entry.Entity.UpdatedAt = DateTime.UtcNow;
-entry.Entity.UpdatedBy =
-_currentUser?.UserId;
-break;
+public Guid StoreId { get; set; }
+public Store Store { get; set; } = default!;
+public Guid CuisineId { get; set; }
+public Cuisine Cuisine { get; set; } = default!;
 }
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class StoreDeliveryZone : BaseEntity
+{
+public Guid StoreId { get; set; }
+public Store Store { get; set; } = default!;
+public Guid ZoneId { get; set; }
+public Zone Zone { get; set; } = default!;
 }
-return await base.SaveChangesAsync(
-cancellationToken);
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs =====
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.SharedKernel.Common;
+using SaaSPlatform.Core.Tenant.Enums;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class TenantAccount : AuditableEntity
+{
+public string Name { get; set; } = default!;
+public string? Email { get; set; }
+public string? Phone { get; set; }
+public string? Address { get; set; }
+public decimal? Latitude { get; set; }
+public decimal? Longitude { get; set; }
+public bool IsActive { get; set; } = true;
+public RegistrationStatus RegistrationStatus { get; set; } = RegistrationStatus.Pending;
+public string? LogoUrl { get; set; }
+public string? Slug { get; set; }
+public Guid? AgentId { get; set; }
+public Guid? ActiveSubscriptionId { get; set; }
+public DateTime? OnboardedAt { get; set; }
+public ICollection<TenantDomain>? Domains { get; set; }
+public ICollection<Subscription>? Subscriptions { get; set; }
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class TenantDomain : AuditableEntity
+{
+public Guid TenantId { get; set; }
+public string Domain { get; set; } = default!;
+public bool IsPrimary { get; set; }
+public bool IsVerified { get; set; }
+public DateTime? VerifiedAt { get; set; }
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class TenantLegalInfo : AuditableEntity
+{
+public Guid TenantId { get; set; }
+public string CnicNumber { get; set; } = default!;
+public string? NtnNumber { get; set; }
+public bool HasFoodLicense { get; set; }
+public string? CnicFrontImageUrl { get; set; }
+public string? CnicBackImageUrl { get; set; }
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs =====
+using SaaSPlatform.SharedKernel.Common;
+namespace SaaSPlatform.Core.Tenant.Entities;
+public class Zone : BaseEntity
+{
+public string Name { get; set; } = default!;
+public string City { get; set; } = default!;
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs =====
+namespace SaaSPlatform.Core.Tenant.Enums;
+public enum RegistrationStatus
+{
+Pending,
+Approved,
+Rejected
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs =====
+using SaaSPlatform.Core.Tenant.Entities;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface IStoreRepository
+{
+void Add(Store store);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs =====
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantAccessService
+{
+Task<bool> TenantExistsAsync(Guid tenantId);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs =====
+using SaaSPlatform.Core.Tenant.Entities;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantAccountRepository
+{
+Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+void Add(TenantAccount tenant);
+void Update(TenantAccount tenant);
+Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs =====
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantContext
+{
+Guid? TenantId { get; }
+void SetTenantId(Guid tenantId);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
+using SaaSPlatform.Core.Tenant.Entities;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantLegalInfoRepository
+{
+void Add(TenantLegalInfo info);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs =====
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantRegistrationService
+{
+Task<Result<Guid>> RegisterAsync(
+string restaurantName,
+List<Guid> cuisineIds,
+List<Guid> zoneIds,
+string? address,
+int minPrepTime,
+int maxPrepTime,
+string firstName,
+string lastName,
+string phone,
+string email,
+string password,
+string cnic,
+string? ntn,
+bool hasFoodLicense,
+string? cnicFrontUrl,
+string? cnicBackUrl);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs =====
+using SaaSPlatform.Core.Tenant.Entities;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantRepository
+{
+Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+void Update(TenantAccount tenant);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs =====
+using SaaSPlatform.Core.Tenant.Models;
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+public interface ITenantStoreService
+{
+Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs =====
+namespace SaaSPlatform.Core.Tenant.Models;
+public class TenantRegistrationRequest
+{
+public string RestaurantName { get; set; } = default!;
+public List<Guid> CuisineIds { get; set; } = new();
+public List<Guid> ZoneIds { get; set; } = new();
+public string? Address { get; set; }
+public int MinPreparingTime { get; set; }
+public int MaxPreparingTime { get; set; }
+public string FirstName { get; set; } = default!;
+public string LastName { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string Email { get; set; } = default!;
+public string Password { get; set; } = default!;
+public string CnicNumber { get; set; } = default!;
+public string? NtnNumber { get; set; }
+public bool HasFoodLicense { get; set; }
+public string? CnicFrontImageUrl { get; set; }
+public string? CnicBackImageUrl { get; set; }
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs =====
+namespace SaaSPlatform.Core.Tenant.Models;
+public class TenantRegistrationResponse
+{
+public Guid TenantId { get; set; }
+public string Message { get; set; } = default!;
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs =====
+namespace SaaSPlatform.Core.Tenant.Models;
+public class UpdateStoreRequest
+{
+public string? Name { get; set; }
+public List<Guid>? CuisineIds { get; set; }
+public List<Guid>? ZoneIds { get; set; }
+public string? Address { get; set; }
+public int? MinPreparingTime { get; set; }
+public int? MaxPreparingTime { get; set; }
+public bool? IsOnline { get; set; }
+public bool? SupportsDelivery { get; set; }
+public bool? SupportsPickup { get; set; }
+public bool? SupportsDineIn { get; set; }
+public string? CoverPhotoUrl { get; set; }
+public string? LogoUrl { get; set; }
+}
+
+===== SaaSPlatform.Core.Tenant | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs =====
+using SaaSPlatform.Core.Tenant.Interfaces;
+namespace SaaSPlatform.Infrastructure.Services;
+public class TenantContext : ITenantContext
+{
+private Guid? _tenantId;
+public Guid? TenantId => _tenantId;
+public void SetTenantId(Guid tenantId)
+{
+_tenantId = tenantId;
 }
 }
 
-===== SaaSPlatform.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\DbContextFactory.cs =====
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\BillingConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Design;
-using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Infrastructure.Services;
-using SaaSPlatform.Infrastructure.Services.TenantServices;
-public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+public class PlanConfiguration : IEntityTypeConfiguration<Plan>
 {
-public SaaSPlatformDbContext CreateDbContext(string[] args)
+public void Configure(EntityTypeBuilder<Plan> builder)
 {
-var options = new DbContextOptionsBuilder<SaaSPlatformDbContext>()
-.UseNpgsql("Host=localhost;Database=saas;Username=postgres;Password=123")
-.Options;
-return new SaaSPlatformDbContext(
-options,
-new NullTenantContext(),
-null);
+builder.HasIndex(x => x.Name).IsUnique();
+}
+}
+public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
+{
+public void Configure(EntityTypeBuilder<Subscription> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.Status });
+builder.HasIndex(x => x.NextBillingDate);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\PaymentConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
+{
+public void Configure(EntityTypeBuilder<Payment> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.Status });
+builder.HasIndex(x => new { x.TenantId, x.StoreId });
+builder.Property(x => x.Amount).HasPrecision(18, 2);
+builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+.WithMany()
+.HasForeignKey(p => p.StoreId)
+.IsRequired(false);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Billing\TenantUsageLedgerConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Billing.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Billing;
+public class TenantUsageLedgerConfiguration : IEntityTypeConfiguration<TenantUsageLedger>
+{
+public void Configure(EntityTypeBuilder<TenantUsageLedger> builder)
+{
+builder.HasIndex(x => new
+{
+x.TenantId,
+x.UsageMonthYear
+}).IsUnique();
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class AddonConfiguration : IEntityTypeConfiguration<Addon>
+{
+public void Configure(EntityTypeBuilder<Addon> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
+builder.Property(x => x.Price).HasPrecision(18, 2);
+builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+.WithMany()
+.HasForeignKey(a => a.StoreId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class AddonGroupConfiguration : IEntityTypeConfiguration<AddonGroup>
+{
+public void Configure(EntityTypeBuilder<AddonGroup> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Name });
+builder.Property(x => x.Name).HasMaxLength(200);
+builder.HasMany(g => g.Items)
+.WithOne(i => i.AddonGroup)
+.HasForeignKey(i => i.AddonGroupId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\AddonGroupItemConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class AddonGroupItemConfiguration : IEntityTypeConfiguration<AddonGroupItem>
+{
+public void Configure(EntityTypeBuilder<AddonGroupItem> builder)
+{
+builder.HasIndex(x => new { x.AddonGroupId, x.AddonId }).IsUnique();
+builder.Property(x => x.PriceAdjustment).HasPrecision(18, 2);
+builder.HasOne(i => i.AddonGroup)
+.WithMany(g => g.Items)
+.HasForeignKey(i => i.AddonGroupId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasOne(i => i.Addon)
+.WithMany()
+.HasForeignKey(i => i.AddonId)
+.OnDelete(DeleteBehavior.Restrict);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CatalogConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+{
+public void Configure(EntityTypeBuilder<Category> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.ParentCategoryId });
+builder.HasIndex(x => new { x.StoreId, x.Name });
+builder.Property(x => x.PhotoUrl).HasMaxLength(500);
+builder.Property(x => x.Icon).HasMaxLength(200);
+builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+.WithMany()
+.HasForeignKey(c => c.StoreId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\CuisineConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class CuisineConfiguration : IEntityTypeConfiguration<Cuisine>
+{
+public void Configure(EntityTypeBuilder<Cuisine> builder)
+{
+builder.HasIndex(c => c.Name).IsUnique();
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\FeaturedProductConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class FeaturedProductConfiguration : IEntityTypeConfiguration<FeaturedProduct>
+{
+public void Configure(EntityTypeBuilder<FeaturedProduct> builder)
+{
+builder.HasIndex(fp => new { fp.TenantId, fp.StoreId, fp.Section, fp.ProductId })
+.IsUnique();
+builder.HasIndex(fp => new { fp.StoreId, fp.Section, fp.CategoryId });
+builder.HasOne(fp => fp.Product)
+.WithMany()
+.HasForeignKey(fp => fp.ProductId)
+.OnDelete(DeleteBehavior.Restrict);
+builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+.WithMany()
+.HasForeignKey(fp => fp.StoreId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductAddonGroupConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class ProductAddonGroupConfiguration : IEntityTypeConfiguration<ProductAddonGroup>
+{
+public void Configure(EntityTypeBuilder<ProductAddonGroup> builder)
+{
+builder.HasIndex(x => new { x.ProductId, x.AddonGroupId }).IsUnique();
+builder.HasOne(x => x.Product)
+.WithMany()
+.HasForeignKey(x => x.ProductId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasOne(x => x.AddonGroup)
+.WithMany()
+.HasForeignKey(x => x.AddonGroupId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+public void Configure(EntityTypeBuilder<Product> builder)
+{
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.CategoryId });
+builder.HasIndex(x => new { x.StoreId, x.Name });
+builder.Property(x => x.MainImageUrl).HasMaxLength(500);
+builder.HasOne<SaaSPlatform.Core.Tenant.Entities.Store>()
+.WithMany()
+.HasForeignKey(p => p.StoreId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(p => p.Images)
+.WithOne()
+.HasForeignKey(i => i.ProductId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductImageConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog
+{
+public class ProductImageConfiguration : IEntityTypeConfiguration<ProductImage>
+{
+public void Configure(EntityTypeBuilder<ProductImage> builder)
+{
+builder.HasIndex(x => new { x.ProductId, x.DisplayOrder });
+builder.Property(x => x.ImageUrl).HasMaxLength(500);
+}
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Catalog\ProductVariantConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Catalog.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Catalog;
+public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVariant>
+{
+public void Configure(EntityTypeBuilder<ProductVariant> builder)
+{
+builder.HasIndex(x => x.ProductId);
+builder.HasOne<Product>()
+.WithMany()
+.HasForeignKey(pv => pv.ProductId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== SaaSPlatform.Infrastructure | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Infrastructure\Persistence\Configurations\Orders\OrderConfiguration.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SaaSPlatform.Core.Orders.Entities;
+namespace SaaSPlatform.Infrastructure.Persistence.Configurations.Orders;
+public class OrderConfiguration : IEntityTypeConfiguration<Order>
+{
+public void Configure(EntityTypeBuilder<Order> builder)
+{
+builder.HasIndex(x => new
+{
+x.TenantId,
+x.CreatedAt
+});
+builder.HasIndex(x => new
+{
+x.TenantId,
+x.OrderNumber
+}).IsUnique();
+builder.HasIndex(x => new
+{
+x.TenantId,
+x.Status
+});
+builder.HasIndex(x => x.StoreId);
+builder.Property(x => x.Subtotal)
+.HasPrecision(18, 2);
+builder.Property(x => x.DiscountAmount)
+.HasPrecision(18, 2);
+builder.Property(x => x.TaxAmount)
+.HasPrecision(18, 2);
+builder.Property(x => x.TotalAmount)
+.HasPrecision(18, 2);
+builder.Property(x => x.OrderType).IsRequired();
+builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
 }
 }
 

@@ -1,5 +1,8 @@
 ﻿
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs =====
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs
+==================================================
 
 namespace SaaSPlatform.Application.DTOs.Auth;
 
@@ -13,7 +16,12 @@ public class AuthTokenResponse
 
     public DateTime RefreshTokenExpiresAtUtc { get; set; }
 }
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs
+==================================================
 
 using SaaSPlatform.Core.Catalog.Entities;
 using SaaSPlatform.Core.Catalog.Interfaces;
@@ -61,7 +69,12 @@ public class ProductManagementService
         }
     }
 }
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs
+==================================================
 
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
@@ -119,18 +132,26 @@ public class TenantApprovalService
         return (true, "Tenant rejected.");
     }
 }
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs =====
 
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
+using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher, IUserIdentityService
+using AuthCoreKit.IAM.Models;            // IamOptions
+using Microsoft.Extensions.DependencyInjection;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.IAM.Entities;
-using SaaSPlatform.Core.IAM.Interfaces;
 using SaaSPlatform.Core.Tenant.Entities;
 using SaaSPlatform.Core.Tenant.Enums;
 using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.SharedKernel.Interfaces;
+using SaaSPlatform.SharedKernel.Results;
 
 namespace SaaSPlatform.Application.Services;
 
@@ -146,6 +167,9 @@ public class TenantRegistrationAppService
     private readonly ISlugGenerator _slugGenerator;
     private readonly IUnitOfWork _unitOfWork;
 
+    private readonly IamOptions _iamOptions;
+    private readonly IServiceProvider _serviceProvider;
+
     public TenantRegistrationAppService(
         ITenantAccountRepository tenantRepo,
         IStoreRepository storeRepo,
@@ -155,7 +179,9 @@ public class TenantRegistrationAppService
         ISubscriptionRepository subscriptionRepo,
         IPasswordHasher passwordHasher,
         ISlugGenerator slugGenerator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IamOptions iamOptions,
+        IServiceProvider serviceProvider)
     {
         _tenantRepo = tenantRepo;
         _storeRepo = storeRepo;
@@ -166,14 +192,29 @@ public class TenantRegistrationAppService
         _passwordHasher = passwordHasher;
         _slugGenerator = slugGenerator;
         _unitOfWork = unitOfWork;
+        _iamOptions = iamOptions;
+        _serviceProvider = serviceProvider;
     }
 
-    public async Task<(Guid tenantId, string message)> RegisterAsync(TenantRegistrationRequest request)
+    public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
     {
+        // 1. Tenant name uniqueness
+        if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
+            return Result<Guid>.Failure("A tenant with this name already exists.");
+
+        // 2. Global phone uniqueness – one phone = one user = one tenant
+        if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
+            return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
+
+        // 3. Global email uniqueness (optional)
+        if (!string.IsNullOrWhiteSpace(request.Email) &&
+            await _userRepo.ExistsByEmailAsync(request.Email, tenantId: null))
+            return Result<Guid>.Failure("A user with this email already exists.");
+
         return await ExecuteRegistrationAsync(request);
     }
 
-    private async Task<(Guid tenantId, string message)> ExecuteRegistrationAsync(TenantRegistrationRequest request)
+    private async Task<Result<Guid>> ExecuteRegistrationAsync(TenantRegistrationRequest request)
     {
         await _unitOfWork.BeginTransactionAsync();
 
@@ -181,20 +222,39 @@ public class TenantRegistrationAppService
         {
             var tenant = CreateTenant(request);
             var store = CreateStore(tenant.Id, request);
-            var user = CreateUser(request);
+            var user = CreateUser(tenant.Id, request);
             var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
             LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
             CreateLegalInfo(tenant.Id, request);
             await CreateStarterSubscriptionAsync(tenant.Id);
 
+            // ========== STORE ENCRYPTED CNIC (if enabled) ==========
+            if (_iamOptions.EnableUserIdentities && _iamOptions.RequireCnic)
+            {
+                if (string.IsNullOrWhiteSpace(request.CnicNumber))
+                    throw new InvalidOperationException("CNIC number is required.");
+
+                // Basic validation (13 digits, optional dashes)
+                var cnic = request.CnicNumber.Replace("-", "").Trim();
+                if (cnic.Length != 13 || !cnic.All(char.IsDigit))
+                    throw new InvalidOperationException("Invalid CNIC number format.");
+
+                var identityService = _serviceProvider.GetRequiredService<IUserIdentityService>();
+                await identityService.SetCnicAsync(user.Id, cnic);
+            }
+
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
 
-            return (tenant.Id, "Registration submitted successfully. Awaiting approval.");
+            return Result<Guid>.Success(tenant.Id, "Registration submitted successfully. Awaiting approval.");
         }
-        catch
+        catch (Exception ex)
         {
             await _unitOfWork.RollbackAsync();
+
+            if (ex.InnerException?.Message.Contains("duplicate key") == true)
+                return Result<Guid>.Failure("A record with the same details already exists.");
+
             throw;
         }
     }
@@ -239,18 +299,19 @@ public class TenantRegistrationAppService
         return store;
     }
 
-    private User CreateUser(TenantRegistrationRequest request)
+    private User CreateUser(Guid tenantId, TenantRegistrationRequest request)
     {
         var user = new User
         {
             Id = Guid.NewGuid(),
+            TenantId = tenantId,
             Name = $"{request.FirstName} {request.LastName}",
             Phone = request.Phone,
             Email = request.Email,
             PasswordHash = _passwordHasher.Hash(request.Password),
             IsActive = true
         };
-        _userRepo.AddAsync(user);
+        _userRepo.Add(user);
         return user;
     }
 
@@ -273,23 +334,17 @@ public class TenantRegistrationAppService
         return ownerRole;
     }
 
-    //private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
-    //{
-    //    _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-    //    _roleRepo.AddTenantUser(new TenantUser { TenantId = tenantId, UserId = userId, IsOwner = true, IsActive = true });
-    //}
     private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
     {
-        _roleRepo.AddUserRole(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId }); // no extra GUID needed, it's a join with composite key
-        _roleRepo.AddTenantUser(new TenantUser
+        // Only UserRole is needed – User.TenantId already links the user to the tenant.
+        _roleRepo.AddUserRole(new UserRole
         {
-            Id = Guid.NewGuid(),          // <-- ADD
-            TenantId = tenantId,
             UserId = userId,
-            IsOwner = true,
-            IsActive = true
+            RoleId = roleId,
+            TenantId = tenantId
         });
     }
+
     private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
     {
         _legalRepo.Add(new TenantLegalInfo
@@ -321,13 +376,16 @@ public class TenantRegistrationAppService
             PriceSnapshot = 0
         });
     }
-
-
 }
-===== SaaSPlatform.Application | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs =====
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs
+==================================================
 
 using FluentValidation;
-using SaaSPlatform.Core.IAM.Models;
+using AuthCoreKit.IAM.Models;
 using System.Text.RegularExpressions;
 
 namespace SaaSPlatform.Application.Validators.Auth;
@@ -336,11 +394,13 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
 {
     public LoginRequestValidator()
     {
-        RuleFor(x => x.Phone)
+        // The Login field can be phone or email depending on configuration.
+        // For simplicity, we just require it to be non‑empty.
+        // If you want phone‑format validation only when login mode is "phone",
+        // you can inject IamOptions and check – left as an exercise.
+        RuleFor(x => x.Login)
             .NotEmpty()
-            .WithMessage("Phone number is required")
-            .Must(BeValidPhone)
-            .WithMessage("Invalid phone number format");
+            .WithMessage("Login (phone or email) is required");
 
         RuleFor(x => x.Password)
             .NotEmpty()
@@ -352,13 +412,13 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
             .Matches("[0-9]").WithMessage("Password must contain number");
     }
 
+    // These helper methods are kept for reference but are no longer used.
     private bool BeValidPhone(string phone)
     {
         if (string.IsNullOrWhiteSpace(phone))
             return false;
 
         var normalized = NormalizePhone(phone);
-
         return Regex.IsMatch(normalized, @"^\+?[0-9]{10,15}$");
     }
 
@@ -369,3 +429,5 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
             .Replace("-", "");
     }
 }
+
+

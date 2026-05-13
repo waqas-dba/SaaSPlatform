@@ -1,17 +1,13 @@
-﻿using Microsoft.AspNetCore.Http;                     // <-- ADD THIS
+﻿using Microsoft.AspNetCore.Http;
 
 namespace AuthCoreKit.IAM.Models;
 
 public class IamOptions
 {
-    /// <summary>
-    /// Defines which field(s) are accepted for login.
-    /// Accepted values: "phone", "email", "both".
-    /// Default is "phone".
-    /// </summary>
+    /// <summary>Defines which field(s) are accepted for login ("phone", "email", "both").</summary>
     public string LoginIdentifier { get; set; } = "phone";
 
-    /// <summary>If not null, this delegate extracts the tenant ID from the HttpContext.</summary>
+    /// <summary>Delegate to extract tenant ID from HttpContext.</summary>
     public Func<HttpContext, Guid?>? TenantResolver { get; set; }
 
     /// <summary>SuperAdmin role name (default "SuperAdmin").</summary>
@@ -22,4 +18,18 @@ public class IamOptions
 
     /// <summary>Minimum password length (used by validation).</summary>
     public int MinPasswordLength { get; set; } = 8;
+
+    // ---------- Document‑related toggles ----------
+
+    /// <summary>If true, the UserDocument service is registered.</summary>
+    public bool EnableUserDocuments { get; set; } = false;
+
+    /// <summary>If true, the UserIdentity service is registered (requires EnableUserDocuments = true).</summary>
+    public bool EnableUserIdentities { get; set; } = false;
+
+    /// <summary>When true, a CNIC number is required at registration time. Only effective if EnableUserIdentities is also true.</summary>
+    public bool RequireCnic { get; set; } = true;
+
+    /// <summary>If true, the RoleDocumentRequirement service is registered (requires EnableUserDocuments = true).</summary>
+    public bool EnableRoleDocumentRequirements { get; set; } = false;
 }

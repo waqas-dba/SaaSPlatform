@@ -18,9 +18,10 @@ namespace AuthCoreKit.IAM.Extensions
             Action<IamOptions>? configureOptions = null)
             where TDbContext : class, IIamDbContext
         {
-            // Automatically bind IIamDbContext to the host's DbContext
+            // 1. Bind IIamDbContext to the host's DbContext
             services.AddScoped<IIamDbContext>(sp => sp.GetRequiredService<TDbContext>());
 
+            // 2. Load JWT settings & IamOptions
             var jwtSettings = jwtSection.Get<JwtSettings>()
                               ?? throw new InvalidOperationException("JWT configuration section is missing.");
 
@@ -30,13 +31,13 @@ namespace AuthCoreKit.IAM.Extensions
             configureOptions?.Invoke(options);
             services.AddSingleton(options);
 
-            // Repositories
+            // 3. Repositories
             services.AddScoped<IUserRepository, UserRepository>();
             services.AddScoped<IRoleRepository, RoleRepository>();
             services.AddScoped<IPermissionRepository, PermissionRepository>();
             services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
-            // Services
+            // 4. Core services
             services.AddScoped<IJwtTokenService, JwtTokenService>();
             services.AddScoped<IPasswordHasher, PasswordHasher>();
             services.AddScoped<IAuthService, AuthService>();
@@ -46,6 +47,23 @@ namespace AuthCoreKit.IAM.Extensions
             services.AddScoped<IUserManagementService, UserManagementService>();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
 
+            // 5. Optional document‑related services
+            if (options.EnableUserDocuments)
+            {
+                services.AddScoped<IUserDocumentService, UserDocumentService>();
+
+                if (options.EnableUserIdentities)
+                {
+                    services.AddScoped<IUserIdentityService, UserIdentityService>();
+                }
+
+                if (options.EnableRoleDocumentRequirements)
+                {
+                    services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
+                }
+            }
+
+            // 6. JWT Authentication & Authorization
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(opt =>
                 {

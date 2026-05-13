@@ -159,6 +159,28 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.ToTable("IAM_Roles", (string)null);
                 });
 
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.RoleDocumentRequirement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId", "DocumentType")
+                        .IsUnique();
+
+                    b.ToTable("IAM_RoleDocumentRequirements", (string)null);
+                });
+
             modelBuilder.Entity("AuthCoreKit.IAM.Entities.RolePermission", b =>
                 {
                     b.Property<Guid>("RoleId")
@@ -226,6 +248,61 @@ namespace SaaSPlatform.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("IAM_Users", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "DocumentType")
+                        .IsUnique();
+
+                    b.ToTable("IAM_UserDocuments", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserIdentity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EncryptedCnic")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("IAM_UserIdentities", (string)null);
                 });
 
             modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserRole", b =>
@@ -1354,6 +1431,17 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.RoleDocumentRequirement", b =>
+                {
+                    b.HasOne("AuthCoreKit.IAM.Entities.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
             modelBuilder.Entity("AuthCoreKit.IAM.Entities.RolePermission", b =>
                 {
                     b.HasOne("AuthCoreKit.IAM.Entities.Permission", "Permission")
@@ -1371,6 +1459,28 @@ namespace SaaSPlatform.Infrastructure.Migrations
                     b.Navigation("Permission");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserDocument", b =>
+                {
+                    b.HasOne("AuthCoreKit.IAM.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserIdentity", b =>
+                {
+                    b.HasOne("AuthCoreKit.IAM.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("AuthCoreKit.IAM.Entities.UserIdentity", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AuthCoreKit.IAM.Entities.UserRole", b =>
