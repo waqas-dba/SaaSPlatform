@@ -1,0 +1,190 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base auditable entity.
+/// </summary>
+public abstract class AuditableEntity : BaseEntity
+{
+    /// <summary>
+    /// Created date UTC.
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Created by user id.
+    /// </summary>
+    public Guid? CreatedBy { get; set; }
+
+    /// <summary>
+    /// Updated date UTC.
+    /// </summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Updated by user id.
+    /// </summary>
+    public Guid? UpdatedBy { get; set; }
+
+    /// <summary>
+    /// Soft delete flag.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for all entities.
+/// </summary>
+public abstract class BaseEntity
+{
+    /// <summary>
+    /// Primary key.
+    /// </summary>
+    public Guid Id { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
+
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for tenant scoped entities.
+/// </summary>
+public abstract class BaseTenantEntity
+    : AuditableEntity,
+      ITenantScoped
+{
+    /// <summary>
+    /// Tenant identifier.
+    /// </summary>
+    public Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
+
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces
+{
+    public interface IAggregateRoot
+    {
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+==================================================
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces;
+
+public interface ISlugGenerator
+{
+    string Generate(string input);
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ITenantScoped.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Common;
+
+public interface ITenantScoped
+{
+    Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+==================================================
+
+
+
+namespace SaaSPlatform.SharedKernel.Interfaces;
+
+public interface IUnitOfWork : IDisposable
+{
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitAsync(CancellationToken cancellationToken = default);
+    Task RollbackAsync(CancellationToken cancellationToken = default);
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
+==================================================
+
+namespace SaaSPlatform.SharedKernel.Results;
+
+public class Result
+{
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public List<string> Errors { get; init; } = new();
+
+    public static Result Success(string message = "")
+        => new() { Succeeded = true, Message = message };
+
+    public static Result Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+public class Result<T> : Result
+{
+    public T? Data { get; init; }
+
+    public static Result<T> Success(T data, string message = "")
+        => new()
+        {
+            Succeeded = true,
+            Data = data,
+            Message = message
+        };
+
+    public new static Result<T> Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+

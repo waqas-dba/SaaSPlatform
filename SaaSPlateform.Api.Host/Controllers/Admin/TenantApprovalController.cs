@@ -1,36 +1,30 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Api.Host.Authorization;
+﻿using AuthCoreKit.IAM.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using TenantKit.Interfaces;
 
 namespace SaaSPlatform.Api.Host.Controllers.Admin;
 
 [ApiController]
-[Route("api/admin")]
+[Route("api/admin/tenants")]
 public class TenantApprovalController : BaseApiController
 {
-    private readonly TenantApprovalService _service;
+    private readonly ITenantService _tenantService;
 
-    public TenantApprovalController(TenantApprovalService service)
-    {
-        _service = service;
-    }
+    public TenantApprovalController(ITenantService tenantService) => _tenantService = tenantService;
 
-    [TenantPermission("tenant.approve")]
-    [HttpPost("tenants/{tenantId}/approve")]
+    [HttpPost("{tenantId}/approve")]
+    [RequiresPermission("tenant.approve")]
     public async Task<IActionResult> Approve(Guid tenantId)
     {
-        var (ok, msg) = await _service.ApproveAsync(tenantId);
-
-        if (!ok) return Fail(msg);
-        return Success(new { }, msg);
+        await _tenantService.ApproveAsync(tenantId);
+        return Success(new { }, "Tenant approved");
     }
 
-    [TenantPermission("tenant.approve")]
-    [HttpPost("tenants/{tenantId}/reject")]
+    [HttpPost("{tenantId}/reject")]
+    [RequiresPermission("tenant.reject")]
     public async Task<IActionResult> Reject(Guid tenantId)
     {
-        var (ok, msg) = await _service.RejectAsync(tenantId);
-
-        if (!ok) return Fail(msg);
-        return Success(new { }, msg);
+        await _tenantService.RejectAsync(tenantId);
+        return Success(new { }, "Tenant rejected");
     }
 }

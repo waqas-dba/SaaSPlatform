@@ -7,18 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.7" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7">
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.7">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.8">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.7" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.8" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
   </ItemGroup>
 
@@ -29,8 +29,8 @@
     <ProjectReference Include="..\SaaSPlatform.Core.Billing\SaaSPlatform.Core.Billing.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Catalog\SaaSPlatform.Core.Catalog.csproj" />
     <ProjectReference Include="..\SaaSPlatform.Core.Orders\SaaSPlatform.Core.Orders.csproj" />
-    <ProjectReference Include="..\SaaSPlatform.Core.Tenant\SaaSPlatform.Core.Tenant.csproj" />
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\SaaSPlatform.SharedKernel.csproj" />
+    <ProjectReference Include="..\TenantKit\TenantKit.csproj" />
   </ItemGroup>
 
 </Project>

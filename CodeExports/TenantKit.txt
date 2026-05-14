@@ -1,0 +1,302 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\AuditableEntity.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public abstract class AuditableEntity
+    : BaseEntity, IAuditableEntity, ISoftDelete
+{
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    public Guid? CreatedBy { get; set; }
+
+    public DateTime? UpdatedAtUtc { get; set; }
+
+    public Guid? UpdatedBy { get; set; }
+
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAtUtc { get; set; }
+
+    public Guid? DeletedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\BaseEntity.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public abstract class BaseEntity
+{
+    public Guid Id { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\IAuditableEntity.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public interface IAuditableEntity
+{
+    DateTime CreatedAtUtc { get; set; }
+
+    Guid? CreatedBy { get; set; }
+
+    DateTime? UpdatedAtUtc { get; set; }
+
+    Guid? UpdatedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\ISoftDelete.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public interface ISoftDelete
+{
+    bool IsDeleted { get; set; }
+
+    DateTime? DeletedAtUtc { get; set; }
+
+    Guid? DeletedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\ITenantContext.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public interface ITenantContext
+{
+    Guid? TenantId { get; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Abstractions\ITenantScoped.cs
+==================================================
+
+namespace TenantKit.Abstractions;
+
+public interface ITenantScoped
+{
+    Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Entities\Store.cs
+==================================================
+
+using TenantKit.Abstractions;
+
+namespace TenantKit.Domain.Entities;
+
+public class Store : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+
+    public Tenant Tenant { get; set; } = default!;
+
+    public string Name { get; set; } = default!;
+
+    public string Slug { get; set; } = default!;
+
+    public string? Type { get; set; }
+
+    public string? Description { get; set; }
+
+    public string? Email { get; set; }
+
+    public string? PhoneNumber { get; set; }
+
+    public string? AddressLine1 { get; set; }
+
+    public string? AddressLine2 { get; set; }
+
+    public string? City { get; set; }
+
+    public string? State { get; set; }
+
+    public string? PostalCode { get; set; }
+
+    public string? CountryCode { get; set; }
+
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public bool IsPrimary { get; set; }
+
+    public string? TimeZone { get; set; }
+
+    public string? CurrencyCode { get; set; }
+
+    public string? LogoUrl { get; set; }
+
+    public string? CoverImageUrl { get; set; }
+
+    public string? MetadataJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Entities\Tenant.cs
+==================================================
+
+using TenantKit.Abstractions;
+
+namespace TenantKit.Domain.Entities;
+
+public class Tenant : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+
+    public string Slug { get; set; } = default!;
+
+    public bool IsActive { get; set; } = true;
+
+    public string? MetadataJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Enums\StoreType.cs
+==================================================
+
+namespace TenantKit.Enums;
+
+public enum StoreType
+{
+    Restaurant = 1,
+    Takeaway = 2,
+    Cafe = 3,
+    Grocery = 4,
+    Pharmacy = 5,
+    Clothing = 6,
+    Electronics = 7,
+    MobileShop = 8,
+    School = 9,
+    Hospital = 10,
+    Hotel = 11,
+    Warehouse = 12,
+    Salon = 13,
+    Bakery = 14,
+    Other = 99
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Enums\TenantStatus.cs
+==================================================
+
+namespace TenantKit.Enums;
+
+public enum TenantStatus
+{
+    Pending = 1,
+    Active = 2,
+    Suspended = 3,
+    Rejected = 4,
+    Archived = 5
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Extensions\TenantKitServiceCollectionExtensions.cs
+==================================================
+
+using Microsoft.Extensions.DependencyInjection;
+using TenantKit.Abstractions;
+using TenantKit.Infrastructure;
+
+namespace TenantKit.Extensions;
+
+public static class TenantKitServiceCollectionExtensions
+{
+    public static IServiceCollection AddTenantKit(
+        this IServiceCollection services)
+    {
+        services.AddScoped<TenantContext>();
+
+        services.AddScoped<ITenantContext>(sp =>
+            sp.GetRequiredService<TenantContext>());
+
+        return services;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Infrastructure\TenantContext.cs
+==================================================
+
+using TenantKit.Abstractions;
+
+namespace TenantKit.Infrastructure;
+
+public class TenantContext : ITenantContext
+{
+    public Guid? TenantId { get; internal set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\TenantKit\Middleware\TenantResolutionMiddleware.cs
+==================================================
+
+using TenantKit.Infrastructure;
+
+namespace TenantKit.Middleware;
+
+public class TenantResolutionMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public TenantResolutionMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(
+        HttpContext context,
+        TenantContext tenantContext)
+    {
+        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tenantId))
+        {
+            if (Guid.TryParse(tenantId, out var parsed))
+            {
+                tenantContext.TenantId = parsed;
+            }
+        }
+
+        await _next(context);
+    }
+}
+
+

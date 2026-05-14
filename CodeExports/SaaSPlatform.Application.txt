@@ -1,0 +1,433 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\DTOs\Auth\AuthTokenResponse.cs
+==================================================
+
+namespace SaaSPlatform.Application.DTOs.Auth;
+
+public class AuthTokenResponse
+{
+    public string AccessToken { get; set; } = default!;
+
+    public DateTime AccessTokenExpiresAtUtc { get; set; }
+
+    public string RefreshToken { get; set; } = default!;
+
+    public DateTime RefreshTokenExpiresAtUtc { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\ProductManagementService.cs
+==================================================
+
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.Core.Catalog.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+
+namespace SaaSPlatform.Application.Services;
+
+public class ProductManagementService
+{
+    private readonly IProductRepository _productRepo;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public ProductManagementService(IProductRepository productRepo, IUnitOfWork unitOfWork)
+    {
+        _productRepo = productRepo;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<List<Product>> GetStoreProductsAsync(Guid storeId)
+        => await _productRepo.GetByStoreAsync(storeId);
+
+    public async Task<Product?> GetProductAsync(Guid productId)
+        => await _productRepo.GetByIdAsync(productId);
+
+    public async Task<Product> CreateProductAsync(Product product)
+    {
+        _productRepo.Add(product);
+        await _unitOfWork.SaveChangesAsync();
+        return product;
+    }
+
+    public async Task UpdateProductAsync(Product product)
+    {
+        _productRepo.Update(product);
+        await _unitOfWork.SaveChangesAsync();
+    }
+
+    public async Task DeleteProductAsync(Guid productId)
+    {
+        var product = await _productRepo.GetByIdAsync(productId);
+        if (product != null)
+        {
+            _productRepo.Delete(product);
+            await _unitOfWork.SaveChangesAsync();
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantApprovalService.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.SharedKernel.Interfaces;
+
+public class TenantApprovalService
+{
+    private readonly ITenantAccountRepository _tenantRepo;
+    private readonly ISubscriptionRepository _subRepo;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public TenantApprovalService(
+        ITenantAccountRepository tenantRepo,
+        ISubscriptionRepository subRepo,
+        IUnitOfWork unitOfWork)
+    {
+        _tenantRepo = tenantRepo;
+        _subRepo = subRepo;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<(bool Success, string Message)> ApproveAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+        if (tenant is null) return (false, "Tenant not found.");
+        if (tenant.RegistrationStatus == RegistrationStatus.Approved)
+            return (false, "Tenant is already approved.");
+
+        tenant.RegistrationStatus = RegistrationStatus.Approved;
+        tenant.IsActive = true;
+        _tenantRepo.Update(tenant);
+
+        var subscription = await _subRepo.GetActiveByTenantIdAsync(tenantId);
+        if (subscription is not null && subscription.Status == SubscriptionStatus.Trialing)
+        {
+            subscription.Status = SubscriptionStatus.Active;
+            subscription.TrialEndsAt = DateTime.UtcNow.AddDays(14);
+            subscription.NextBillingDate = DateTime.UtcNow.AddDays(14);
+            _subRepo.Update(subscription);
+        }
+
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
+        return (true, "Tenant approved successfully.");
+    }
+
+    public async Task<(bool Success, string Message)> RejectAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId);
+        if (tenant is null) return (false, "Tenant not found.");
+        tenant.RegistrationStatus = RegistrationStatus.Rejected;
+        _tenantRepo.Update(tenant);
+        await _unitOfWork.SaveChangesAsync();  // <-- ADD THIS
+        return (true, "Tenant rejected.");
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Services\TenantRegistrationAppService.cs
+==================================================
+
+using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
+using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher, IUserIdentityService
+using AuthCoreKit.IAM.Models;            // IamOptions
+using Microsoft.Extensions.DependencyInjection;
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.Core.Billing.Enums;
+using SaaSPlatform.Core.Billing.Interfaces;
+using SaaSPlatform.Core.Tenant.Entities;
+using SaaSPlatform.Core.Tenant.Enums;
+using SaaSPlatform.Core.Tenant.Interfaces;
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Interfaces;
+using SaaSPlatform.SharedKernel.Results;
+
+namespace SaaSPlatform.Application.Services;
+
+public class TenantRegistrationAppService
+{
+    private readonly ITenantAccountRepository _tenantRepo;
+    private readonly IStoreRepository _storeRepo;
+    private readonly IUserRepository _userRepo;
+    private readonly IRoleRepository _roleRepo;
+    private readonly ITenantLegalInfoRepository _legalRepo;
+    private readonly ISubscriptionRepository _subscriptionRepo;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly ISlugGenerator _slugGenerator;
+    private readonly IUnitOfWork _unitOfWork;
+
+    private readonly IamOptions _iamOptions;
+    private readonly IServiceProvider _serviceProvider;
+
+    public TenantRegistrationAppService(
+        ITenantAccountRepository tenantRepo,
+        IStoreRepository storeRepo,
+        IUserRepository userRepo,
+        IRoleRepository roleRepo,
+        ITenantLegalInfoRepository legalRepo,
+        ISubscriptionRepository subscriptionRepo,
+        IPasswordHasher passwordHasher,
+        ISlugGenerator slugGenerator,
+        IUnitOfWork unitOfWork,
+        IamOptions iamOptions,
+        IServiceProvider serviceProvider)
+    {
+        _tenantRepo = tenantRepo;
+        _storeRepo = storeRepo;
+        _userRepo = userRepo;
+        _roleRepo = roleRepo;
+        _legalRepo = legalRepo;
+        _subscriptionRepo = subscriptionRepo;
+        _passwordHasher = passwordHasher;
+        _slugGenerator = slugGenerator;
+        _unitOfWork = unitOfWork;
+        _iamOptions = iamOptions;
+        _serviceProvider = serviceProvider;
+    }
+
+    public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
+    {
+        // 1. Tenant name uniqueness
+        if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
+            return Result<Guid>.Failure("A tenant with this name already exists.");
+
+        // 2. Global phone uniqueness – one phone = one user = one tenant
+        if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
+            return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
+
+        // 3. Global email uniqueness (optional)
+        if (!string.IsNullOrWhiteSpace(request.Email) &&
+            await _userRepo.ExistsByEmailAsync(request.Email, tenantId: null))
+            return Result<Guid>.Failure("A user with this email already exists.");
+
+        return await ExecuteRegistrationAsync(request);
+    }
+
+    private async Task<Result<Guid>> ExecuteRegistrationAsync(TenantRegistrationRequest request)
+    {
+        await _unitOfWork.BeginTransactionAsync();
+
+        try
+        {
+            var tenant = CreateTenant(request);
+            var store = CreateStore(tenant.Id, request);
+            var user = CreateUser(tenant.Id, request);
+            var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
+            LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
+            CreateLegalInfo(tenant.Id, request);
+            await CreateStarterSubscriptionAsync(tenant.Id);
+
+            // ========== STORE ENCRYPTED CNIC (if enabled) ==========
+            if (_iamOptions.EnableUserIdentities && _iamOptions.RequireCnic)
+            {
+                if (string.IsNullOrWhiteSpace(request.CnicNumber))
+                    throw new InvalidOperationException("CNIC number is required.");
+
+                // Basic validation (13 digits, optional dashes)
+                var cnic = request.CnicNumber.Replace("-", "").Trim();
+                if (cnic.Length != 13 || !cnic.All(char.IsDigit))
+                    throw new InvalidOperationException("Invalid CNIC number format.");
+
+                var identityService = _serviceProvider.GetRequiredService<IUserIdentityService>();
+                await identityService.SetCnicAsync(user.Id, cnic);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+
+            return Result<Guid>.Success(tenant.Id, "Registration submitted successfully. Awaiting approval.");
+        }
+        catch (Exception ex)
+        {
+            await _unitOfWork.RollbackAsync();
+
+            if (ex.InnerException?.Message.Contains("duplicate key") == true)
+                return Result<Guid>.Failure("A record with the same details already exists.");
+
+            throw;
+        }
+    }
+
+    private TenantAccount CreateTenant(TenantRegistrationRequest request)
+    {
+        var slug = _slugGenerator.Generate(request.RestaurantName);
+        var tenant = new TenantAccount
+        {
+            Id = Guid.NewGuid(),
+            Name = request.RestaurantName,
+            Slug = slug,
+            IsActive = false,
+            RegistrationStatus = RegistrationStatus.Pending
+        };
+        _tenantRepo.Add(tenant);
+        return tenant;
+    }
+
+    private Store CreateStore(Guid tenantId, TenantRegistrationRequest request)
+    {
+        var store = new Store
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Name = request.RestaurantName,
+            Slug = _slugGenerator.Generate(request.RestaurantName),
+            Address = request.Address,
+            MinPreparingTime = request.MinPreparingTime,
+            MaxPreparingTime = request.MaxPreparingTime,
+            IsOnline = false,
+            StoreCuisines = new List<StoreCuisine>(),
+            DeliveryZones = new List<StoreDeliveryZone>()
+        };
+
+        foreach (var c in request.CuisineIds)
+            store.StoreCuisines.Add(new StoreCuisine { CuisineId = c });
+        foreach (var z in request.ZoneIds)
+            store.DeliveryZones.Add(new StoreDeliveryZone { ZoneId = z });
+
+        _storeRepo.Add(store);
+        return store;
+    }
+
+    private User CreateUser(Guid tenantId, TenantRegistrationRequest request)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Name = $"{request.FirstName} {request.LastName}",
+            Phone = request.Phone,
+            Email = request.Email,
+            PasswordHash = _passwordHasher.Hash(request.Password),
+            IsActive = true
+        };
+        _userRepo.Add(user);
+        return user;
+    }
+
+    private async Task<Role> CreateOwnerRoleAsync(Guid tenantId)
+    {
+        var ownerRole = new Role
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Name = "Owner",
+            Description = "Tenant owner – full access",
+            IsSystem = false
+        };
+        _roleRepo.Add(ownerRole);
+
+        var allPermissions = await _roleRepo.GetAllPermissionsAsync();
+        foreach (var perm in allPermissions)
+            _roleRepo.AddRolePermission(new RolePermission { RoleId = ownerRole.Id, PermissionId = perm.Id });
+
+        return ownerRole;
+    }
+
+    private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
+    {
+        // Only UserRole is needed – User.TenantId already links the user to the tenant.
+        _roleRepo.AddUserRole(new UserRole
+        {
+            UserId = userId,
+            RoleId = roleId,
+            TenantId = tenantId
+        });
+    }
+
+    private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
+    {
+        _legalRepo.Add(new TenantLegalInfo
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            CnicNumber = request.CnicNumber,
+            NtnNumber = request.NtnNumber,
+            HasFoodLicense = request.HasFoodLicense,
+            CnicFrontImageUrl = request.CnicFrontImageUrl,
+            CnicBackImageUrl = request.CnicBackImageUrl
+        });
+    }
+
+    private async Task CreateStarterSubscriptionAsync(Guid tenantId)
+    {
+        var starterPlan = await _subscriptionRepo.GetPlanByNameAsync("Starter")
+            ?? throw new InvalidOperationException("Starter plan not found.");
+
+        _subscriptionRepo.Add(new Subscription
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            PlanId = starterPlan.Id,
+            Status = SubscriptionStatus.Trialing,
+            StartDate = DateTime.UtcNow,
+            TrialEndsAt = DateTime.UtcNow.AddDays(14),
+            NextBillingDate = DateTime.UtcNow.AddDays(14),
+            PriceSnapshot = 0
+        });
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Application\Validators\Auth\LoginRequestValidator.cs
+==================================================
+
+using FluentValidation;
+using AuthCoreKit.IAM.Models;
+using System.Text.RegularExpressions;
+
+namespace SaaSPlatform.Application.Validators.Auth;
+
+public class LoginRequestValidator : AbstractValidator<LoginRequest>
+{
+    public LoginRequestValidator()
+    {
+        // The Login field can be phone or email depending on configuration.
+        // For simplicity, we just require it to be non‑empty.
+        // If you want phone‑format validation only when login mode is "phone",
+        // you can inject IamOptions and check – left as an exercise.
+        RuleFor(x => x.Login)
+            .NotEmpty()
+            .WithMessage("Login (phone or email) is required");
+
+        RuleFor(x => x.Password)
+            .NotEmpty()
+            .WithMessage("Password is required")
+            .MinimumLength(8)
+            .WithMessage("Password must be at least 8 characters")
+            .Matches("[A-Z]").WithMessage("Password must contain uppercase letter")
+            .Matches("[a-z]").WithMessage("Password must contain lowercase letter")
+            .Matches("[0-9]").WithMessage("Password must contain number");
+    }
+
+    // These helper methods are kept for reference but are no longer used.
+    private bool BeValidPhone(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+            return false;
+
+        var normalized = NormalizePhone(phone);
+        return Regex.IsMatch(normalized, @"^\+?[0-9]{10,15}$");
+    }
+
+    private string NormalizePhone(string phone)
+    {
+        return phone.Trim()
+            .Replace(" ", "")
+            .Replace("-", "");
+    }
+}
+
+

@@ -1,71 +1,59 @@
-﻿using AuthCoreKit.IAM.Entities;          // User, Role, UserRole, RolePermission
-using AuthCoreKit.IAM.Interfaces;        // IUserRepository, IRoleRepository, IPasswordHasher, IUserIdentityService
-using AuthCoreKit.IAM.Models;            // IamOptions
+﻿using AuthCoreKit.IAM.Entities;
+using AuthCoreKit.IAM.Interfaces;
+using AuthCoreKit.IAM.Models;
 using Microsoft.Extensions.DependencyInjection;
+using SaaSPlatform.Application.Models;
 using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Billing.Enums;
 using SaaSPlatform.Core.Billing.Interfaces;
-using SaaSPlatform.Core.Tenant.Entities;
-using SaaSPlatform.Core.Tenant.Enums;
-using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
 using SaaSPlatform.SharedKernel.Interfaces;
 using SaaSPlatform.SharedKernel.Results;
+using TenantKit.Interfaces;
+using TenantKit.Models;
 
 namespace SaaSPlatform.Application.Services;
 
 public class TenantRegistrationAppService
 {
-    private readonly ITenantAccountRepository _tenantRepo;
-    private readonly IStoreRepository _storeRepo;
+    private readonly ITenantService _tenantService;
+    private readonly IStoreService _storeService;
     private readonly IUserRepository _userRepo;
     private readonly IRoleRepository _roleRepo;
-    private readonly ITenantLegalInfoRepository _legalRepo;
     private readonly ISubscriptionRepository _subscriptionRepo;
     private readonly IPasswordHasher _passwordHasher;
-    private readonly ISlugGenerator _slugGenerator;
     private readonly IUnitOfWork _unitOfWork;
-
     private readonly IamOptions _iamOptions;
     private readonly IServiceProvider _serviceProvider;
 
+    // ⚠️ No repository for cuisines or zones – they belong to other modules.
+
     public TenantRegistrationAppService(
-        ITenantAccountRepository tenantRepo,
-        IStoreRepository storeRepo,
+        ITenantService tenantService,
+        IStoreService storeService,
         IUserRepository userRepo,
         IRoleRepository roleRepo,
-        ITenantLegalInfoRepository legalRepo,
         ISubscriptionRepository subscriptionRepo,
         IPasswordHasher passwordHasher,
-        ISlugGenerator slugGenerator,
         IUnitOfWork unitOfWork,
         IamOptions iamOptions,
         IServiceProvider serviceProvider)
     {
-        _tenantRepo = tenantRepo;
-        _storeRepo = storeRepo;
+        _tenantService = tenantService;
+        _storeService = storeService;
         _userRepo = userRepo;
         _roleRepo = roleRepo;
-        _legalRepo = legalRepo;
         _subscriptionRepo = subscriptionRepo;
         _passwordHasher = passwordHasher;
-        _slugGenerator = slugGenerator;
         _unitOfWork = unitOfWork;
         _iamOptions = iamOptions;
         _serviceProvider = serviceProvider;
     }
 
-    public async Task<Result<Guid>> RegisterAsync(TenantRegistrationRequest request)
+    public async Task<Result<Guid>> RegisterAsync(HostTenantRegistrationRequest request)
     {
-        // 1. Tenant name uniqueness
-        if (await _tenantRepo.ExistsByNameAsync(request.RestaurantName))
-            return Result<Guid>.Failure("A tenant with this name already exists.");
-
-        // 2. Global phone uniqueness – one phone = one user = one tenant
         if (await _userRepo.ExistsByPhoneAsync(request.Phone, tenantId: null))
-            return Result<Guid>.Failure("A user with this phone number already exists. One owner can only have one account.");
+            return Result<Guid>.Failure("A user with this phone number already exists.");
 
-        // 3. Global email uniqueness (optional)
         if (!string.IsNullOrWhiteSpace(request.Email) &&
             await _userRepo.ExistsByEmailAsync(request.Email, tenantId: null))
             return Result<Guid>.Failure("A user with this email already exists.");
@@ -73,27 +61,49 @@ public class TenantRegistrationAppService
         return await ExecuteRegistrationAsync(request);
     }
 
-    private async Task<Result<Guid>> ExecuteRegistrationAsync(TenantRegistrationRequest request)
+    private async Task<Result<Guid>> ExecuteRegistrationAsync(HostTenantRegistrationRequest request)
     {
         await _unitOfWork.BeginTransactionAsync();
-
         try
         {
-            var tenant = CreateTenant(request);
-            var store = CreateStore(tenant.Id, request);
-            var user = CreateUser(tenant.Id, request);
-            var ownerRole = await CreateOwnerRoleAsync(tenant.Id);
-            LinkUserToTenant(user.Id, tenant.Id, ownerRole.Id);
-            CreateLegalInfo(tenant.Id, request);
-            await CreateStarterSubscriptionAsync(tenant.Id);
+            // 1. Create tenant via TenantKit (generic, no domain data)
+            var tenantResponse = await _tenantService.RegisterAsync(new TenantRegistrationRequest
+            {
+                Name = request.RestaurantName,
+                MetadataJson = request.MetadataJson
+            });
 
-            // ========== STORE ENCRYPTED CNIC (if enabled) ==========
+            // 2. Create the first store (minimal info – type "Restaurant" but no cuisines/zones)
+            var store = await _storeService.CreateAsync(
+                tenantResponse.TenantId,
+                request.RestaurantName,
+                type: "Restaurant",
+                metadataJson: null);
+
+            // 3. Create IAM user (owner)
+            var user = CreateUser(tenantResponse.TenantId, request);
+            _userRepo.Add(user);
+
+            // 4. Create owner role and assign all permissions
+            var ownerRole = await CreateOwnerRoleAsync(tenantResponse.TenantId);
+
+            // 5. Link user to role within tenant
+            _roleRepo.AddUserRole(new UserRole
+            {
+                UserId = user.Id,
+                RoleId = ownerRole.Id,
+                TenantId = tenantResponse.TenantId
+            });
+
+            // 6. Starter subscription (billing)
+            await CreateStarterSubscriptionAsync(tenantResponse.TenantId);
+
+            // 7. CNIC encryption (if required)
             if (_iamOptions.EnableUserIdentities && _iamOptions.RequireCnic)
             {
                 if (string.IsNullOrWhiteSpace(request.CnicNumber))
                     throw new InvalidOperationException("CNIC number is required.");
 
-                // Basic validation (13 digits, optional dashes)
                 var cnic = request.CnicNumber.Replace("-", "").Trim();
                 if (cnic.Length != 13 || !cnic.All(char.IsDigit))
                     throw new InvalidOperationException("Invalid CNIC number format.");
@@ -105,74 +115,27 @@ public class TenantRegistrationAppService
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
 
-            return Result<Guid>.Success(tenant.Id, "Registration submitted successfully. Awaiting approval.");
+            return Result<Guid>.Success(tenantResponse.TenantId,
+                "Registration submitted successfully. Awaiting approval.");
         }
         catch (Exception ex)
         {
             await _unitOfWork.RollbackAsync();
-
-            if (ex.InnerException?.Message.Contains("duplicate key") == true)
-                return Result<Guid>.Failure("A record with the same details already exists.");
-
+            if (ex is InvalidOperationException) return Result<Guid>.Failure(ex.Message);
             throw;
         }
     }
 
-    private TenantAccount CreateTenant(TenantRegistrationRequest request)
+    private User CreateUser(Guid tenantId, HostTenantRegistrationRequest request) => new User
     {
-        var slug = _slugGenerator.Generate(request.RestaurantName);
-        var tenant = new TenantAccount
-        {
-            Id = Guid.NewGuid(),
-            Name = request.RestaurantName,
-            Slug = slug,
-            IsActive = false,
-            RegistrationStatus = RegistrationStatus.Pending
-        };
-        _tenantRepo.Add(tenant);
-        return tenant;
-    }
-
-    private Store CreateStore(Guid tenantId, TenantRegistrationRequest request)
-    {
-        var store = new Store
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            Name = request.RestaurantName,
-            Slug = _slugGenerator.Generate(request.RestaurantName),
-            Address = request.Address,
-            MinPreparingTime = request.MinPreparingTime,
-            MaxPreparingTime = request.MaxPreparingTime,
-            IsOnline = false,
-            StoreCuisines = new List<StoreCuisine>(),
-            DeliveryZones = new List<StoreDeliveryZone>()
-        };
-
-        foreach (var c in request.CuisineIds)
-            store.StoreCuisines.Add(new StoreCuisine { CuisineId = c });
-        foreach (var z in request.ZoneIds)
-            store.DeliveryZones.Add(new StoreDeliveryZone { ZoneId = z });
-
-        _storeRepo.Add(store);
-        return store;
-    }
-
-    private User CreateUser(Guid tenantId, TenantRegistrationRequest request)
-    {
-        var user = new User
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            Name = $"{request.FirstName} {request.LastName}",
-            Phone = request.Phone,
-            Email = request.Email,
-            PasswordHash = _passwordHasher.Hash(request.Password),
-            IsActive = true
-        };
-        _userRepo.Add(user);
-        return user;
-    }
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Name = $"{request.FirstName} {request.LastName}",
+        Phone = request.Phone,
+        Email = request.Email,
+        PasswordHash = _passwordHasher.Hash(request.Password),
+        IsActive = true
+    };
 
     private async Task<Role> CreateOwnerRoleAsync(Guid tenantId)
     {
@@ -191,31 +154,6 @@ public class TenantRegistrationAppService
             _roleRepo.AddRolePermission(new RolePermission { RoleId = ownerRole.Id, PermissionId = perm.Id });
 
         return ownerRole;
-    }
-
-    private void LinkUserToTenant(Guid userId, Guid tenantId, Guid roleId)
-    {
-        // Only UserRole is needed – User.TenantId already links the user to the tenant.
-        _roleRepo.AddUserRole(new UserRole
-        {
-            UserId = userId,
-            RoleId = roleId,
-            TenantId = tenantId
-        });
-    }
-
-    private void CreateLegalInfo(Guid tenantId, TenantRegistrationRequest request)
-    {
-        _legalRepo.Add(new TenantLegalInfo
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            CnicNumber = request.CnicNumber,
-            NtnNumber = request.NtnNumber,
-            HasFoodLicense = request.HasFoodLicense,
-            CnicFrontImageUrl = request.CnicFrontImageUrl,
-            CnicBackImageUrl = request.CnicBackImageUrl
-        });
     }
 
     private async Task CreateStarterSubscriptionAsync(Guid tenantId)

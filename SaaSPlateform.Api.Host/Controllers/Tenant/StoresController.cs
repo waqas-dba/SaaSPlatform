@@ -1,57 +1,54 @@
 ﻿using AuthCoreKit.IAM.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
-using SaaSPlatform.Infrastructure.Persistence;
+using TenantKit.Interfaces;
+using TenantKit.Models;
 
-namespace SaaSPlatform.Api.Host.Controllers.Tenant;
+namespace SaaSPlatform.Api.Host.Controllers.Stores;
 
 [ApiController]
-[Route("api/tenant")]
+[Route("api/stores")]
 public class StoresController : BaseApiController
 {
-    private readonly SaaSPlatformDbContext _db;
-    private readonly ITenantStoreService _service;
+    private readonly IStoreService _storeService;
 
-    public StoresController(
-        SaaSPlatformDbContext db,
-        ITenantStoreService service)
+    public StoresController(IStoreService storeService) => _storeService = storeService;
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
     {
-        _db = db;
-        _service = service;
+        if (TenantId is null) return Fail("Missing tenant context");
+        var stores = await _storeService.GetAllByTenantAsync(TenantId.Value);
+        return Success(stores);
     }
 
-    [RequiresPermission("store.view")]
-    [HttpGet("store")]
-    public async Task<IActionResult> GetStore()
+    [HttpPost]
+    public async Task<IActionResult> Create(UpdateStoreRequest request)
     {
-        var tenantId = TenantId ?? throw new Exception("Tenant missing");
-
-        var store = await _db.Stores
-            .Include(x => x.StoreCuisines)
-            .Include(x => x.DeliveryZones)
-            .FirstOrDefaultAsync(x => x.TenantId == tenantId);
-
-        if (store is null)
-            return Fail("Store not found", status: 404);
-
-        return Success(new
-        {
-            store.Id,
-            store.Name,
-            store.Address,
-            store.IsOnline
-        });
+        if (TenantId is null) return Fail("Missing tenant context");
+        var store = await _storeService.CreateAsync(TenantId.Value, request.Name!, request.Type, request.MetadataJson);
+        return Success(store);
     }
 
-    [RequiresPermission("store.update")]
-    [HttpPut("store")]
-    public async Task<IActionResult> Update(UpdateStoreRequest request)
+    [HttpPut("{storeId}")]
+    public async Task<IActionResult> Update(Guid storeId, UpdateStoreRequest request)
     {
-        var tenantId = TenantId ?? throw new Exception("Tenant missing");
+        await _storeService.UpdateAsync(storeId, request);
+        return NoContent();
+    }
 
-        await _service.UpdateStoreAsync(tenantId, request);
+    [HttpDelete("{storeId}")]
+    public async Task<IActionResult> Delete(Guid storeId)
+    {
+        await _storeService.DeleteAsync(storeId);
+        return NoContent();
+    }
+
+    // Admin endpoint
+    [HttpPut("{storeId}/marketplace")]
+    [RequiresPermission("store.marketplace")]
+    public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isListed)
+    {
+        await _storeService.SetMarketplaceListingAsync(storeId, isListed);
         return NoContent();
     }
 }

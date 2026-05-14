@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Core.Tenant.Interfaces;
-using SaaSPlatform.Core.Tenant.Models;
+using TenantKit.Interfaces;
+using TenantKit.Models;
 
 namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 
@@ -9,66 +9,24 @@ namespace SaaSPlatform.Api.Host.Controllers.Tenant;
 [Route("api/tenants")]
 public class TenantsController : BaseApiController
 {
-    private readonly ITenantRegistrationService _registration;
-    private readonly ITenantAccountRepository _repo;
+    private readonly ITenantService _tenantService;
 
-    public TenantsController(
-        ITenantRegistrationService registration,
-        ITenantAccountRepository repo)
-    {
-        _registration = registration;
-        _repo = repo;
-    }
+    public TenantsController(ITenantService tenantService) => _tenantService = tenantService;
 
-    [HttpPost("register")]
     [AllowAnonymous]
+    [HttpPost("register")]
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
-        var result = await _registration.RegisterAsync(
-            request.RestaurantName,
-            request.CuisineIds,
-            request.ZoneIds,
-            request.Address,
-            request.MinPreparingTime,
-            request.MaxPreparingTime,
-            request.FirstName,
-            request.LastName,
-            request.Phone,
-            request.Email,
-            request.Password,
-            request.CnicNumber,
-            request.NtnNumber,
-            request.HasFoodLicense,
-            request.CnicFrontImageUrl,
-            request.CnicBackImageUrl);
-
-        if (!result.Succeeded)
-            return Fail(result.Message);
-
-        return Success(new TenantRegistrationResponse
-        {
-            TenantId = result.Data,
-            Message = result.Message
-        });
+        var response = await _tenantService.RegisterAsync(request);
+        return Success(response);
     }
 
     [HttpGet]
     public async Task<IActionResult> Get()
     {
-        if (TenantId is null)
-            return Fail("Missing tenant context", status: 401);
-
-        var tenant = await _repo.GetByIdAsync(TenantId.Value);
-
-        if (tenant is null)
-            return Fail("Tenant not found", status: 404);
-
-        return Success(new
-        {
-            tenant.Id,
-            tenant.Name,
-            tenant.Slug,
-            tenant.IsActive
-        });
+        if (TenantId is null) return Fail("Missing tenant context", status: 401);
+        var tenant = await _tenantService.GetByIdAsync(TenantId.Value);
+        if (tenant is null) return Fail("Tenant not found", status: 404);
+        return Success(new { tenant.Id, tenant.Name, tenant.Slug, tenant.Status });
     }
 }

@@ -1,4 +1,5 @@
-﻿using TenantKit.Infrastructure;
+﻿using Microsoft.AspNetCore.Http;
+using TenantKit.Services;
 
 namespace TenantKit.Middleware;
 

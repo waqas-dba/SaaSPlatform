@@ -13,7 +13,6 @@ using SaaSPlatform.Application.Validators.Auth;
 using SaaSPlatform.Core.Billing.Interfaces;
 using SaaSPlatform.Core.Billing.Services;
 using SaaSPlatform.Core.Catalog.Interfaces;
-using SaaSPlatform.Core.Tenant.Interfaces;
 using SaaSPlatform.Infrastructure.Persistence;
 using SaaSPlatform.Infrastructure.Persistence.Repositories;
 using SaaSPlatform.Infrastructure.Persistence.Seed;
@@ -21,178 +20,73 @@ using SaaSPlatform.Infrastructure.Services;
 using SaaSPlatform.Infrastructure.Services.Billing;
 using SaaSPlatform.Infrastructure.Services.Common;
 using SaaSPlatform.Infrastructure.Services.Subscriptions;
-using SaaSPlatform.Infrastructure.Services.TenantServices;
 using SaaSPlatform.SharedKernel.Interfaces;
+using TenantKit.Extensions;
+using TenantKit.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ======================================================
-// CONTROLLERS + MODEL VALIDATION
-// ======================================================
-builder.Services.AddControllers()
-    .ConfigureApiBehaviorOptions(options =>
-    {
-        options.InvalidModelStateResponseFactory = context =>
-        {
-            var errors = context.ModelState
-                .Where(e => e.Value?.Errors.Count > 0)
-                .SelectMany(e => e.Value!.Errors.Select(x => x.ErrorMessage))
-                .ToList();
+// ... controllers, validation, swagger ...
 
-            var response = ApiResponse<object>.FailResponse(
-                message: "Validation failed",
-                code: "VALIDATION_ERROR",
-                errors: errors,
-                traceId: context.HttpContext.TraceIdentifier);
-
-            return new BadRequestObjectResult(response);
-        };
-    });
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddMemoryCache();
-
-// ======================================================
-// FLUENT VALIDATION
-// ======================================================
-builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
-
-// ======================================================
-// JWT & IAM – GENERIC EXTENSION (auto‑registers IIamDbContext)
-// ======================================================
 builder.Services.AddAuthCoreKit<SaaSPlatformDbContext>(
     builder.Configuration.GetSection("Jwt"),
-    options =>
-    {
+    options => {
         options.LoginIdentifier = "phone";
-
-        options.TenantResolver = ctx =>
-        {
-            var header = ctx.Request.Headers["x-tenant-id"].FirstOrDefault();
-            return Guid.TryParse(header, out var tid) ? tid : null;
-        };
-
-        options.SuperAdminRoleName = "SuperAdmin";
-        options.SuperAdminBypassPermissions = true;
-
-        // ---------- DOCUMENT FEATURES ----------
-        options.EnableUserDocuments = true;
-        options.EnableUserIdentities = true;
-        options.RequireCnic = true;
-        options.EnableRoleDocumentRequirements = true;
+        // ... other options ...
     });
 
-// ======================================================
-// RATE LIMITING
-// ======================================================
-builder.Services.AddRateLimiter(options =>
+builder.Services.AddRateLimiter(/* ... */);
+
+// ===== TenantKit =====
+builder.Services.AddTenantKit<SaaSPlatformDbContext>(options =>
 {
-    options.AddFixedWindowLimiter("default", config =>
-    {
-        config.Window = TimeSpan.FromMinutes(1);
-        config.PermitLimit = 100;
-        config.QueueLimit = 0;
-    });
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
 });
 
-// ======================================================
-// TENANT SERVICES (non‑IAM)
-// ======================================================
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-builder.Services.AddScoped<ITenantAccessService, TenantAccessService>();
-builder.Services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
-builder.Services.AddScoped<ITenantStoreService, TenantStoreService>();
+builder.Services.AddSingleton<IEncryptionService>(/* ... */);
 
-// ---- ENCRYPTION (before AddAuthCoreKit) ----
-builder.Services.AddSingleton<IEncryptionService>(sp =>
-{
-    var config =
-        sp.GetRequiredService<IConfiguration>();
-
-    var key =
-        config["EncryptionKey"]
-        ?? throw new Exception("EncryptionKey missing.");
-
-    return new EncryptionService(key);
-});
-
-// ======================================================
-// COMMON & INFRASTRUCTURE
-// ======================================================
+// Common & Infrastructure
 builder.Services.AddScoped<ISlugGenerator, SlugGenerator>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-// ======================================================
-// REPOSITORIES (domain‑specific)
-// ======================================================
-builder.Services.AddScoped<ITenantAccountRepository, TenantAccountRepository>();
-builder.Services.AddScoped<IStoreRepository, StoreRepository>();
-builder.Services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+// Domain-specific repositories (only those not provided by kits)
 builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 
-// ======================================================
-// BILLING SERVICES
-// ======================================================
+// Billing services
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ISubscriptionRuleEngine, SubscriptionRuleEngine>();
 builder.Services.AddScoped<ISubscriptionAccessService, SubscriptionAccessService>();
 
-// ======================================================
-// APPLICATION SERVICES
-// ======================================================
+// Application orchestration services
 builder.Services.AddScoped<TenantApprovalService>();
 builder.Services.AddScoped<TenantRegistrationAppService>();
 builder.Services.AddScoped<ProductManagementService>();
-
-// ---- DOCUMENT STORAGE SERVICE ----
 builder.Services.AddScoped<DocumentStorageService>();
 
-// ======================================================
-// DATABASE
-// ======================================================
+// Database
 var provider = builder.Configuration["DatabaseProvider"];
-builder.Services.AddDbContext<SaaSPlatformDbContext>(options =>
-{
-    switch (provider)
-    {
-        case "Postgres":
-            options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
-            break;
-        default:
-            throw new Exception($"Unsupported database provider: {provider}");
-    }
-});
+builder.Services.AddDbContext<SaaSPlatformDbContext>(options => /* ... */);
 
-// ======================================================
-// BUILD & SEED
-// ======================================================
 var app = builder.Build();
 
+// Seed
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SaaSPlatformDbContext>();
     await DbSeeder.SeedAsync(db);
 }
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-// ======================================================
-// MIDDLEWARE PIPELINE
-// ======================================================
+// Middleware pipeline
 app.UseRouting();
 app.UseRateLimiter();
 app.UseMiddleware<ExceptionMiddleware>();
-app.UseMiddleware<TenantMiddleware>();
+app.UseMiddleware<TenantResolutionMiddleware>();   // from TenantKit
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseMiddleware<SubscriptionMiddleware>();
-app.MapControllers();
+app.UseMiddleware<SubscriptionMiddleware>();      // injects TenantKit.ITenantContext
 
+app.MapControllers();
 app.Run();

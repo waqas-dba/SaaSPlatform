@@ -1,0 +1,469 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Constants\TenantConstants.cs
+==================================================
+
+namespace SaaSPlatform.Core.Tenant.Constants;
+
+/// <summary>
+/// Centralized tenant-related constants.
+/// Avoids magic strings across the application.
+/// </summary>
+public static class TenantConstants
+{
+    /// <summary>
+    /// Request header used for tenant identification.
+    /// </summary>
+    public const string TenantHeader = "X-Tenant-ID";
+
+    /// <summary>
+    /// HttpContext.Items key used for storing current tenant.
+    /// </summary>
+    public const string TenantContextKey = "TenantId";
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Store.cs
+==================================================
+
+using SaaSPlatform.Core.Catalog.Entities;   // only needed if Cuisine referenced elsewhere
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class Store : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Slug { get; set; }
+
+    // Many-to-many to Cuisine
+    public ICollection<StoreCuisine>? StoreCuisines { get; set; }
+
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? ZoneName { get; set; }
+
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+
+    public int MinPreparingTime { get; set; }
+    public int MaxPreparingTime { get; set; }
+
+    public string? CoverPhotoUrl { get; set; }
+    public string? LogoUrl { get; set; }
+
+    public bool IsOnline { get; set; } = true;
+
+    public bool SupportsDelivery { get; set; } = true;
+    public bool SupportsPickup { get; set; } = true;
+    public bool SupportsDineIn { get; set; } = false;
+
+    public ICollection<StoreDeliveryZone>? DeliveryZones { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreCuisine.cs
+==================================================
+
+using SaaSPlatform.Core.Catalog.Entities;
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class StoreCuisine : BaseEntity
+{
+    public Guid StoreId { get; set; }
+    public Store Store { get; set; } = default!;
+    public Guid CuisineId { get; set; }
+    public Cuisine Cuisine { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\StoreDeliveryZone.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Entities/StoreDeliveryZone.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class StoreDeliveryZone : BaseEntity
+{
+    public Guid StoreId { get; set; }
+    public Store Store { get; set; } = default!;
+
+    public Guid ZoneId { get; set; }
+    public Zone Zone { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantAccount.cs
+==================================================
+
+using SaaSPlatform.Core.Billing.Entities;
+using SaaSPlatform.SharedKernel.Common;
+using SaaSPlatform.Core.Tenant.Enums;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class TenantAccount : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+
+    public string? Email { get; set; }
+
+    public string? Phone { get; set; }
+
+    public string? Address { get; set; }
+
+    // GEO LOCATION
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public RegistrationStatus RegistrationStatus { get; set; } = RegistrationStatus.Pending;
+
+    // Branding
+    public string? LogoUrl { get; set; }
+
+    // SEO / ROUTING
+    public string? Slug { get; set; }
+
+    // AGENT
+    public Guid? AgentId { get; set; }
+
+    // SUBSCRIPTION
+    public Guid? ActiveSubscriptionId { get; set; }
+
+    public DateTime? OnboardedAt { get; set; }
+
+    public ICollection<TenantDomain>? Domains { get; set; }
+
+    public ICollection<Subscription>? Subscriptions { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantDomain.cs
+==================================================
+
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class TenantDomain : AuditableEntity
+{
+    public Guid TenantId { get; set; }
+
+    public string Domain { get; set; } = default!; // example: restaurant.com
+
+    public bool IsPrimary { get; set; }
+    public bool IsVerified { get; set; }
+
+    public DateTime? VerifiedAt { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\TenantLegalInfo.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Entities/TenantLegalInfo.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class TenantLegalInfo : AuditableEntity
+{
+    public Guid TenantId { get; set; }
+    public string CnicNumber { get; set; } = default!;
+    public string? NtnNumber { get; set; }
+    public bool HasFoodLicense { get; set; }
+    public string? CnicFrontImageUrl { get; set; }
+    public string? CnicBackImageUrl { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Entities\Zone.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Entities/Zone.cs
+using SaaSPlatform.SharedKernel.Common;
+
+namespace SaaSPlatform.Core.Tenant.Entities;
+
+public class Zone : BaseEntity
+{
+    public string Name { get; set; } = default!;
+    public string City { get; set; } = default!;
+    // Future: polygon field for geofencing
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Enums\RegistrationStatus.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Enums/RegistrationStatus.cs
+namespace SaaSPlatform.Core.Tenant.Enums;
+
+public enum RegistrationStatus
+{
+    Pending,
+    Approved,
+    Rejected
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\IStoreRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface IStoreRepository
+{
+    void Add(Store store);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccessService.cs
+==================================================
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantAccessService
+{
+    Task<bool> TenantExistsAsync(Guid tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantAccountRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantAccountRepository
+{
+    Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+    void Add(TenantAccount tenant);
+    void Update(TenantAccount tenant);
+    Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);   // NEW
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantContext.cs
+==================================================
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantContext
+{
+    Guid? TenantId { get; }
+    void SetTenantId(Guid tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantLegalInfoRepository.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantLegalInfoRepository
+{
+    void Add(TenantLegalInfo info);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRegistrationService.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Models;
+using SaaSPlatform.SharedKernel.Results;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantRegistrationService
+{
+    Task<Result<Guid>> RegisterAsync(
+        string restaurantName,
+        List<Guid> cuisineIds,
+        List<Guid> zoneIds,
+        string? address,
+        int minPrepTime,
+        int maxPrepTime,
+        string firstName,
+        string lastName,
+        string phone,
+        string email,
+        string password,
+        string cnic,
+        string? ntn,
+        bool hasFoodLicense,
+        string? cnicFrontUrl,
+        string? cnicBackUrl);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantRepository.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Interfaces/ITenantRepository.cs
+
+using SaaSPlatform.Core.Tenant.Entities;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantRepository
+{
+    Task<TenantAccount?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+    void Update(TenantAccount tenant);
+    // Add any other needed methods
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Interfaces\ITenantStoreService.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Interfaces/ITenantStoreService.cs
+using SaaSPlatform.Core.Tenant.Models;
+
+namespace SaaSPlatform.Core.Tenant.Interfaces;
+
+public interface ITenantStoreService
+{
+    Task UpdateStoreAsync(Guid tenantId, UpdateStoreRequest request);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationRequest.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Models/TenantRegistrationRequest.cs
+namespace SaaSPlatform.Core.Tenant.Models;
+
+public class TenantRegistrationRequest
+{
+    public string RestaurantName { get; set; } = default!;
+    public List<Guid> CuisineIds { get; set; } = new();
+    public List<Guid> ZoneIds { get; set; } = new();
+    public string? Address { get; set; }
+    public int MinPreparingTime { get; set; }
+    public int MaxPreparingTime { get; set; }
+
+    public string FirstName { get; set; } = default!;
+    public string LastName { get; set; } = default!;
+    public string Phone { get; set; } = default!;
+    public string Email { get; set; } = default!;
+    public string Password { get; set; } = default!;
+
+    public string CnicNumber { get; set; } = default!;
+    public string? NtnNumber { get; set; }
+    public bool HasFoodLicense { get; set; }
+    public string? CnicFrontImageUrl { get; set; }
+    public string? CnicBackImageUrl { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\TenantRegistrationResponse.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Models/TenantRegistrationResponse.cs
+namespace SaaSPlatform.Core.Tenant.Models;
+
+public class TenantRegistrationResponse
+{
+    public Guid TenantId { get; set; }
+    public string Message { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Models\UpdateStoreRequest.cs
+==================================================
+
+// SaaSPlatform.Core/Tenant/Models/UpdateStoreRequest.cs
+namespace SaaSPlatform.Core.Tenant.Models;
+
+public class UpdateStoreRequest
+{
+    public string? Name { get; set; }
+    public List<Guid>? CuisineIds { get; set; }
+    public List<Guid>? ZoneIds { get; set; }
+    public string? Address { get; set; }
+    public int? MinPreparingTime { get; set; }
+    public int? MaxPreparingTime { get; set; }
+    public bool? IsOnline { get; set; }
+    public bool? SupportsDelivery { get; set; }
+    public bool? SupportsPickup { get; set; }
+    public bool? SupportsDineIn { get; set; }
+    public string? CoverPhotoUrl { get; set; }
+    public string? LogoUrl { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Core.Tenant\Services\TenantContext.cs
+==================================================
+
+using SaaSPlatform.Core.Tenant.Interfaces;
+
+namespace SaaSPlatform.Infrastructure.Services;
+
+public class TenantContext : ITenantContext
+{
+    private Guid? _tenantId;
+
+    public Guid? TenantId => _tenantId;
+
+    public void SetTenantId(Guid tenantId)
+    {
+        _tenantId = tenantId;
+    }
+}
+
+

@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-using SaaSPlatform.Infrastructure.Persistence;
-using SaaSPlatform.Infrastructure.Services;
-using SaaSPlatform.Infrastructure.Services.TenantServices;
+using TenantKit.Abstractions;
+
+namespace SaaSPlatform.Infrastructure.Persistence;
 
 public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContext>
 {
@@ -12,9 +12,14 @@ public class DbContextFactory : IDesignTimeDbContextFactory<SaaSPlatformDbContex
             .UseNpgsql("Host=localhost;Database=saas_db;Username=postgres;Password=123")
             .Options;
 
-        return new SaaSPlatformDbContext(
-            options,
-            new NullTenantContext(), // ✅ FIX
-            null);
+        // Design‑time dummy tenant context (no tenant)
+        var dummyTenantContext = new DesignTimeTenantContext();
+
+        return new SaaSPlatformDbContext(options, dummyTenantContext, null);
+    }
+
+    private class DesignTimeTenantContext : ITenantContext
+    {
+        public Guid? TenantId => null;
     }
 }

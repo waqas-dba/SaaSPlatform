@@ -1,26 +1,29 @@
-﻿using SaaSPlatform.Core.Billing.Entities;
+﻿using AuthCoreKit.IAM.Entities;
+using SaaSPlatform.Core.Billing.Entities;
 using SaaSPlatform.Core.Catalog.Entities;
-using AuthCoreKit.IAM.Entities;
 using SaaSPlatform.Core.Tenant.Entities;
 
 namespace SaaSPlatform.Infrastructure.Persistence.Seed;
 
 public static class SeedData
 {
-    // SYSTEM TENANT
-    public static readonly Guid SystemTenantId =
-        Guid.Parse("11111111-1111-1111-1111-111111111111");
+    // ===== SYSTEM TENANT / STORE IDs =====
+    public static readonly Guid SystemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    public static readonly Guid SystemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
 
-    // SYSTEM STORE (holds global addons)
-    public static readonly Guid SystemStoreId =
-        Guid.Parse("22222222-3333-4444-5555-666666666666");
+    // ===== SUPER ADMIN ROLE =====
+    public static readonly Guid SuperAdminRoleId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    public static readonly Role SuperAdminRole = new()
+    {
+        Id = SuperAdminRoleId,
+        TenantId = SystemTenantId,
+        Name = "SuperAdmin",
+        Description = "System Super Administrator",
+        IsSystem = true
+    };
 
-    // SUPER ADMIN ROLE
-    public static readonly Guid SuperAdminRoleId =
-        Guid.Parse("22222222-2222-2222-2222-222222222222");
-
+    // ===== APPROVER ROLE =====
     public static readonly Guid ApproverRoleId = Guid.Parse("22222222-2222-2222-2222-222222222223");
-
     public static readonly Role ApproverRole = new()
     {
         Id = ApproverRoleId,
@@ -30,51 +33,37 @@ public static class SeedData
         IsSystem = true
     };
 
-    // MODULES
-    public static readonly List<PermissionModule> Modules =
-    [
+    // ===== PERMISSION MODULES =====
+    public static readonly List<PermissionModule> Modules = new()
+    {
         new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000001"), Name = "Catalog", Code = "catalog" },
         new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000002"), Name = "Orders",  Code = "orders"  },
         new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000003"), Name = "Billing", Code = "billing" },
         new() { Id = Guid.Parse("30000000-0000-0000-0000-000000000004"), Name = "IAM",     Code = "iam"     }
-    ];
+    };
 
-    // PERMISSIONS
-    public static readonly List<Permission> Permissions =
-    [
-        // Catalog
-        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000001"), Name = "catalog.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000002"), Name = "catalog.create", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000003"), Name = "catalog.update", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
-        // Orders
-        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000004"), Name = "orders.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
-        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000005"), Name = "orders.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
-        // Billing
+    // ===== PERMISSIONS =====
+    public static readonly List<Permission> Permissions = new()
+    {
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000001"), Name = "catalog.view",    PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000002"), Name = "catalog.create",  PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000003"), Name = "catalog.update",  PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000001") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000004"), Name = "orders.view",    PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
+        new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000005"), Name = "orders.manage",  PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000002") },
         new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000006"), Name = "billing.view",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
         new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000007"), Name = "billing.manage", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000003") },
-        // IAM
         new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000008"), Name = "users.manage",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
         new() { Id = Guid.Parse("40000000-0000-0000-0000-000000000009"), Name = "tenant.view",    PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
         new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000A"), Name = "store.update",   PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") },
         new() { Id = Guid.Parse("40000000-0000-0000-0000-00000000000B"), Name = "tenant.approve", PermissionModuleId = Guid.Parse("30000000-0000-0000-0000-000000000004") }
-    ];
+    };
 
-    // PLANS
-    public static readonly List<Plan> Plans =
-    [
+    // ===== PLANS =====
+    public static readonly List<Plan> Plans = new()
+    {
         new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000001"), Name = "Starter",    PriceMonthly = 0,   PriceYearly = 0,    MaxStores = 1, MaxUsers = 2,   MaxProducts = 50,     MaxCategories = 10,    MaxOrdersPerMonth = 1000,   IsActive = true },
         new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000002"), Name = "Pro",        PriceMonthly = 29,  PriceYearly = 290,  MaxStores = 5, MaxUsers = 20,  MaxProducts = 1000,   MaxCategories = 100,   MaxOrdersPerMonth = 50000,  IsActive = true },
         new() { Id = Guid.Parse("50000000-0000-0000-0000-000000000003"), Name = "Enterprise", PriceMonthly = 199, PriceYearly = 1990, MaxStores = 999, MaxUsers = 999, MaxProducts = 999999, MaxCategories = 999999, MaxOrdersPerMonth = 999999, IsActive = true }
-    ];
-
-    // SUPER ADMIN ROLE
-    public static readonly Role SuperAdminRole = new()
-    {
-        Id = SuperAdminRoleId,
-        TenantId = SystemTenantId,
-        Name = "SuperAdmin",
-        Description = "System Super Administrator",
-        IsSystem = true
     };
 
     // ===== CUISINES =====
@@ -119,7 +108,7 @@ public static class SeedData
         new() { Id = Guid.Parse("70000000-0000-0000-0000-000000000009"), Name = "Chaklala", City = "Rawalpindi" }
     };
 
-    // ===== ADDONS (assigned to system store) =====
+    // ===== ADDONS (references system store) =====
     public static readonly List<Addon> Addons = new()
     {
         new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000001"), Name = "Extra Cheese", Price = 1.50m, TenantId = SystemTenantId, StoreId = SystemStoreId },
@@ -131,7 +120,7 @@ public static class SeedData
         new() { Id = Guid.Parse("80000000-0000-0000-0000-000000000007"), Name = "Hot Sauce",      Price = 0.50m, TenantId = SystemTenantId, StoreId = SystemStoreId }
     };
 
-    // ===== ADDON GROUPS (assigned to system store) =====
+    // ===== ADDON GROUPS =====
     public static readonly Guid ToppingsGroupId = Guid.Parse("90000000-0000-0000-0000-000000000001");
     public static readonly Guid SaucesGroupId = Guid.Parse("90000000-0000-0000-0000-000000000002");
 
@@ -162,14 +151,12 @@ public static class SeedData
     // ===== ADDON GROUP ITEMS =====
     public static readonly List<AddonGroupItem> AddonGroupItems = new()
     {
-        // Toppings
         new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000001"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000001"), PriceAdjustment = 0, DisplayOrder = 1 },
         new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000002"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000002"), PriceAdjustment = 0, DisplayOrder = 2 },
         new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000003"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000003"), PriceAdjustment = 0, DisplayOrder = 3 },
         new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000004"), AddonGroupId = ToppingsGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000004"), PriceAdjustment = 0, DisplayOrder = 4 },
-        // Sauces
-        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000005"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000005"), PriceAdjustment = 0, DisplayOrder = 1 },
-        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000006"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000006"), PriceAdjustment = 0, DisplayOrder = 2 },
-        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = SaucesGroupId, AddonId = Guid.Parse("80000000-0000-0000-0000-000000000007"), PriceAdjustment = 0, DisplayOrder = 3 }
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000005"), AddonGroupId = SaucesGroupId,   AddonId = Guid.Parse("80000000-0000-0000-0000-000000000005"), PriceAdjustment = 0, DisplayOrder = 1 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000006"), AddonGroupId = SaucesGroupId,   AddonId = Guid.Parse("80000000-0000-0000-0000-000000000006"), PriceAdjustment = 0, DisplayOrder = 2 },
+        new() { Id = Guid.Parse("A0000000-0000-0000-0000-000000000007"), AddonGroupId = SaucesGroupId,   AddonId = Guid.Parse("80000000-0000-0000-0000-000000000007"), PriceAdjustment = 0, DisplayOrder = 3 }
     };
 }

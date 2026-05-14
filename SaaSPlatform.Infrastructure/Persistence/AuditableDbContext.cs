@@ -1,32 +1,19 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SaaSPlatform.SharedKernel.Common;
-using AuthCoreKit.IAM.Interfaces;   // <-- already present
+using AuthCoreKit.IAM.Interfaces;
 
 namespace SaaSPlatform.Infrastructure.Persistence;
 
-/// <summary>
-/// Handles automatic audit tracking.
-/// </summary>
 public abstract class AuditableDbContext : DbContext
 {
-    private readonly ICurrentUserService? _currentUser;   // <-- CHANGED from CurrentUserService?
+    private readonly ICurrentUserService? _currentUser;
 
-    protected AuditableDbContext(
-        DbContextOptions options,
-        ICurrentUserService? currentUser = null)           // <-- CHANGED from CurrentUserService?
-        : base(options)
+    protected AuditableDbContext(DbContextOptions options, ICurrentUserService? currentUser = null)
+        : base(options) => _currentUser = currentUser;
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        _currentUser = currentUser;
-    }
-
-    public override async Task<int> SaveChangesAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var entries =
-            ChangeTracker
-                .Entries<AuditableEntity>();
-
-        foreach (var entry in entries)
+        foreach (var entry in ChangeTracker.Entries<AuthCoreKit.IAM.Entities.AuditableEntity>())
         {
             switch (entry.State)
             {
@@ -34,7 +21,21 @@ public abstract class AuditableDbContext : DbContext
                     entry.Entity.CreatedAt = DateTime.UtcNow;
                     entry.Entity.CreatedBy = _currentUser?.UserId;
                     break;
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                    entry.Entity.UpdatedBy = _currentUser?.UserId;
+                    break;
+            }
+        }
 
+        foreach (var entry in ChangeTracker.Entries<SaaSPlatform.SharedKernel.Common.AuditableEntity>())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.Entity.CreatedAt = DateTime.UtcNow;
+                    entry.Entity.CreatedBy = _currentUser?.UserId;
+                    break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = DateTime.UtcNow;
                     entry.Entity.UpdatedBy = _currentUser?.UserId;
