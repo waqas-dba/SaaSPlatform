@@ -1,4 +1,4 @@
-﻿using CoreKit.IAM.Interfaces;
+﻿using CoreKit.IAM.Interfaces;        // internal repositories
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Repositories;
@@ -40,18 +40,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
-        // Core IAM services
-        services.AddScoped<IJwtTokenService, JwtTokenService>();    // ← was missing
-        services.AddScoped<IPasswordHasher, PasswordHasher>();      // ← was missing
-        services.AddScoped<IAuthService, AuthService>();
+        // Core IAM internal services (for module’s own use)
+        services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleManagementService, RoleManagementService>();
         services.AddScoped<IUserManagementService, UserManagementService>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
+        // ===== Contract‑facing services (what the host sees) =====
+        services.AddScoped<IAuthService, AuthService>();                   // CoreKit.Contracts.Interfaces.IAuthService
+        services.AddScoped<IUserManagementService, UserManagementService>(); // same as above but kept for direct host usage
+        services.AddScoped<IPermissionService, PermissionService>();       // already registered, but we keep the mapping for contracts
+        services.AddScoped<IRoleManagementService, RoleManagementService>();
+
         // Encryption service – host should override with a real implementation.
-        // Register a no‑op that throws; the host can replace it with its own.
         if (!services.Any(s => s.ServiceType == typeof(IEncryptionService)))
         {
             services.AddSingleton<IEncryptionService>(new DefaultEncryptionService());
@@ -88,18 +92,11 @@ public static class ServiceCollectionExtensions
     }
 }
 
-// Default encryption service (throws if actually used – host must replace it)
+// Default encryption service (throws if used)
 internal class DefaultEncryptionService : IEncryptionService
 {
-    public string Encrypt(string plainText)
-        => throw new NotSupportedException("Encryption not configured. Register IEncryptionService before calling AddCoreKitIAM.");
-
-    public string Decrypt(string cipherText)
-        => throw new NotSupportedException("Encryption not configured. Register IEncryptionService before calling AddCoreKitIAM.");
-
-    public byte[] Encrypt(byte[] plainBytes)
-        => throw new NotSupportedException("Encryption not configured. Register IEncryptionService before calling AddCoreKitIAM.");
-
-    public byte[] Decrypt(byte[] encryptedBytes)
-        => throw new NotSupportedException("Encryption not configured. Register IEncryptionService before calling AddCoreKitIAM.");
+    public string Encrypt(string plainText) => throw new NotSupportedException("Encryption not configured.");
+    public string Decrypt(string cipherText) => throw new NotSupportedException("Encryption not configured.");
+    public byte[] Encrypt(byte[] plainBytes) => throw new NotSupportedException("Encryption not configured.");
+    public byte[] Decrypt(byte[] encryptedBytes) => throw new NotSupportedException("Encryption not configured.");
 }

@@ -38,10 +38,20 @@ builder.Services.AddCoreKitTenant(
         options.EnableLegalInfo = true;
     });
 
+builder.Services.AddScoped<SeedService>();
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddControllers();
 
 var app = builder.Build();
+
+
+// After building the app
+using (var scope = app.Services.CreateScope())
+{
+    var seeder = scope.ServiceProvider.GetRequiredService<SeedService>();
+    await seeder.SeedAsync();
+}
 
 // ---------- Middleware pipeline ----------
 app.UseMiddleware<ExceptionMiddleware>();
