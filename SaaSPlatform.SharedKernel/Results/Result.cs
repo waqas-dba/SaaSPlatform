@@ -1,4 +1,4 @@
-﻿namespace SaaSPlatform.SharedKernel.Results;
+﻿namespace CoreKit.SharedKernel.Results;
 
 public class Result
 {

@@ -1,4 +1,4 @@
-﻿namespace SaaSPlatform.SharedKernel.Common;
+﻿namespace CoreKit.SharedKernel.Common;
 
 public abstract class AuditableEntity : BaseEntity
 {

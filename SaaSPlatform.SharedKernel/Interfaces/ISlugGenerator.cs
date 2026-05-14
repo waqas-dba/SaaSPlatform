@@ -1,5 +1,5 @@
 ﻿
-namespace SaaSPlatform.SharedKernel.Interfaces;
+namespace CoreKit.SharedKernel.Interfaces;
 
 public interface ISlugGenerator
 {

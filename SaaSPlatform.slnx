@@ -1,15 +1,7 @@
 <Solution>
-  <Project Path="AuthCoreKit.IAM/AuthCoreKit.IAM.csproj" Id="ac7bb1cb-7e6d-4029-9299-80db4931da09" />
-  <Project Path="SaaSPlateform.Api.Host/SaaSPlatform.Api.Host.csproj" Id="5bb9c653-c8fb-4e89-9a08-308fc5ce13f4" />
-  <Project Path="SaaSPlatform.Application/SaaSPlatform.Application.csproj" Id="6dc30ffc-84e9-44da-8cdc-319eb8efcf29">
-    <Build Solution="Debug|*" Project="false" />
-  </Project>
-  <Project Path="SaaSPlatform.Core.Agents/SaaSPlatform.Core.Agents.csproj" Id="b0da19ae-484b-4966-b6de-5fe952c1073d" />
-  <Project Path="SaaSPlatform.Core.Billing/SaaSPlatform.Core.Billing.csproj" Id="14f8c526-27a3-437d-986a-341d56249000" />
-  <Project Path="SaaSPlatform.Core.Catalog/SaaSPlatform.Core.Catalog.csproj" />
-  <Project Path="SaaSPlatform.Core.Orders/SaaSPlatform.Core.Orders.csproj" />
-  <Project Path="SaaSPlatform.Infrastructure/SaaSPlatform.Infrastructure.csproj" />
-  <Project Path="SaaSPlatform.SharedKernel/SaaSPlatform.SharedKernel.csproj" />
-  <Project Path="SaaSPlatform.Tests/SaaSPlatform.Tests.csproj" Id="60a2ccb6-99ca-4e4a-8fb7-f9bbf7a7bacc" />
-  <Project Path="TenantKit/TenantKit.csproj" />
+  <Project Path="CoreKit.Contracts/CoreKit.Contracts.csproj" Id="3c0331ef-b314-41ed-be33-9a7fe5afbb27" />
+  <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
+  <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />
+  <Project Path="SaaSPlatform.Host.Api/SaaSPlatform.Host.Api.csproj" Id="c44c9e57-65d5-44e3-8a3d-ecc356c643fb" />
+  <Project Path="SaaSPlatform.SharedKernel/CoreKit.SharedKernel.csproj" />
 </Solution>
