@@ -1,0 +1,237 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs
+==================================================
+
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class AuditableDbContext : DbContext
+{
+    private readonly ICurrentUser? _currentUser;
+
+    protected AuditableDbContext(
+        DbContextOptions options,
+        ICurrentUser? currentUser = null)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
+
+    public override async Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.Entity.CreatedAt = DateTime.UtcNow;
+                    entry.Entity.CreatedBy = _currentUser?.UserId;
+                    break;
+
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                    entry.Entity.UpdatedBy = _currentUser?.UserId;
+                    break;
+            }
+        }
+
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class AuditableEntity : BaseEntity
+{
+    public DateTime CreatedAt { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAtUtc { get; set; }
+    public Guid? DeletedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+/// <summary>
+/// Base entity for all entities.
+/// </summary>
+public abstract class BaseEntity
+{
+    /// <summary>
+    /// Primary key.
+    /// </summary>
+    public Guid Id { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public interface ISoftDelete
+{
+    bool IsDeleted { get; set; }
+
+    DateTime? DeletedAtUtc { get; set; }
+
+    Guid? DeletedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public interface ITenantScoped
+{
+    Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
+
+
+
+namespace CoreKit.SharedKernel.Interfaces
+{
+    public interface IAggregateRoot
+    {
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface ICurrentUser
+{
+    Guid? UserId { get; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+==================================================
+
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface ISlugGenerator
+{
+    string Generate(string input);
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+==================================================
+
+
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface IUnitOfWork : IDisposable
+{
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitAsync(CancellationToken cancellationToken = default);
+    Task RollbackAsync(CancellationToken cancellationToken = default);
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Results;
+
+public class Result
+{
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public List<string> Errors { get; init; } = new();
+
+    public static Result Success(string message = "")
+        => new() { Succeeded = true, Message = message };
+
+    public static Result Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+public class Result<T> : Result
+{
+    public T? Data { get; init; }
+
+    public static Result<T> Success(T data, string message = "")
+        => new()
+        {
+            Succeeded = true,
+            Data = data,
+            Message = message
+        };
+
+    public new static Result<T> Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+

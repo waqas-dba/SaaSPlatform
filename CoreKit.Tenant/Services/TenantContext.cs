@@ -1,8 +1,11 @@
-﻿using CoreKit.Tenant.Abstractions;
-
-namespace CoreKit.Tenant.Services;
+﻿namespace CoreKit.Tenant.Abstractions;
 
 public class TenantContext : ITenantContext
 {
-    public Guid? TenantId { get; internal set; }
+    public Guid? TenantId { get; private set; }
+
+    public void SetTenant(Guid tenantId)
+    {
+        TenantId = tenantId;
+    }
 }

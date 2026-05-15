@@ -1,12 +1,14 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
-using System.Security.Cryptography;
-using System.Text;
+using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Persistence;
 
 namespace CoreKit.IAM.Repositories;
 
+/// <summary>
+/// Manages refresh token persistence.
+/// </summary>
 public class RefreshTokenRepository : IRefreshTokenRepository
 {
     private readonly IamDbContext _db;
@@ -14,12 +16,6 @@ public class RefreshTokenRepository : IRefreshTokenRepository
     public RefreshTokenRepository(IamDbContext db)
     {
         _db = db;
-    }
-
-    private static string Hash(string token)
-    {
-        using var sha = SHA256.Create();
-        return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(token)));
     }
 
     public async Task AddAsync(RefreshToken token)
@@ -49,14 +45,12 @@ public class RefreshTokenRepository : IRefreshTokenRepository
     public async Task RevokeFamilyAsync(string familyId, string? revokedByIp = null)
     {
         var tokens = await GetByFamilyIdAsync(familyId);
-
         foreach (var t in tokens)
         {
             t.IsRevoked = true;
             t.RevokedAtUtc = DateTime.UtcNow;
             t.RevokedByIp = revokedByIp;
         }
-
         await UpdateRangeAsync(tokens);
     }
 }

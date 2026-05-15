@@ -1,7 +1,19 @@
 <Solution>
-  <Project Path="CoreKit.Contracts/CoreKit.Contracts.csproj" Id="3c0331ef-b314-41ed-be33-9a7fe5afbb27" />
-  <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
-  <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />
-  <Project Path="SaaSPlatform.Host.Api/SaaSPlatform.Host.Api.csproj" Id="c44c9e57-65d5-44e3-8a3d-ecc356c643fb" />
-  <Project Path="SaaSPlatform.SharedKernel/CoreKit.SharedKernel.csproj" />
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="CoreKit.Infrastructure/CoreKit.Infrastructure.csproj" Id="5e45f5df-27dd-4d20-a3e8-b26b3abee117" />
+    <Project Path="SaaSPlatform.SharedKernel/CoreKit.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Hosts/">
+    <Project Path="SaaSPlatform.Admin.Api/SaaSPlatform.Admin.Api.csproj" Id="b843937d-8082-4b12-92b5-a21e389c3200" />
+    <Project Path="SaaSPlatform.Public.Api/SaaSPlatform.Public.Api.csproj" Id="0bed833a-03e2-40de-acb3-ef91be1a1162" />
+    <Project Path="SaaSPlatform.Tenant.Api/SaaSPlatform.Tenant.Api.csproj" Id="fe6fbcdd-ae62-430e-9438-6ec8c2949805" />
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
+    <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />
+  </Folder>
+  <Folder Name="/src/Tools/">
+    <Project Path="SaaSPlatform.Migrator/SaaSPlatform.Migrator.csproj" Id="a56e6825-f98d-4218-a325-bfa87fadaec9" />
+  </Folder>
 </Solution>

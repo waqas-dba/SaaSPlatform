@@ -1,0 +1,137 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs
+==================================================
+
+using CoreKit.IAM.Extensions;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence.Seeders;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Infrastructure.Security;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// =========================
+// CORE SERVICES
+// =========================
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+
+var connectionString =
+    builder.Configuration.GetConnectionString("Postgres")!;
+
+// =========================
+// ENCRYPTION
+// =========================
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+{
+    var key = builder.Configuration["EncryptionKey"]!;
+    return new EncryptionService(key);
+});
+
+// =========================
+// IAM MODULE
+// =========================
+builder.Services.AddCoreKitIAM(
+    connectionString,
+    builder.Configuration.GetSection("Jwt"));
+
+// =========================
+// TENANT MODULE
+// =========================
+builder.Services.AddTenantKit(connectionString, options =>
+{
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
+});
+
+builder.Services.AddControllers();
+
+var app = builder.Build();
+
+// =========================
+// MIDDLEWARE
+// =========================
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+
+// =========================
+// SEED DATABASE (SAFE)
+// =========================
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
+        await seeder.SeedAsync();
+
+        Console.WriteLine("âœ” IAM Seeder executed successfully");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("âŒ Seeder failed: " + ex.Message);
+    }
+}
+
+app.Run();
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/tenants")]
+public class TenantsController : ControllerBase
+{
+    private readonly ITenantService _tenantService;
+
+    public TenantsController(ITenantService tenantService)
+    {
+        _tenantService = tenantService;
+    }
+
+    // =========================
+    // PUBLIC / ONBOARDING
+    // =========================
+    [HttpPost("register")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Register(TenantRegistrationRequest request)
+    {
+        var result = await _tenantService.RegisterAsync(request);
+        return Ok(result);
+    }
+
+    // =========================
+    // ADMIN ONLY
+    // =========================
+    [HttpPost("{tenantId}/approve")]
+    [Authorize]
+    [RequiresPermission(Permissions.Tenants.Approve)]
+    public async Task<IActionResult> Approve(Guid tenantId)
+    {
+        await _tenantService.ApproveAsync(tenantId);
+        return NoContent();
+    }
+}
+
+

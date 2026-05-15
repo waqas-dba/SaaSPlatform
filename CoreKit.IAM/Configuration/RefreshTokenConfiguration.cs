@@ -2,7 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace CoreKit.IAM.Configuration;
+namespace CoreKit.IAM.Persistence.Configurations;
 
 public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
 {
@@ -34,7 +34,10 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasIndex(x => x.FamilyId);
         builder.HasIndex(x => x.UserId);
 
-        // ❌ REMOVE THIS (causes your error):
-        // builder.HasOne(x => x.User) ...
+        // ✅ FIXED RELATIONSHIP
+        builder.HasOne<User>()
+            .WithMany(u => u.RefreshTokens)
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

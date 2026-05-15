@@ -1,12 +1,22 @@
-﻿using Microsoft.EntityFrameworkCore;
-using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.IAM.Persistence;
 
-public class IamDbContext : DbContext
+/// <summary>
+/// Database context for the IAM module.
+/// </summary>
+public class IamDbContext : AuditableDbContext
 {
-    public IamDbContext(DbContextOptions<IamDbContext> options) : base(options) { }
+    public IamDbContext(
+        DbContextOptions<IamDbContext> options,
+        ICurrentUser? currentUser = null)
+        : base(options, currentUser)
+    {
+    }
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
@@ -20,22 +30,8 @@ public class IamDbContext : DbContext
     public DbSet<RoleDocumentRequirement> RoleDocumentRequirements => Set<RoleDocumentRequirement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-        => modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
-
-    public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
-        foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
-        {
-            if (entry.State == EntityState.Added)
-            {
-                entry.Entity.CreatedAt = DateTime.UtcNow;
-                // CreatedBy would be set via ICurrentUserService, but we omit for simplicity
-            }
-            else if (entry.State == EntityState.Modified)
-            {
-                entry.Entity.UpdatedAt = DateTime.UtcNow;
-            }
-        }
-        return await base.SaveChangesAsync(ct);
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
     }
 }

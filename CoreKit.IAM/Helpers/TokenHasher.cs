@@ -3,6 +3,9 @@ using System.Text;
 
 namespace CoreKit.IAM.Helpers;
 
+/// <summary>
+/// Provides a consistent SHA‑256 hashing method for tokens.
+/// </summary>
 public static class TokenHasher
 {
     public static string Hash(string token)

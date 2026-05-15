@@ -11,26 +11,44 @@ public class PermissionRepository : IPermissionRepository
     public PermissionRepository(IamDbContext db) => _db = db;
 
     public async Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
-        => await _db.UserRoles
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .AnyAsync(rp => rp.Permission != null && rp.Permission.Name == permission);
+    {
+        return await (
+            from ur in _db.UserRoles
+            join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+            join p in _db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+                  && ur.TenantId == tenantId
+                  && p.Name == permission
+            select p
+        ).AnyAsync();
+    }
 
     public async Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module)
     {
         var prefix = module + ".";
-        return await _db.UserRoles
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .AnyAsync(rp => rp.Permission != null && rp.Permission.Name.StartsWith(prefix));
+
+        return await (
+            from ur in _db.UserRoles
+            join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+            join p in _db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+                  && ur.TenantId == tenantId
+                  && p.Name.StartsWith(prefix)
+            select p
+        ).AnyAsync();
     }
 
     public async Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId)
-        => await _db.UserRoles
-            .Where(ur => ur.UserId == userId && ur.TenantId == tenantId)
-            .SelectMany(ur => ur.Role!.RolePermissions!)
-            .Where(rp => rp.Permission != null)
-            .Select(rp => rp.Permission!.Name)
-            .Distinct()
-            .ToListAsync();
+    {
+        return await (
+            from ur in _db.UserRoles
+            join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+            join p in _db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+                  && ur.TenantId == tenantId
+            select p.Name
+        )
+        .Distinct()
+        .ToListAsync();
+    }
 }

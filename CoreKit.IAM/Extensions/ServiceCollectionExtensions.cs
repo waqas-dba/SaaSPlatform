@@ -1,14 +1,19 @@
-﻿using CoreKit.IAM.Interfaces;        // internal repositories
+﻿using System.Text;
+
+using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
+using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Repositories;
 using CoreKit.IAM.Services;
+
+using CoreKit.SharedKernel.Interfaces;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 
 namespace CoreKit.IAM.Extensions;
 
@@ -20,83 +25,158 @@ public static class ServiceCollectionExtensions
         IConfigurationSection jwtSection,
         Action<IamOptions>? configureOptions = null)
     {
-        // JWT settings
+        // =========================
+        // JWT SETTINGS
+        // =========================
         var jwtSettings = jwtSection.Get<JwtSettings>()
-            ?? throw new InvalidOperationException("JWT configuration missing.");
+            ?? throw new Exception("JWT configuration missing.");
+
         services.Configure<JwtSettings>(jwtSection);
 
-        // Database
+        // =========================
+        // IAM OPTIONS
+        // =========================
+        var iamOptions = new IamOptions();
+
+        configureOptions?.Invoke(iamOptions);
+
+        services.AddSingleton(iamOptions);
+
+        // =========================
+        // HTTP CONTEXT
+        // =========================
+        services.AddHttpContextAccessor();
+
+        // =========================
+        // DB CONTEXT
+        // =========================
         services.AddDbContext<IamDbContext>(options =>
-            options.UseNpgsql(connectionString));
+        {
+            options.UseNpgsql(connectionString);
+        });
 
-        // Options
-        var options = new IamOptions();
-        configureOptions?.Invoke(options);
-        services.AddSingleton(options);
-
-        // Internal repositories
+        // =========================
+        // REPOSITORIES
+        // =========================
         services.AddScoped<IUserRepository, UserRepository>();
+
         services.AddScoped<IRoleRepository, RoleRepository>();
+
         services.AddScoped<IPermissionRepository, PermissionRepository>();
-        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
-        // Core IAM internal services (for module’s own use)
+        services.AddScoped<IRefreshTokenRepository,
+            RefreshTokenRepository>();
+
+        // =========================
+        // CURRENT USER
+        // =========================
+        services.AddScoped<CurrentUserService>();
+
+        services.AddScoped<ICurrentUserService>(sp =>
+            sp.GetRequiredService<CurrentUserService>());
+
+        services.AddScoped<ICurrentUser>(sp =>
+            sp.GetRequiredService<CurrentUserService>());
+
+        // =========================
+        // CORE SERVICES
+        // =========================
+        services.AddScoped<IAuthService, AuthService>();
+
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+
         services.AddScoped<IPasswordHasher, PasswordHasher>();
-        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
-        services.AddScoped<IPermissionService, PermissionService>();
-        services.AddScoped<IRoleManagementService, RoleManagementService>();
-        services.AddScoped<IUserManagementService, UserManagementService>();
-        services.AddScoped<ICurrentUserService, CurrentUserService>();
 
-        // ===== Contract‑facing services (what the host sees) =====
-        services.AddScoped<IAuthService, AuthService>();                   // CoreKit.Contracts.Interfaces.IAuthService
-        services.AddScoped<IUserManagementService, UserManagementService>(); // same as above but kept for direct host usage
-        services.AddScoped<IPermissionService, PermissionService>();       // already registered, but we keep the mapping for contracts
-        services.AddScoped<IRoleManagementService, RoleManagementService>();
+        services.AddScoped<IRefreshTokenService,
+            RefreshTokenService>();
 
-        // Encryption service – host should override with a real implementation.
-        if (!services.Any(s => s.ServiceType == typeof(IEncryptionService)))
+        services.AddScoped<IUserManagementService,
+            UserManagementService>();
+
+        services.AddScoped<IRoleManagementService,
+            RoleManagementService>();
+
+        services.AddScoped<IPermissionService,
+            PermissionService>();
+
+        // =========================
+        // OPTIONAL FEATURES
+        // =========================
+        if (iamOptions.EnableUserDocuments)
         {
-            services.AddSingleton<IEncryptionService>(new DefaultEncryptionService());
+            services.AddScoped<IUserDocumentService,
+                UserDocumentService>();
         }
 
-        if (options.EnableUserDocuments)
+        if (iamOptions.EnableUserIdentities)
         {
-            services.AddScoped<IUserDocumentService, UserDocumentService>();
-            if (options.EnableUserIdentities)
-                services.AddScoped<IUserIdentityService, UserIdentityService>();
-            if (options.EnableRoleDocumentRequirements)
-                services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
+            services.AddScoped<IUserIdentityService,
+                UserIdentityService>();
         }
 
-        // JWT Authentication
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(opt =>
+        if (iamOptions.EnableRoleDocumentRequirements)
+        {
+            services.AddScoped<
+                IRoleDocumentRequirementService,
+                RoleDocumentRequirementService>();
+        }
+
+        // =========================
+        // ENCRYPTION
+        // =========================
+        services.AddSingleton<IEncryptionService>(sp =>
+        {
+            var configuration =
+                sp.GetRequiredService<IConfiguration>();
+
+            var key = configuration["EncryptionKey"];
+
+            if (string.IsNullOrWhiteSpace(key))
             {
-                opt.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidIssuer = jwtSettings.Issuer,
-                    ValidAudience = jwtSettings.Audience,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)),
-                    ClockSkew = TimeSpan.Zero
-                };
+                throw new Exception(
+                    "EncryptionKey missing.");
+            }
+
+            return new EncryptionService(key);
+        });
+
+        // =========================
+        // SEEDER
+        // =========================
+        services.AddScoped<IamSeeder>();
+
+        // =========================
+        // JWT AUTHENTICATION
+        // =========================
+        services
+            .AddAuthentication(
+                JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters =
+                    new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+
+                        ValidIssuer = jwtSettings.Issuer,
+
+                        ValidAudience = jwtSettings.Audience,
+
+                        IssuerSigningKey =
+                            new SymmetricSecurityKey(
+                                Encoding.UTF8.GetBytes(
+                                    jwtSettings.Secret)
+                            ),
+
+                        ClockSkew = TimeSpan.Zero
+                    };
             });
+
         services.AddAuthorization();
 
         return services;
     }
-}
-
-// Default encryption service (throws if used)
-internal class DefaultEncryptionService : IEncryptionService
-{
-    public string Encrypt(string plainText) => throw new NotSupportedException("Encryption not configured.");
-    public string Decrypt(string cipherText) => throw new NotSupportedException("Encryption not configured.");
-    public byte[] Encrypt(byte[] plainBytes) => throw new NotSupportedException("Encryption not configured.");
-    public byte[] Decrypt(byte[] encryptedBytes) => throw new NotSupportedException("Encryption not configured.");
 }

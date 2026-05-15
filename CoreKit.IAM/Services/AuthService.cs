@@ -4,12 +4,14 @@ using CoreKit.IAM.Persistence;
 
 namespace CoreKit.IAM.Services;
 
+/// <summary>
+/// Authentication service handling login, token refresh, and logout.
+/// </summary>
 public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepo;
     private readonly IJwtTokenService _jwtService;
     private readonly IRefreshTokenService _refreshTokenService;
-    private readonly IRefreshTokenRepository _refreshRepo;
     private readonly IPermissionService _permissionService;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IamDbContext _db;
@@ -19,7 +21,6 @@ public class AuthService : IAuthService
         IUserRepository userRepo,
         IJwtTokenService jwtService,
         IRefreshTokenService refreshTokenService,
-        IRefreshTokenRepository refreshRepo,
         IPermissionService permissionService,
         IPasswordHasher passwordHasher,
         IamDbContext db,
@@ -28,7 +29,6 @@ public class AuthService : IAuthService
         _userRepo = userRepo;
         _jwtService = jwtService;
         _refreshTokenService = refreshTokenService;
-        _refreshRepo = refreshRepo;
         _permissionService = permissionService;
         _passwordHasher = passwordHasher;
         _db = db;
@@ -37,104 +37,53 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
     {
-        var user = await _userRepo.GetUserByLoginAsync(
-            request.Login,
-            tenantId,
-            _options.LoginIdentifier);
-
-        if (user == null)
-        {
-            throw new UnauthorizedAccessException("Invalid credentials.");
-        }
+        var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier)
+                   ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!user.IsActive)
-        {
             throw new UnauthorizedAccessException("Account is disabled.");
-        }
 
         if (user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow)
-        {
-            throw new UnauthorizedAccessException(
-                $"Account locked until {user.LockoutEnd:O}");
-        }
+            throw new UnauthorizedAccessException($"Account locked until {user.LockoutEnd:O}");
 
-        var passwordValid = _passwordHasher.Verify(
-            request.Password,
-            user.PasswordHash);
-
-        if (!passwordValid)
+        if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
         {
             user.FailedLoginAttempts++;
-
             if (user.FailedLoginAttempts >= 5)
-            {
                 user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
-            }
-
             await _db.SaveChangesAsync();
-
             throw new UnauthorizedAccessException("Invalid credentials.");
         }
 
         user.FailedLoginAttempts = 0;
         user.LockoutEnd = null;
         user.LastLoginAt = DateTime.UtcNow;
-
         await _db.SaveChangesAsync();
 
-        var roles = user.Roles
-            .Select(r => r.Role.Name)
-            .Distinct()
-            .ToList();
+        var roles = user.Roles.Select(r => r.Role.Name).Distinct().ToList();
+        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles, permissions);
+        var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
 
-        var permissions = await _permissionService
-            .GetUserPermissionsAsync(user.Id, tenantId);
-
-        var (accessToken, _) = _jwtService.GenerateAccessToken(
-            user,
-            tenantId,
-            roles,
-            permissions);
-
-        var refreshToken = await _refreshTokenService.GenerateAsync(
-            user.Id,
-            Guid.NewGuid().ToString());
-
-        return new LoginResponse
-        {
-            AccessToken = accessToken,
-            RefreshToken = refreshToken
-        };
+        return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
     }
 
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
     {
-        var (newToken, compromised) =
-            await _refreshTokenService.RotateAsync(request.RefreshToken);
+        var (newToken, compromised, userId) = await _refreshTokenService.RotateAsync(request.RefreshToken);
 
         if (compromised)
             throw new UnauthorizedAccessException("Refresh token reuse detected. Session revoked.");
 
-        var hash = _refreshTokenService.ComputeHash(request.RefreshToken);
-        var stored = await _refreshRepo.GetByTokenHashAsync(hash);
-        var user = await _userRepo.GetByIdAsync(stored!.UserId);
-
+        var user = await _userRepo.GetByIdAsync(userId);
         var roles = user!.Roles.Select(r => r.Role.Name);
+        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
 
-        var (accessToken, _) =
-            _jwtService.GenerateAccessToken(user, tenantId, roles);
-
-        return new LoginResponse
-        {
-            AccessToken = accessToken,
-            RefreshToken = newToken
-        };
+        return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
     }
 
     public async Task LogoutAsync(string refreshToken)
     {
         await _refreshTokenService.RevokeAsync(refreshToken);
     }
-
-    
 }

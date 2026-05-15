@@ -1,0 +1,99 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Program.cs
+==================================================
+
+using CoreKit.IAM.Extensions;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence.Seeders;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// CORE SERVICES
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+
+var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
+
+// IAM MODULE
+builder.Services.AddCoreKitIAM(
+    connectionString,
+    builder.Configuration.GetSection("Jwt"),
+    options =>
+    {
+        options.EnableUserDocuments = true;
+        options.EnableUserIdentities = true;
+        options.RequireCnic = false;
+    });
+
+// TENANT MODULE
+builder.Services.AddTenantKit(connectionString, options =>
+{
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
+});
+
+builder.Services.AddControllers();
+
+var app = builder.Build();
+
+// SEEDER (SAFE)
+using (var scope = app.Services.CreateScope())
+{
+    var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
+    await seeder.SeedAsync();
+}
+
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs
+==================================================
+
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Public.Api.Controllers;
+
+[ApiController]
+[Route("api/auth")]
+public class AuthController : ControllerBase
+{
+    private readonly IAuthService _authService;
+    private readonly ITenantContext _tenantContext;
+
+    public AuthController(
+        IAuthService authService,
+        ITenantContext tenantContext)
+    {
+        _authService = authService;
+        _tenantContext = tenantContext;
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginRequest request)
+    {
+        var result = await _authService.LoginAsync(
+            request,
+            _tenantContext.TenantId);
+
+        return Ok(result);
+    }
+}
+
+

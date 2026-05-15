@@ -2,11 +2,14 @@
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.AspNetCore.Http;
 
 namespace CoreKit.IAM.Services;
 
-public class CurrentUserService : ICurrentUserService
+public class CurrentUserService :
+    ICurrentUserService,
+    ICurrentUser
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IamOptions _options;

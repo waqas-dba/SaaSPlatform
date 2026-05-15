@@ -1,0 +1,1086 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs
+==================================================
+
+namespace CoreKit.Tenant.Abstractions;
+
+public interface IStoreLimitService
+{
+    Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs
+==================================================
+
+namespace CoreKit.Tenant.Abstractions;
+
+public interface ITenantContext { Guid? TenantId { get; } }
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Configuration;
+
+public class StoreConfiguration : IEntityTypeConfiguration<Store>
+{
+    public void Configure(EntityTypeBuilder<Store> builder)
+    {
+        builder.ToTable("TNT_Stores");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        builder.HasIndex(x => x.TenantId);
+        builder.Property(x => x.Latitude).HasPrecision(9, 6);
+        builder.Property(x => x.Longitude).HasPrecision(9, 6);
+        builder.HasOne(x => x.Tenant)                          // navigation to TenantEntity
+            .WithMany(x => x.Stores)
+            .HasForeignKey(x => x.TenantId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+
+namespace CoreKit.Tenant.Configuration;
+
+public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
+{
+    public void Configure(EntityTypeBuilder<TenantEntity> builder)
+    {
+        builder.ToTable("TNT_Tenants");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+        builder.HasIndex(x => x.Slug).IsUnique();
+        builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+        builder.HasIndex(x => x.Name).IsUnique();
+       
+        builder.HasIndex(x => x.OwnerUserId)
+           .IsUnique();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Configuration;
+
+public class TenantLegalInfoConfiguration : IEntityTypeConfiguration<TenantLegalInfo>
+{
+    public void Configure(EntityTypeBuilder<TenantLegalInfo> builder)
+    {
+        builder.ToTable("TNT_TenantLegalInfos");
+        builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.TenantId).IsUnique();
+        builder.HasOne(x => x.Tenant).WithOne().HasForeignKey<TenantLegalInfo>(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Tenant.Entities;
+
+public class Store : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public TenantEntity Tenant { get; set; } = default!;   // ← changed
+
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? Type { get; set; }
+    // … (all other properties unchanged)
+    public string? Description { get; set; }
+    public string? Email { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? AddressLine1 { get; set; }
+    public string? AddressLine2 { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? PostalCode { get; set; }
+    public string? CountryCode { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
+    public bool IsActive { get; set; } = true;
+    public bool IsPrimary { get; set; }
+    public string? TimeZone { get; set; }
+    public string? CurrencyCode { get; set; }
+    public string? LogoUrl { get; set; }
+    public string? CoverImageUrl { get; set; }
+    public bool IsListedOnMarketplace { get; set; }
+    public string? MetadataJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+using CoreKit.Tenant.Enums;
+
+namespace CoreKit.Tenant.Entities;
+
+public class TenantEntity : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+   
+    public TenantStatus Status { get; set; } = TenantStatus.Pending;
+
+    // IAM user reference only
+    public Guid OwnerUserId { get; set; }
+
+    public string? MetadataJson { get; set; }
+    public ICollection<Store>? Stores { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs
+==================================================
+
+namespace CoreKit.Tenant.Entities;
+
+public class TenantLegalInfo
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public string? BusinessLicenseNumber { get; set; }
+    public string? TaxId { get; set; }
+    public string? AdditionalJson { get; set; }
+    public TenantEntity Tenant { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs
+==================================================
+
+namespace CoreKit.Tenant.Enums;
+
+public enum StoreType
+{
+    Restaurant = 1,
+    Takeaway = 2,
+    Cafe = 3,
+    Grocery = 4,
+    Pharmacy = 5,
+    Clothing = 6,
+    Electronics = 7,
+    MobileShop = 8,
+    School = 9,
+    Hospital = 10,
+    Hotel = 11,
+    Warehouse = 12,
+    Salon = 13,
+    Bakery = 14,
+    Other = 99
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs
+==================================================
+
+namespace CoreKit.Tenant.Enums;
+
+public enum TenantStatus
+{
+    Pending = 1,
+    Active = 2,
+    Suspended = 3,
+    Rejected = 4,
+    Archived = 5
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs
+==================================================
+
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
+using CoreKit.Tenant.Persistence.Seeders;
+using CoreKit.Tenant.Repositories;
+using CoreKit.Tenant.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace CoreKit.Tenant.Extensions;
+
+public static class TenantKitServiceCollectionExtensions
+{
+    public static IServiceCollection AddTenantKit(
+        this IServiceCollection services,
+        string connectionString,
+        Action<TenantKitOptions>? configure = null)
+    {
+        services.Configure<TenantKitOptions>(options =>
+        {
+            configure?.Invoke(options);
+        });
+
+        services.AddDbContext<TenantDbContext>(opt =>
+        {
+            opt.UseNpgsql(connectionString);
+        });
+
+        services.AddScoped<ITenantRepository, TenantRepository>();
+        services.AddScoped<IStoreRepository, StoreRepository>();
+        services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+
+        services.AddScoped<ITenantService, TenantService>();
+        services.AddScoped<IStoreService, StoreService>();
+        services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
+
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<TenantSeeder>();
+
+        return services;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Interfaces;
+
+public interface IStoreRepository
+{
+    Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default);
+    Task<Store?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
+    Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default);
+    void Add(Store store);
+    void Update(Store store);
+    void Delete(Store store);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs
+==================================================
+
+using CoreKit.Tenant.Models;
+
+public interface IStoreService
+{
+    Task<StoreDto?> GetByIdAsync(Guid storeId);
+    Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
+    Task<StoreDto> CreateAsync(Guid tenantId, CreateStoreRequest request);
+    Task UpdateAsync(Guid storeId, UpdateStoreRequest request);
+    Task DeleteAsync(Guid storeId);
+    Task SetMarketplaceListingAsync(Guid storeId, bool isListed);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Interfaces;
+
+public interface ITenantLegalInfoRepository
+{
+    Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
+    Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Interfaces;
+
+public interface ITenantLegalInfoService
+{
+    Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson);
+    Task<TenantLegalInfo?> GetAsync(Guid tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+
+namespace CoreKit.Tenant.Interfaces;
+
+public interface ITenantRepository
+{
+    Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+    Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default);
+    Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
+
+    void Add(TenantEntity tenant);
+    void Update(TenantEntity tenant);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Models;
+
+namespace CoreKit.Tenant.Interfaces;
+
+public interface ITenantService
+{
+    Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request);
+    Task<TenantEntity?> GetByIdAsync(Guid tenantId);
+    Task<List<TenantEntity>> GetAllAsync();
+
+    Task UpdateAsync(Guid tenantId, string? name, string? metadataJson);
+    Task DeleteAsync(Guid tenantId);
+
+    Task ApproveAsync(Guid tenantId);
+    Task RejectAsync(Guid tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs
+==================================================
+
+using CoreKit.Tenant.Abstractions;
+using Microsoft.AspNetCore.Http;
+
+namespace CoreKit.Tenant.Middleware;
+
+public class TenantResolutionMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public TenantResolutionMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
+    {
+        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid))
+        {
+            if (Guid.TryParse(tid, out var parsed))
+            {
+                ((TenantContext)tenantContext).SetTenant(parsed);
+            }
+        }
+
+        await _next(context);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class CreateStoreRequest
+{
+    public string? Name { get; set; }
+    public string? Type { get; set; }
+    public string? AddressLine1 { get; set; }
+    public string? AddressLine2 { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? PostalCode { get; set; }
+    public string? CountryCode { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
+    public bool? IsActive { get; set; }
+    public string? LogoUrl { get; set; }
+    public string? CoverImageUrl { get; set; }
+    public string? MetadataJson { get; set; }
+    // IsListedOnMarketplace is not included – admin only
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class StoreDto
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? Type { get; set; }
+
+    public bool IsActive { get; set; }
+    public bool IsListedOnMarketplace { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class TenantKitOptions
+{
+    /// <summary>If true, new tenants are activated immediately.</summary>
+    public bool AutoApproveTenants { get; set; } = false;
+
+    /// <summary>If true, a tenant can create more than one store/branch (subject to plan limits if IStoreLimitService is registered).</summary>
+    public bool AllowMultipleStores { get; set; } = false;
+
+    /// <summary>If true, the TenantLegalInfo service and repository are registered.</summary>
+    public bool EnableLegalInfo { get; set; } = false;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class TenantRegistrationRequest
+{
+    public string Name { get; set; } = default!;
+    public string? MetadataJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class TenantRegistrationResponse
+{
+    public Guid TenantId { get; set; }
+    public string Message { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs
+==================================================
+
+namespace CoreKit.Tenant.Models;
+
+public class UpdateStoreRequest
+{
+    public string? Name { get; set; }
+    public string? Type { get; set; }
+
+    public string? AddressLine1 { get; set; }
+    public string? AddressLine2 { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? PostalCode { get; set; }
+    public string? CountryCode { get; set; }
+
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
+
+    public string? LogoUrl { get; set; }
+    public string? CoverImageUrl { get; set; }
+
+    public bool? IsActive { get; set; }
+
+    public string? MetadataJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs
+==================================================
+
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Persistence;
+
+public class TenantDbContext : AuditableDbContext
+{
+    public TenantDbContext(
+        DbContextOptions<TenantDbContext> options,
+        ICurrentUser? currentUser = null)
+        : base(options, currentUser)
+    {
+    }
+
+
+    public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
+    public DbSet<Store> Stores => Set<Store>();
+    public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+
+namespace CoreKit.Tenant.Persistence;
+
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
+{
+    public TenantDbContext CreateDbContext(string[] args)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+
+        optionsBuilder.UseNpgsql(
+            "Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
+
+        return new TenantDbContext(optionsBuilder.Options);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Persistence.Seeders;
+
+public class TenantSeeder
+{
+    private readonly TenantDbContext _db;
+
+    public TenantSeeder(TenantDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task SeedAsync()
+    {
+        var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+        // ---------------- TENANT ----------------
+        if (!await _db.Tenants.AnyAsync(t => t.Id == systemTenantId))
+        {
+            _db.Tenants.Add(new TenantEntity
+            {
+                Id = systemTenantId,
+                Name = "System",
+                Slug = "system",
+                Status = TenantStatus.Active
+            });
+
+            await _db.SaveChangesAsync();
+        }
+
+        // ---------------- STORE ----------------
+        var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+
+        if (!await _db.Stores.AnyAsync(s => s.Id == systemStoreId))
+        {
+            _db.Stores.Add(new Store
+            {
+                Id = systemStoreId,
+                TenantId = systemTenantId,
+                Name = "System Store",
+                Slug = "system-store",
+                IsActive = true
+            });
+
+            await _db.SaveChangesAsync();
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Repositories;
+
+public class StoreRepository : IStoreRepository
+{
+    private readonly TenantDbContext _db;
+
+    public StoreRepository(TenantDbContext db) => _db = db;
+
+    public async Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
+        => await _db.Stores.FirstOrDefaultAsync(s => s.Id == storeId, ct);
+
+    public async Task<Store?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
+        => await _db.Stores.FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
+
+    public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
+        => await _db.Stores.Where(s => s.TenantId == tenantId).ToListAsync(ct);
+
+    public void Add(Store store) => _db.Stores.Add(store);
+    public void Update(Store store) => _db.Stores.Update(store);
+    public void Delete(Store store) => _db.Stores.Remove(store);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Repositories;
+
+public class TenantLegalInfoRepository : ITenantLegalInfoRepository
+{
+    private readonly TenantDbContext _db;
+
+    public TenantLegalInfoRepository(TenantDbContext db) => _db = db;
+
+    public async Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
+        => await (_db.TenantLegalInfos ?? throw new InvalidOperationException("TenantLegalInfos not configured"))
+            .FirstOrDefaultAsync(i => i.TenantId == tenantId, ct);
+
+    public async Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default)
+    {
+        if (_db.TenantLegalInfos == null)
+            throw new InvalidOperationException("TenantLegalInfos not configured");
+
+        var existing = await _db.TenantLegalInfos
+            .FirstOrDefaultAsync(i => i.TenantId == info.TenantId, ct);
+
+        if (existing != null)
+        {
+            existing.BusinessLicenseNumber = info.BusinessLicenseNumber;
+            existing.TaxId = info.TaxId;
+            existing.AdditionalJson = info.AdditionalJson;
+        }
+        else
+        {
+            await _db.TenantLegalInfos.AddAsync(info, ct);
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantRepository.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Repositories;
+
+public class TenantRepository : ITenantRepository
+{
+    private readonly TenantDbContext _db;
+
+    public TenantRepository(TenantDbContext db) => _db = db;
+
+    public async Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default)
+        => await _db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+
+    public async Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default)
+        => await _db.Tenants.ToListAsync(ct);
+
+    public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
+        => await _db.Tenants.AnyAsync(t => t.Name == name, ct);
+
+    public void Add(TenantEntity tenant) => _db.Tenants.Add(tenant);
+    public void Update(TenantEntity tenant) => _db.Tenants.Update(tenant);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs
+==================================================
+
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Tenant.Services;
+
+public class StoreService : IStoreService
+{
+    private readonly TenantDbContext _db;
+    private readonly ITenantContext _tenantContext;
+
+    public StoreService(TenantDbContext db, ITenantContext tenantContext)
+    {
+        _db = db;
+        _tenantContext = tenantContext;
+    }
+
+    public async Task<StoreDto?> GetByIdAsync(Guid storeId)
+    {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        var store = await _db.Stores
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
+
+        return store == null ? null : Map(store);
+    }
+
+    public async Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId)
+    {
+        var stores = await _db.Stores
+            .Where(x => x.TenantId == tenantId)
+            .ToListAsync();
+
+        return stores.Select(Map).ToList();
+    }
+
+    public async Task<StoreDto> CreateAsync(Guid tenantId, CreateStoreRequest request)
+    {
+        var actualTenantId = _tenantContext.TenantId
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        var store = new Store
+        {
+            Id = Guid.NewGuid(),
+            TenantId = actualTenantId,
+            Name = request.Name,
+            Slug = GenerateSlug(request.Name),
+            Type = request.Type,
+            AddressLine1 = request.AddressLine1,
+            AddressLine2 = request.AddressLine2,
+            City = request.City,
+            State = request.State,
+            PostalCode = request.PostalCode,
+            CountryCode = request.CountryCode,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            LogoUrl = request.LogoUrl,
+            CoverImageUrl = request.CoverImageUrl,
+            MetadataJson = request.MetadataJson,
+            IsActive = true,
+            IsListedOnMarketplace = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.Stores.Add(store);
+        await _db.SaveChangesAsync();
+
+        return Map(store);
+    }
+
+    public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
+    {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        var store = await _db.Stores
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
+
+        if (store == null)
+            throw new InvalidOperationException("Store not found");
+
+        if (request.Name != null)
+        {
+            store.Name = request.Name;
+            store.Slug = GenerateSlug(request.Name);
+        }
+
+        if (request.Type != null) store.Type = request.Type;
+        if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
+
+        store.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(Guid storeId)
+    {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        var store = await _db.Stores
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
+
+        if (store == null)
+            throw new InvalidOperationException("Store not found");
+
+        _db.Stores.Remove(store);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
+    {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        var store = await _db.Stores
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
+
+        if (store == null)
+            throw new InvalidOperationException("Store not found");
+
+        store.IsListedOnMarketplace = isListed;
+        store.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+    }
+
+    private static StoreDto Map(Store store) => new()
+    {
+        Id = store.Id,
+        TenantId = store.TenantId,
+        Name = store.Name,
+        Slug = store.Slug,
+        Type = store.Type,
+        IsActive = store.IsActive,
+        IsListedOnMarketplace = store.IsListedOnMarketplace
+    };
+
+    private static string GenerateSlug(string name)
+        => name.Trim().ToLower().Replace(" ", "-");
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs
+==================================================
+
+namespace CoreKit.Tenant.Abstractions;
+
+public class TenantContext : ITenantContext
+{
+    public Guid? TenantId { get; private set; }
+
+    public void SetTenant(Guid tenantId)
+    {
+        TenantId = tenantId;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantLegalInfoService.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+
+namespace CoreKit.Tenant.Services;
+
+public class TenantLegalInfoService : ITenantLegalInfoService
+{
+    private readonly ITenantLegalInfoRepository _repo;
+    public TenantLegalInfoService(ITenantLegalInfoRepository repo) => _repo = repo;
+
+    public async Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson)
+    {
+        var info = new TenantLegalInfo
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            BusinessLicenseNumber = businessLicenseNumber,
+            TaxId = taxId,
+            AdditionalJson = additionalJson
+        };
+        await _repo.AddOrUpdateAsync(info);
+    }
+
+    public async Task<TenantLegalInfo?> GetAsync(Guid tenantId) => await _repo.GetByTenantAsync(tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantService.cs
+==================================================
+
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using Microsoft.Extensions.Options;
+
+namespace CoreKit.Tenant.Services;
+
+public class TenantService : ITenantService
+{
+    private readonly ITenantRepository _tenantRepo;
+    private readonly TenantKitOptions _options;
+
+    public TenantService(
+        ITenantRepository tenantRepo,
+        IOptions<TenantKitOptions> options)
+    {
+        _tenantRepo = tenantRepo;
+        _options = options.Value;
+    }
+
+    public async Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request)
+    {
+        if (await _tenantRepo.ExistsByNameAsync(request.Name))
+            throw new InvalidOperationException("Tenant already exists.");
+
+        var status = _options.AutoApproveTenants
+            ? TenantStatus.Active
+            : TenantStatus.Pending;
+
+        var tenant = new TenantEntity
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            Slug = request.Name.ToLower().Replace(" ", "-"),
+            Status = status,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _tenantRepo.Add(tenant);
+
+        return new TenantRegistrationResponse
+        {
+            TenantId = tenant.Id,
+            Message = "Tenant created successfully"
+        };
+    }
+
+    public Task<TenantEntity?> GetByIdAsync(Guid tenantId)
+        => _tenantRepo.GetByIdAsync(tenantId);
+
+    public Task<List<TenantEntity>> GetAllAsync()
+        => _tenantRepo.GetAllAsync();
+
+    public async Task ApproveAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+            ?? throw new Exception("Not found");
+
+        tenant.Status = TenantStatus.Active;
+        _tenantRepo.Update(tenant);
+    }
+
+    public async Task RejectAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+            ?? throw new Exception("Not found");
+
+        tenant.Status = TenantStatus.Rejected;
+        _tenantRepo.Update(tenant);
+    }
+
+    public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+            ?? throw new KeyNotFoundException("Tenant not found");
+
+        if (name != null) tenant.Name = name;
+        if (metadataJson != null) tenant.MetadataJson = metadataJson;
+
+        _tenantRepo.Update(tenant);
+    }
+
+    public async Task DeleteAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+            ?? throw new KeyNotFoundException("Tenant not found");
+
+        tenant.IsDeleted = true;
+        tenant.Status = TenantStatus.Archived;
+
+        _tenantRepo.Update(tenant);
+    }
+}
+
+

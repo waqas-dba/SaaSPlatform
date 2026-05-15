@@ -1,82 +1,108 @@
-﻿using CoreKit.Tenant.Entities;
+﻿using CoreKit.IAM.Interfaces;
+using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
+using Microsoft.Extensions.Options;
 
 namespace CoreKit.Tenant.Services;
 
+/// <summary>
+/// Tenant management service.
+/// </summary>
 public class TenantService : ITenantService
 {
     private readonly ITenantRepository _tenantRepo;
     private readonly TenantKitOptions _options;
+    private readonly TenantDbContext _db;
+    private readonly ICurrentUserService? _currentUser;   // Null if no authenticated user
 
-    public TenantService(ITenantRepository tenantRepo, TenantKitOptions options)
+    public TenantService(
+        ITenantRepository tenantRepo,
+        IOptions<TenantKitOptions> options,
+        TenantDbContext db,
+        ICurrentUserService? currentUser = null)
     {
         _tenantRepo = tenantRepo;
-        _options = options;
+        _options = options.Value;
+        _db = db;
+        _currentUser = currentUser;
     }
 
     public async Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request)
     {
         if (await _tenantRepo.ExistsByNameAsync(request.Name))
-            throw new InvalidOperationException("A tenant with this name already exists.");
+            throw new InvalidOperationException("Tenant already exists.");
 
-        var initialStatus = _options.AutoApproveTenants ? TenantStatus.Active : TenantStatus.Pending;
+        var status = _options.AutoApproveTenants ? TenantStatus.Active : TenantStatus.Pending;
 
         var tenant = new TenantEntity
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
-            Slug = GenerateSlug(request.Name),
-            Status = initialStatus,
-            MetadataJson = request.MetadataJson,
-            CreatedAt = DateTime.UtcNow
+            Slug = request.Name.ToLower().Replace(" ", "-"),
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            OwnerUserId = _currentUser?.UserId   // Set if authenticated
         };
+
         _tenantRepo.Add(tenant);
+        await _db.SaveChangesAsync();   // Critical: persist changes
 
         return new TenantRegistrationResponse
         {
             TenantId = tenant.Id,
-            Message = initialStatus == TenantStatus.Active
-                ? "Tenant registered and active."
-                : "Tenant registered. Awaiting approval."
+            Message = "Tenant created successfully"
         };
     }
 
-    public async Task<TenantEntity?> GetByIdAsync(Guid tenantId) => await _tenantRepo.GetByIdAsync(tenantId);
-    public async Task<List<TenantEntity>> GetAllAsync() => await _tenantRepo.GetAllAsync();
+    public Task<TenantEntity?> GetByIdAsync(Guid tenantId)
+        => _tenantRepo.GetByIdAsync(tenantId);
 
-    public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
-    {
-        var tenant = await _tenantRepo.GetByIdAsync(tenantId) ?? throw new KeyNotFoundException("Tenant not found.");
-        if (name != null) tenant.Name = name;
-        if (metadataJson != null) tenant.MetadataJson = metadataJson;
-        _tenantRepo.Update(tenant);
-    }
-
-    public async Task DeleteAsync(Guid tenantId)
-    {
-        var tenant = await _tenantRepo.GetByIdAsync(tenantId) ?? throw new KeyNotFoundException("Tenant not found.");
-        tenant.IsDeleted = true;
-        tenant.DeletedAtUtc = DateTime.UtcNow;
-        tenant.Status = TenantStatus.Archived;
-        _tenantRepo.Update(tenant);
-    }
+    public Task<List<TenantEntity>> GetAllAsync()
+        => _tenantRepo.GetAllAsync();
 
     public async Task ApproveAsync(Guid tenantId)
     {
-        var tenant = await _tenantRepo.GetByIdAsync(tenantId) ?? throw new KeyNotFoundException("Tenant not found.");
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+                     ?? throw new KeyNotFoundException("Tenant not found");
         tenant.Status = TenantStatus.Active;
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 
     public async Task RejectAsync(Guid tenantId)
     {
-        var tenant = await _tenantRepo.GetByIdAsync(tenantId) ?? throw new KeyNotFoundException("Tenant not found.");
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+                     ?? throw new KeyNotFoundException("Tenant not found");
         tenant.Status = TenantStatus.Rejected;
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 
-    private static string GenerateSlug(string name)
-        => name.ToLowerInvariant().Replace(" ", "-") + "-" + Guid.NewGuid().ToString("N")[..6];
+    public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+                     ?? throw new KeyNotFoundException("Tenant not found");
+        if (name != null) tenant.Name = name;
+        if (metadataJson != null) tenant.MetadataJson = metadataJson;
+        _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Soft‑deletes a tenant by marking it as Archived and setting IsDeleted.
+    /// </summary>
+    public async Task DeleteAsync(Guid tenantId)
+    {
+        var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+                     ?? throw new KeyNotFoundException("Tenant not found");
+
+        tenant.IsDeleted = true;
+        tenant.Status = TenantStatus.Archived;
+        // AuditableDbContext will automatically set DeletedAtUtc/DeletedBy
+        _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
+    }
 }
