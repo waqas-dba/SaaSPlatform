@@ -1,7 +1,7 @@
 ﻿
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs
 ==================================================
 
 using CoreKit.IAM.Extensions;
@@ -87,7 +87,7 @@ app.Run();
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs
 ==================================================
 
 using CoreKit.IAM.Authorization;
@@ -110,27 +110,32 @@ public class TenantsController : ControllerBase
         _tenantService = tenantService;
     }
 
-    // =========================
-    // PUBLIC / ONBOARDING
-    // =========================
+    /// <summary>
+    /// Public endpoint for tenant self‑registration.
+    /// </summary>
     [HttpPost("register")]
-    [AllowAnonymous]
+    [AllowAnonymous]   // Removed [Authorize] – registration is public
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
         var result = await _tenantService.RegisterAsync(request);
         return Ok(result);
     }
 
-    // =========================
-    // ADMIN ONLY
-    // =========================
+    /// <summary>
+    /// Admin‑only endpoint to approve a pending tenant.
+    /// </summary>
     [HttpPost("{tenantId}/approve")]
     [Authorize]
     [RequiresPermission(Permissions.Tenants.Approve)]
     public async Task<IActionResult> Approve(Guid tenantId)
     {
         await _tenantService.ApproveAsync(tenantId);
-        return NoContent();
+        return Ok(new
+        {
+            tenantId = tenantId,
+            status = "Approved",
+            message = "Tenant approved successfully"
+        });
     }
 }
 

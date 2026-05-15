@@ -7,7 +7,7 @@
   <Folder Name="/src/Hosts/">
     <Project Path="SaaSPlatform.Admin.Api/SaaSPlatform.Admin.Api.csproj" Id="b843937d-8082-4b12-92b5-a21e389c3200" />
     <Project Path="SaaSPlatform.Public.Api/SaaSPlatform.Public.Api.csproj" Id="0bed833a-03e2-40de-acb3-ef91be1a1162" />
-    <Project Path="SaaSPlatform.Tenant.Api/SaaSPlatform.Tenant.Api.csproj" Id="fe6fbcdd-ae62-430e-9438-6ec8c2949805" />
+    <Project Path="SaaSPlatform.Tenant.Api/SaaSPlatform.Tenant.Api.csproj" />
   </Folder>
   <Folder Name="/src/Modules/">
     <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />

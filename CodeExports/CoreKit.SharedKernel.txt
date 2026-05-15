@@ -1,7 +1,7 @@
 ﻿
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs
 ==================================================
 
 using CoreKit.SharedKernel.Interfaces;
@@ -9,6 +9,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.SharedKernel.Common;
 
+/// <summary>
+/// Base DbContext that automatically sets audit fields (CreatedAt, CreatedBy, etc.)
+/// and enforces soft‑delete filtering.
+/// </summary>
 public abstract class AuditableDbContext : DbContext
 {
     private readonly ICurrentUser? _currentUser;
@@ -32,22 +36,53 @@ public abstract class AuditableDbContext : DbContext
                     entry.Entity.CreatedAt = DateTime.UtcNow;
                     entry.Entity.CreatedBy = _currentUser?.UserId;
                     break;
-
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = DateTime.UtcNow;
                     entry.Entity.UpdatedBy = _currentUser?.UserId;
+
+                    // Handle soft‑delete
+                    if (entry.Entity is ISoftDelete deletable &&
+                        entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
+                        deletable.IsDeleted)
+                    {
+                        deletable.DeletedAtUtc = DateTime.UtcNow;
+                        deletable.DeletedBy = _currentUser?.UserId;
+                    }
                     break;
             }
         }
 
         return await base.SaveChangesAsync(cancellationToken);
     }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Global query filter for soft‑delete
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
+            {
+                modelBuilder.Entity(entityType.ClrType)
+                    .HasQueryFilter(ConvertFilterExpression(entityType.ClrType));
+            }
+        }
+    }
+
+    private static System.Linq.Expressions.LambdaExpression ConvertFilterExpression(Type entityType)
+    {
+        var parameter = System.Linq.Expressions.Expression.Parameter(entityType, "e");
+        var property = System.Linq.Expressions.Expression.Property(parameter, nameof(ISoftDelete.IsDeleted));
+        var condition = System.Linq.Expressions.Expression.Equal(property, System.Linq.Expressions.Expression.Constant(false));
+        return System.Linq.Expressions.Expression.Lambda(condition, parameter);
+    }
 }
 
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Common;
@@ -66,7 +101,7 @@ public abstract class AuditableEntity : BaseEntity
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Common;
@@ -85,7 +120,7 @@ public abstract class BaseEntity
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Common;
@@ -98,7 +133,7 @@ public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Common;
@@ -115,7 +150,7 @@ public interface ISoftDelete
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Common;
@@ -128,7 +163,7 @@ public interface ITenantScoped
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
 ==================================================
 
 
@@ -144,7 +179,7 @@ namespace CoreKit.SharedKernel.Interfaces
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Interfaces;
@@ -157,7 +192,7 @@ public interface ICurrentUser
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
 ==================================================
 
 
@@ -172,7 +207,7 @@ public interface ISlugGenerator
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
 ==================================================
 
 
@@ -190,7 +225,7 @@ public interface IUnitOfWork : IDisposable
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
 ==================================================
 
 namespace CoreKit.SharedKernel.Results;

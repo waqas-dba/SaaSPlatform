@@ -7,10 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Constants\" />
-    <Folder Include="Exceptions\" />
-    <Folder Include="Helpers\" />
-    <Folder Include="Policies\" />
+    <Compile Remove="Constants\**" />
+    <Compile Remove="Exceptions\**" />
+    <Compile Remove="Helpers\**" />
+    <Compile Remove="Policies\**" />
+    <EmbeddedResource Remove="Constants\**" />
+    <EmbeddedResource Remove="Exceptions\**" />
+    <EmbeddedResource Remove="Helpers\**" />
+    <EmbeddedResource Remove="Policies\**" />
+    <None Remove="Constants\**" />
+    <None Remove="Exceptions\**" />
+    <None Remove="Helpers\**" />
+    <None Remove="Policies\**" />
   </ItemGroup>
 
   <ItemGroup>

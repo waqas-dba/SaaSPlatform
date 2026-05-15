@@ -7,9 +7,6 @@ using Microsoft.Extensions.Options;
 
 namespace CoreKit.IAM.Services;
 
-/// <summary>
-/// Implements refresh token lifecycle management.
-/// </summary>
 public class RefreshTokenService : IRefreshTokenService
 {
     private readonly IRefreshTokenRepository _repo;
@@ -42,8 +39,8 @@ public class RefreshTokenService : IRefreshTokenService
             CreatedByIp = ipAddress,
             UserAgent = userAgent
         };
-
         await _repo.AddAsync(entity);
+
         return rawToken;
     }
 
@@ -72,10 +69,12 @@ public class RefreshTokenService : IRefreshTokenService
     public async Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token)
     {
         var hash = TokenHasher.Hash(token);
-        var existing = await _repo.GetByTokenHashAsync(hash);
+        var existing = await _repo.GetByTokenHashAsync(hash)
+            ?? throw new UnauthorizedAccessException("Invalid refresh token");
 
-        if (existing == null)
-            throw new UnauthorizedAccessException("Invalid refresh token");
+        // ✅ NEW – Check token expiry before rotation
+        if (existing.ExpiresAtUtc <= DateTime.UtcNow)
+            throw new UnauthorizedAccessException("Refresh token expired");
 
         if (existing.IsRevoked)
         {
@@ -96,7 +95,6 @@ public class RefreshTokenService : IRefreshTokenService
         existing.IsRevoked = true;
         existing.RevokedAtUtc = DateTime.UtcNow;
         existing.ReplacedByTokenHash = newEntity.TokenHash;
-
         await _repo.UpdateAsync(existing);
         await _repo.AddAsync(newEntity);
 

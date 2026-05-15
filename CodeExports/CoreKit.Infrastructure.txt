@@ -1,25 +1,25 @@
 ﻿
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs
 ==================================================
 
 using System.Net;
 using System.Text.Json;
-using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 namespace CoreKit.Infrastructure.Middleware;
 
+/// <summary>
+/// Global exception handler that translates exceptions into proper HTTP responses.
+/// </summary>
 public class ExceptionMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionMiddleware> _logger;
 
-    public ExceptionMiddleware(
-        RequestDelegate next,
-        ILogger<ExceptionMiddleware> logger)
+    public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
     {
         _next = next;
         _logger = logger;
@@ -33,19 +33,22 @@ public class ExceptionMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, ex.Message);
+            _logger.LogError(ex, "An unhandled exception occurred.");
 
-            context.Response.ContentType = "application/json";
-            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-
-            var response = new
+            var statusCode = ex switch
             {
-                success = false,
-                message = ex.Message
+                UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized,
+                KeyNotFoundException => (int)HttpStatusCode.NotFound,
+                InvalidOperationException => (int)HttpStatusCode.BadRequest,
+                ArgumentException => (int)HttpStatusCode.BadRequest,
+                _ => (int)HttpStatusCode.InternalServerError
             };
 
-            await context.Response.WriteAsync(
-                JsonSerializer.Serialize(response));
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = statusCode;
+
+            var response = new { success = false, message = ex.Message };
+            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
         }
     }
 }
@@ -53,7 +56,7 @@ public class ExceptionMiddleware
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Security\EncryptionService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Security\EncryptionService.cs
 ==================================================
 
 using System.Security.Cryptography;

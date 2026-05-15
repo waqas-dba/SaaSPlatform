@@ -4,9 +4,6 @@ using CoreKit.IAM.Persistence;
 
 namespace CoreKit.IAM.Services;
 
-/// <summary>
-/// Authentication service handling login, token refresh, and logout.
-/// </summary>
 public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepo;
@@ -38,7 +35,7 @@ public class AuthService : IAuthService
     public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
     {
         var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier)
-                   ?? throw new UnauthorizedAccessException("Invalid credentials.");
+            ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!user.IsActive)
             throw new UnauthorizedAccessException("Account is disabled.");
@@ -63,6 +60,7 @@ public class AuthService : IAuthService
         var roles = user.Roles.Select(r => r.Role.Name).Distinct().ToList();
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
         var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles, permissions);
+
         var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
 
         return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
@@ -71,13 +69,25 @@ public class AuthService : IAuthService
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
     {
         var (newToken, compromised, userId) = await _refreshTokenService.RotateAsync(request.RefreshToken);
-
         if (compromised)
             throw new UnauthorizedAccessException("Refresh token reuse detected. Session revoked.");
 
-        var user = await _userRepo.GetByIdAsync(userId);
-        var roles = user!.Roles.Select(r => r.Role.Name);
-        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles);
+        var user = await _userRepo.GetByIdAsync(userId)
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        // ✅ Validate tenant membership if a tenant is requested
+        if (tenantId.HasValue)
+        {
+            bool belongsToTenant = user.Roles.Any(ur => ur.TenantId == tenantId);
+            if (!belongsToTenant)
+                throw new UnauthorizedAccessException("User does not belong to this tenant.");
+        }
+
+        var roles = user.Roles.Select(r => r.Role.Name).Distinct();
+
+        // ✅ Re‑embed permissions into the refreshed access token
+        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles, permissions);
 
         return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
     }

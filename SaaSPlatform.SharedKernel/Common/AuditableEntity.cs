@@ -1,6 +1,7 @@
 ﻿namespace CoreKit.SharedKernel.Common;
 
-public abstract class AuditableEntity : BaseEntity
+// ✅ Now implements ISoftDelete so soft-delete global filter works for all entities.
+public abstract class AuditableEntity : BaseEntity, ISoftDelete
 {
     public DateTime CreatedAt { get; set; }
     public Guid? CreatedBy { get; set; }

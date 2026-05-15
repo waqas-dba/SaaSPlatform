@@ -1,7 +1,7 @@
 ﻿
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs
 ==================================================
 
 namespace CoreKit.Tenant.Abstractions;
@@ -14,7 +14,7 @@ public interface IStoreLimitService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs
 ==================================================
 
 namespace CoreKit.Tenant.Abstractions;
@@ -24,7 +24,7 @@ public interface ITenantContext { Guid? TenantId { get; } }
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs
 ==================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -53,7 +53,7 @@ public class StoreConfiguration : IEntityTypeConfiguration<Store>
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs
 ==================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -63,26 +63,32 @@ using CoreKit.Tenant.Enums;
 
 namespace CoreKit.Tenant.Configuration;
 
+/// <summary>
+/// EF Core configuration for TenantEntity.
+/// </summary>
 public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
 {
     public void Configure(EntityTypeBuilder<TenantEntity> builder)
     {
         builder.ToTable("TNT_Tenants");
         builder.HasKey(x => x.Id);
+
         builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
         builder.HasIndex(x => x.Slug).IsUnique();
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+
+        // Unique name across all tenants (consider soft‑delete filter)
         builder.HasIndex(x => x.Name).IsUnique();
-       
-        builder.HasIndex(x => x.OwnerUserId)
-           .IsUnique();
+
+        // OwnerUserId unique but allows nulls (multiple nulls = allowed in PostgreSQL)
+        builder.HasIndex(x => x.OwnerUserId).IsUnique();
     }
 }
 
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs
 ==================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -105,7 +111,7 @@ public class TenantLegalInfoConfiguration : IEntityTypeConfiguration<TenantLegal
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs
 ==================================================
 
 using CoreKit.SharedKernel.Common;
@@ -145,7 +151,7 @@ public class Store : AuditableEntity, ITenantScoped
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs
 ==================================================
 
 using CoreKit.SharedKernel.Common;
@@ -153,15 +159,19 @@ using CoreKit.Tenant.Enums;
 
 namespace CoreKit.Tenant.Entities;
 
+/// <summary>
+/// Represents a tenant (customer) in the SaaS platform.
+/// </summary>
 public class TenantEntity : AuditableEntity
 {
     public string Name { get; set; } = default!;
     public string Slug { get; set; } = default!;
-   
     public TenantStatus Status { get; set; } = TenantStatus.Pending;
 
-    // IAM user reference only
-    public Guid OwnerUserId { get; set; }
+    /// <summary>
+    /// The user who owns this tenant. Nullable to allow public registrations.
+    /// </summary>
+    public Guid? OwnerUserId { get; set; }
 
     public string? MetadataJson { get; set; }
     public ICollection<Store>? Stores { get; set; }
@@ -170,7 +180,7 @@ public class TenantEntity : AuditableEntity
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs
 ==================================================
 
 namespace CoreKit.Tenant.Entities;
@@ -188,7 +198,7 @@ public class TenantLegalInfo
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs
 ==================================================
 
 namespace CoreKit.Tenant.Enums;
@@ -215,7 +225,7 @@ public enum StoreType
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs
 ==================================================
 
 namespace CoreKit.Tenant.Enums;
@@ -232,7 +242,7 @@ public enum TenantStatus
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs
 ==================================================
 
 using CoreKit.Tenant.Abstractions;
@@ -282,7 +292,7 @@ public static class TenantKitServiceCollectionExtensions
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -302,16 +312,21 @@ public interface IStoreRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs
 ==================================================
 
 using CoreKit.Tenant.Models;
 
+namespace CoreKit.Tenant.Interfaces;
+
+/// <summary>
+/// Store management service.
+/// </summary>
 public interface IStoreService
 {
     Task<StoreDto?> GetByIdAsync(Guid storeId);
     Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
-    Task<StoreDto> CreateAsync(Guid tenantId, CreateStoreRequest request);
+    Task<StoreDto> CreateAsync(CreateStoreRequest request);   // Tenant from context
     Task UpdateAsync(Guid storeId, UpdateStoreRequest request);
     Task DeleteAsync(Guid storeId);
     Task SetMarketplaceListingAsync(Guid storeId, bool isListed);
@@ -320,7 +335,7 @@ public interface IStoreService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -336,7 +351,7 @@ public interface ITenantLegalInfoRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -352,7 +367,7 @@ public interface ITenantLegalInfoService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -372,7 +387,7 @@ public interface ITenantRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -396,7 +411,7 @@ public interface ITenantService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs
 ==================================================
 
 using CoreKit.Tenant.Abstractions;
@@ -430,7 +445,7 @@ public class TenantResolutionMiddleware
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -457,7 +472,7 @@ public class CreateStoreRequest
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -477,7 +492,7 @@ public class StoreDto
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -497,7 +512,7 @@ public class TenantKitOptions
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -511,7 +526,7 @@ public class TenantRegistrationRequest
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -525,7 +540,7 @@ public class TenantRegistrationResponse
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs
 ==================================================
 
 namespace CoreKit.Tenant.Models;
@@ -556,7 +571,7 @@ public class UpdateStoreRequest
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs
 ==================================================
 
 using CoreKit.IAM.Interfaces;
@@ -591,7 +606,7 @@ public class TenantDbContext : AuditableDbContext
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs
 ==================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -615,7 +630,7 @@ public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContex
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -673,7 +688,7 @@ public class TenantSeeder
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -706,7 +721,7 @@ public class StoreRepository : IStoreRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -751,7 +766,7 @@ public class TenantLegalInfoRepository : ITenantLegalInfoRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantRepository.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantRepository.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -783,7 +798,7 @@ public class TenantRepository : ITenantRepository
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs
 ==================================================
 
 using CoreKit.Tenant.Abstractions;
@@ -795,6 +810,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.Tenant.Services;
 
+/// <summary>
+/// Manages store entities for the current tenant.
+/// </summary>
 public class StoreService : IStoreService
 {
     private readonly TenantDbContext _db;
@@ -809,11 +827,9 @@ public class StoreService : IStoreService
     public async Task<StoreDto?> GetByIdAsync(Guid storeId)
     {
         var tenantId = _tenantContext.TenantId
-            ?? throw new UnauthorizedAccessException("Missing tenant");
-
+                       ?? throw new UnauthorizedAccessException("Missing tenant");
         var store = await _db.Stores
             .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
-
         return store == null ? null : Map(store);
     }
 
@@ -822,19 +838,21 @@ public class StoreService : IStoreService
         var stores = await _db.Stores
             .Where(x => x.TenantId == tenantId)
             .ToListAsync();
-
         return stores.Select(Map).ToList();
     }
 
-    public async Task<StoreDto> CreateAsync(Guid tenantId, CreateStoreRequest request)
+    public async Task<StoreDto> CreateAsync(CreateStoreRequest request)
     {
-        var actualTenantId = _tenantContext.TenantId
-            ?? throw new UnauthorizedAccessException("Missing tenant");
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
+
+        var tenantId = _tenantContext.TenantId
+                       ?? throw new UnauthorizedAccessException("Missing tenant");
 
         var store = new Store
         {
             Id = Guid.NewGuid(),
-            TenantId = actualTenantId,
+            TenantId = tenantId,
             Name = request.Name,
             Slug = GenerateSlug(request.Name),
             Type = request.Type,
@@ -850,37 +868,31 @@ public class StoreService : IStoreService
             CoverImageUrl = request.CoverImageUrl,
             MetadataJson = request.MetadataJson,
             IsActive = true,
-            IsListedOnMarketplace = false,
-            CreatedAt = DateTime.UtcNow
+            IsListedOnMarketplace = false
         };
 
         _db.Stores.Add(store);
         await _db.SaveChangesAsync();
-
         return Map(store);
     }
 
     public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
     {
         var tenantId = _tenantContext.TenantId
-            ?? throw new UnauthorizedAccessException("Missing tenant");
+                       ?? throw new UnauthorizedAccessException("Missing tenant");
 
         var store = await _db.Stores
-            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
-
-        if (store == null)
-            throw new InvalidOperationException("Store not found");
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
+            ?? throw new InvalidOperationException("Store not found");
 
         if (request.Name != null)
         {
             store.Name = request.Name;
             store.Slug = GenerateSlug(request.Name);
         }
-
         if (request.Type != null) store.Type = request.Type;
         if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
-
-        store.UpdatedAt = DateTime.UtcNow;
+        // other fields omitted for brevity; add as needed
 
         await _db.SaveChangesAsync();
     }
@@ -888,13 +900,11 @@ public class StoreService : IStoreService
     public async Task DeleteAsync(Guid storeId)
     {
         var tenantId = _tenantContext.TenantId
-            ?? throw new UnauthorizedAccessException("Missing tenant");
+                       ?? throw new UnauthorizedAccessException("Missing tenant");
 
         var store = await _db.Stores
-            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
-
-        if (store == null)
-            throw new InvalidOperationException("Store not found");
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
+            ?? throw new InvalidOperationException("Store not found");
 
         _db.Stores.Remove(store);
         await _db.SaveChangesAsync();
@@ -903,17 +913,13 @@ public class StoreService : IStoreService
     public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
     {
         var tenantId = _tenantContext.TenantId
-            ?? throw new UnauthorizedAccessException("Missing tenant");
+                       ?? throw new UnauthorizedAccessException("Missing tenant");
 
         var store = await _db.Stores
-            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
-
-        if (store == null)
-            throw new InvalidOperationException("Store not found");
+            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
+            ?? throw new InvalidOperationException("Store not found");
 
         store.IsListedOnMarketplace = isListed;
-        store.UpdatedAt = DateTime.UtcNow;
-
         await _db.SaveChangesAsync();
     }
 
@@ -935,7 +941,7 @@ public class StoreService : IStoreService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs
 ==================================================
 
 namespace CoreKit.Tenant.Abstractions;
@@ -953,7 +959,7 @@ public class TenantContext : ITenantContext
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantLegalInfoService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantLegalInfoService.cs
 ==================================================
 
 using CoreKit.Tenant.Entities;
@@ -985,28 +991,39 @@ public class TenantLegalInfoService : ITenantLegalInfoService
 
 
 ==================================================
-FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantService.cs
+FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantService.cs
 ==================================================
 
+using CoreKit.IAM.Interfaces;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
 using Microsoft.Extensions.Options;
 
 namespace CoreKit.Tenant.Services;
 
+/// <summary>
+/// Tenant management service.
+/// </summary>
 public class TenantService : ITenantService
 {
     private readonly ITenantRepository _tenantRepo;
     private readonly TenantKitOptions _options;
+    private readonly TenantDbContext _db;
+    private readonly ICurrentUserService? _currentUser;   // Null if no authenticated user
 
     public TenantService(
         ITenantRepository tenantRepo,
-        IOptions<TenantKitOptions> options)
+        IOptions<TenantKitOptions> options,
+        TenantDbContext db,
+        ICurrentUserService? currentUser = null)
     {
         _tenantRepo = tenantRepo;
         _options = options.Value;
+        _db = db;
+        _currentUser = currentUser;
     }
 
     public async Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request)
@@ -1014,9 +1031,7 @@ public class TenantService : ITenantService
         if (await _tenantRepo.ExistsByNameAsync(request.Name))
             throw new InvalidOperationException("Tenant already exists.");
 
-        var status = _options.AutoApproveTenants
-            ? TenantStatus.Active
-            : TenantStatus.Pending;
+        var status = _options.AutoApproveTenants ? TenantStatus.Active : TenantStatus.Pending;
 
         var tenant = new TenantEntity
         {
@@ -1024,10 +1039,12 @@ public class TenantService : ITenantService
             Name = request.Name,
             Slug = request.Name.ToLower().Replace(" ", "-"),
             Status = status,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            OwnerUserId = _currentUser?.UserId   // Set if authenticated
         };
 
         _tenantRepo.Add(tenant);
+        await _db.SaveChangesAsync();   // Critical: persist changes
 
         return new TenantRegistrationResponse
         {
@@ -1045,41 +1062,44 @@ public class TenantService : ITenantService
     public async Task ApproveAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-            ?? throw new Exception("Not found");
-
+                     ?? throw new KeyNotFoundException("Tenant not found");
         tenant.Status = TenantStatus.Active;
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 
     public async Task RejectAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-            ?? throw new Exception("Not found");
-
+                     ?? throw new KeyNotFoundException("Tenant not found");
         tenant.Status = TenantStatus.Rejected;
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 
     public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-            ?? throw new KeyNotFoundException("Tenant not found");
-
+                     ?? throw new KeyNotFoundException("Tenant not found");
         if (name != null) tenant.Name = name;
         if (metadataJson != null) tenant.MetadataJson = metadataJson;
-
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Soft‑deletes a tenant by marking it as Archived and setting IsDeleted.
+    /// </summary>
     public async Task DeleteAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-            ?? throw new KeyNotFoundException("Tenant not found");
+                     ?? throw new KeyNotFoundException("Tenant not found");
 
         tenant.IsDeleted = true;
         tenant.Status = TenantStatus.Archived;
-
+        // AuditableDbContext will automatically set DeletedAtUtc/DeletedBy
         _tenantRepo.Update(tenant);
+        await _db.SaveChangesAsync();
     }
 }
 

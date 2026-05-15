@@ -2,7 +2,7 @@ using CoreKit.IAM.Extensions;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Infrastructure.Security;
+using CoreKit.IAM.Services;
 using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;

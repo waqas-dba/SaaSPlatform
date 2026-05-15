@@ -43,7 +43,6 @@ public class TenantService : ITenantService
             Name = request.Name,
             Slug = request.Name.ToLower().Replace(" ", "-"),
             Status = status,
-            CreatedAt = DateTime.UtcNow,
             OwnerUserId = _currentUser?.UserId   // Set if authenticated
         };
 

@@ -1,5 +1,5 @@
 ﻿
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Extensions\ServiceCollectionExtensions.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Extensions\ServiceCollectionExtensions.cs =====
 using System.Text;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -110,7 +110,7 @@ return services;
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Helpers\PhoneNormalizer.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Helpers\PhoneNormalizer.cs =====
 namespace CoreKit.IAM.Helpers;
 public static class PhoneNormalizer
 {
@@ -121,7 +121,7 @@ return phone.Trim().Replace(" ", "").Replace("-", "");
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Helpers\TokenHasher.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Helpers\TokenHasher.cs =====
 using System.Security.Cryptography;
 using System.Text;
 namespace CoreKit.IAM.Helpers;
@@ -135,7 +135,7 @@ return Convert.ToBase64String(bytes);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IAuthService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IAuthService.cs =====
 using CoreKit.IAM.Models;
 namespace CoreKit.IAM.Interfaces
 {
@@ -147,7 +147,7 @@ Task LogoutAsync(string refreshToken);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\ICurrentUserService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\ICurrentUserService.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface ICurrentUserService
 {
@@ -158,7 +158,7 @@ bool IsSuperAdmin { get; }
 bool HasPermission(string permission);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IEncryptionService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IEncryptionService.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IEncryptionService
 {
@@ -168,7 +168,7 @@ byte[] Encrypt(byte[] plainBytes);
 byte[] Decrypt(byte[] encryptedBytes);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IJwtTokenService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IJwtTokenService.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IJwtTokenService
@@ -177,7 +177,7 @@ public interface IJwtTokenService
 IEnumerable<string> roles, IEnumerable<string>? permissions = null);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPasswordHasher.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPasswordHasher.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IPasswordHasher
 {
@@ -185,7 +185,7 @@ string Hash(string password);
 bool Verify(string password, string passwordHash);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionRepository.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IPermissionRepository
 {
@@ -194,7 +194,7 @@ Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module
 Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionService.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IPermissionService
 {
@@ -203,7 +203,7 @@ Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module);
 Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenRepository.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IRefreshTokenRepository
@@ -216,17 +216,18 @@ Task UpdateRangeAsync(IEnumerable<RefreshToken> tokens);
 Task RevokeFamilyAsync(string familyId, string? revokedByIp = null);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenService.cs =====
+namespace CoreKit.IAM.Interfaces;
 public interface IRefreshTokenService
 {
 Task<string> GenerateAsync(Guid userId, string jwtId, string? ipAddress = null, string? userAgent = null);
 Task<bool> ValidateAsync(string token);
 Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null);
-Task<(string Token, bool Compromised)> RotateAsync(string token);
+Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token);
 string ComputeHash(string token);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleDocumentRequirementService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleDocumentRequirementService.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IRoleDocumentRequirementService
 {
@@ -236,7 +237,7 @@ Task<List<string>> GetRequiredDocumentsAsync(Guid roleId);
 Task<bool> IsRequiredAsync(Guid roleId, string documentType);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleManagementService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleManagementService.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IRoleManagementService
@@ -251,7 +252,7 @@ Task RemovePermissionAsync(Guid roleId, Guid permissionId);
 Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleRepository.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IRoleRepository
@@ -267,7 +268,7 @@ void RemoveRolePermission(RolePermission rolePermission);
 void AddUserRole(UserRole userRole);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserDocumentService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserDocumentService.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IUserDocumentService
@@ -278,7 +279,7 @@ Task<List<UserDocument>> GetByUserAsync(Guid userId);
 Task DeleteAsync(Guid userId, string documentType);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserIdentityService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserIdentityService.cs =====
 namespace CoreKit.IAM.Interfaces;
 public interface IUserIdentityService
 {
@@ -287,7 +288,7 @@ Task<string?> GetCnicAsync(Guid userId);
 Task DeleteAsync(Guid userId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserManagementService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserManagementService.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IUserManagementService
@@ -303,7 +304,7 @@ Task LockUserAsync(Guid userId, DateTime lockoutEnd);
 Task UnlockUserAsync(Guid userId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserRepository.cs =====
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IUserRepository
@@ -320,14 +321,14 @@ void Delete(User user);
 Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleRequest.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleRequest.cs =====
 namespace CoreKit.IAM.Models;
 public class AssignRoleRequest
 {
 public Guid RoleId { get; set; }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
 using Microsoft.AspNetCore.Http;
 namespace CoreKit.IAM.Models;
 public class IamOptions
@@ -343,7 +344,7 @@ public bool RequireCnic { get; set; } = true;
 public bool EnableRoleDocumentRequirements { get; set; } = false;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
 namespace CoreKit.IAM.Models;
 public class JwtSettings
 {
@@ -354,7 +355,7 @@ public int AccessTokenMinutes { get; set; } = 120;
 public int RefreshTokenDays { get; set; } = 7;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginRequest.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginRequest.cs =====
 namespace CoreKit.IAM.Models;
 public class LoginRequest
 {
@@ -362,7 +363,7 @@ public string Login { get; set; } = default!;
 public string Password { get; set; } = default!;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginResponse.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginResponse.cs =====
 namespace CoreKit.IAM.Models;
 public class LoginResponse
 {
@@ -370,14 +371,23 @@ public string AccessToken { get; set; } = default!;
 public string RefreshToken { get; set; } = default!;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\RefreshTokenRequest.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LogoutRequest.cs =====
+namespace CoreKit.IAM.Models
+{
+public class LogoutRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\RefreshTokenRequest.cs =====
 namespace CoreKit.IAM.Models;
 public class RefreshTokenRequest
 {
 public string RefreshToken { get; set; } = default!;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamSeeder.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamSeeder.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -393,35 +403,43 @@ _hasher = hasher;
 }
 public async Task SeedAsync()
 {
+var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 var catalog = Guid.Parse("30000000-0000-0000-0000-000000000001");
 var orders = Guid.Parse("30000000-0000-0000-0000-000000000002");
 var billing = Guid.Parse("30000000-0000-0000-0000-000000000003");
 var iam = Guid.Parse("30000000-0000-0000-0000-000000000004");
 if (!await _db.PermissionModules.AnyAsync(x => x.Id == catalog))
-{
-_db.PermissionModules.AddRange(
-new PermissionModule { Id = catalog, Name = "Catalog", Code = "catalog" },
-new PermissionModule { Id = orders, Name = "Orders", Code = "orders" },
-new PermissionModule { Id = billing, Name = "Billing", Code = "billing" },
-new PermissionModule { Id = iam, Name = "IAM", Code = "iam" }
-);
+_db.PermissionModules.Add(new PermissionModule { Id = catalog, Name = "Catalog", Code = "catalog" });
+if (!await _db.PermissionModules.AnyAsync(x => x.Id == orders))
+_db.PermissionModules.Add(new PermissionModule { Id = orders, Name = "Orders", Code = "orders" });
+if (!await _db.PermissionModules.AnyAsync(x => x.Id == billing))
+_db.PermissionModules.Add(new PermissionModule { Id = billing, Name = "Billing", Code = "billing" });
+if (!await _db.PermissionModules.AnyAsync(x => x.Id == iam))
+_db.PermissionModules.Add(new PermissionModule { Id = iam, Name = "IAM", Code = "iam" });
 await _db.SaveChangesAsync();
-}
-if (!await _db.Permissions.AnyAsync())
+var existingPermissions = await _db.Permissions.Select(p => p.Name).ToListAsync();
+void AddPermissionIfNew(string name, Guid moduleId)
 {
-_db.Permissions.AddRange(
-new Permission { Id = Guid.NewGuid(), Name = "catalog.view", PermissionModuleId = catalog },
-new Permission { Id = Guid.NewGuid(), Name = "catalog.create", PermissionModuleId = catalog },
-new Permission { Id = Guid.NewGuid(), Name = "catalog.update", PermissionModuleId = catalog },
-new Permission { Id = Guid.NewGuid(), Name = "orders.view", PermissionModuleId = orders },
-new Permission { Id = Guid.NewGuid(), Name = "orders.manage", PermissionModuleId = orders },
-new Permission { Id = Guid.NewGuid(), Name = "billing.view", PermissionModuleId = billing },
-new Permission { Id = Guid.NewGuid(), Name = "billing.manage", PermissionModuleId = billing },
-new Permission { Id = Guid.NewGuid(), Name = "tenant.view", PermissionModuleId = iam },
-new Permission { Id = Guid.NewGuid(), Name = "tenant.approve", PermissionModuleId = iam }
-);
-await _db.SaveChangesAsync();
+if (!existingPermissions.Contains(name))
+{
+_db.Permissions.Add(new Permission
+{
+Id = Guid.NewGuid(),
+Name = name,
+PermissionModuleId = moduleId
+});
 }
+}
+AddPermissionIfNew("catalog.view", catalog);
+AddPermissionIfNew("catalog.create", catalog);
+AddPermissionIfNew("catalog.update", catalog);
+AddPermissionIfNew("orders.view", orders);
+AddPermissionIfNew("orders.manage", orders);
+AddPermissionIfNew("billing.view", billing);
+AddPermissionIfNew("billing.manage", billing);
+AddPermissionIfNew("tenant.view", iam);
+AddPermissionIfNew("tenant.approve", iam);
+await _db.SaveChangesAsync();
 var superAdmin = await _db.Roles.FirstOrDefaultAsync(x => x.Name == "SuperAdmin");
 if (superAdmin == null)
 {
@@ -429,16 +447,16 @@ superAdmin = new Role
 {
 Id = Guid.NewGuid(),
 Name = "SuperAdmin",
+Description = "System Super Admin",
 IsSystem = true
 };
 _db.Roles.Add(superAdmin);
 await _db.SaveChangesAsync();
 }
-var userExists = await _db.Users.AnyAsync(x =>
-x.Phone == "0000000000" || x.Email == "admin@system.com");
-if (!userExists)
+var user = await _db.Users.FirstOrDefaultAsync(x => x.Phone == "0000000000" || x.Email == "admin@system.com");
+if (user == null)
 {
-var user = new User
+user = new User
 {
 Id = Guid.NewGuid(),
 Name = "System Admin",
@@ -449,17 +467,18 @@ IsActive = true
 };
 _db.Users.Add(user);
 await _db.SaveChangesAsync();
-_db.UserRoles.Add(new UserRole
-{
-UserId = user.Id,
-RoleId = superAdmin.Id
-});
-await _db.SaveChangesAsync();
 }
+await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_UserRoles"" (""UserId"", ""RoleId"", ""TenantId"")
+VALUES ({0}, {1}, {2})
+ON CONFLICT DO NOTHING",
+user.Id,
+superAdmin.Id,
+systemTenantId);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
@@ -485,25 +504,13 @@ public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
 public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
 public DbSet<RoleDocumentRequirement> RoleDocumentRequirements => Set<RoleDocumentRequirement>();
 protected override void OnModelCreating(ModelBuilder modelBuilder)
-=> modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
-public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
 {
-foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
-{
-if (entry.State == EntityState.Added)
-{
-entry.Entity.CreatedAt = DateTime.UtcNow;
-}
-else if (entry.State == EntityState.Modified)
-{
-entry.Entity.UpdatedAt = DateTime.UtcNow;
-}
-}
-return await base.SaveChangesAsync(ct);
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContextFactory.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContextFactory.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 namespace CoreKit.IAM.Persistence;
@@ -518,7 +525,7 @@ return new IamDbContext(optionsBuilder.Options);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\PermissionRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\PermissionRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
@@ -567,12 +574,11 @@ select p.Name
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RefreshTokenRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RefreshTokenRepository.cs =====
 using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
-using System.Security.Cryptography;
-using System.Text;
+using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Persistence;
 namespace CoreKit.IAM.Repositories;
 public class RefreshTokenRepository : IRefreshTokenRepository
@@ -581,11 +587,6 @@ private readonly IamDbContext _db;
 public RefreshTokenRepository(IamDbContext db)
 {
 _db = db;
-}
-private static string Hash(string token)
-{
-using var sha = SHA256.Create();
-return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(token)));
 }
 public async Task AddAsync(RefreshToken token)
 {
@@ -619,7 +620,7 @@ await UpdateRangeAsync(tokens);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RoleRepository.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RoleRepository.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;

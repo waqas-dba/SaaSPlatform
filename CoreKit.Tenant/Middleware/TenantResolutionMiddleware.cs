@@ -1,4 +1,5 @@
-﻿using CoreKit.Tenant.Abstractions;
+﻿using CoreKit.IAM.Interfaces;   // ✅ added for tenant validation
+using CoreKit.Tenant.Abstractions;
 using Microsoft.AspNetCore.Http;
 
 namespace CoreKit.Tenant.Middleware;
@@ -12,14 +13,32 @@ public class TenantResolutionMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
+    public async Task InvokeAsync(
+        HttpContext context,
+        ITenantContext tenantContext,
+        IUserManagementService? userManagementService,  // ✅ optional, may be null if IAM not registered
+        ICurrentUserService? currentUserService)
     {
-        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid))
+        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid) &&
+            Guid.TryParse(tid, out var parsed))
         {
-            if (Guid.TryParse(tid, out var parsed))
+            // ✅ If the user is authenticated, verify they actually belong to the requested tenant
+            if (context.User.Identity?.IsAuthenticated == true &&
+                userManagementService != null &&
+                currentUserService?.UserId != null)
             {
-                ((TenantContext)tenantContext).SetTenant(parsed);
+                var user = await userManagementService.GetUserByIdAsync(
+                    currentUserService.UserId.Value, parsed);
+
+                if (user == null)
+                {
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsync("Access denied to the requested tenant.");
+                    return;
+                }
             }
+
+            ((TenantContext)tenantContext).SetTenant(parsed);
         }
 
         await _next(context);

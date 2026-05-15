@@ -32,4 +32,7 @@ public class IamOptions
 
     /// <summary>If true, the RoleDocumentRequirement service is registered (requires EnableUserDocuments = true).</summary>
     public bool EnableRoleDocumentRequirements { get; set; } = false;
+
+    // ... other properties
+    public bool AllowDefaultAdminSeed { get; set; } = false;  // ✅ New flag
 }

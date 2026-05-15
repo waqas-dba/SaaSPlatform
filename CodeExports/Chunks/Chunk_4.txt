@@ -1,5 +1,5 @@
 ﻿
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -115,10 +115,9 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs =====
+===== CoreKit.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs =====
 using System.Net;
 using System.Text.Json;
-using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 namespace CoreKit.Infrastructure.Middleware;
@@ -126,9 +125,7 @@ public class ExceptionMiddleware
 {
 private readonly RequestDelegate _next;
 private readonly ILogger<ExceptionMiddleware> _logger;
-public ExceptionMiddleware(
-RequestDelegate next,
-ILogger<ExceptionMiddleware> logger)
+public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
 {
 _next = next;
 _logger = logger;
@@ -141,21 +138,24 @@ await _next(context);
 }
 catch (Exception ex)
 {
-_logger.LogError(ex, ex.Message);
-context.Response.ContentType = "application/json";
-context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-var response = new
+_logger.LogError(ex, "An unhandled exception occurred.");
+var statusCode = ex switch
 {
-success = false,
-message = ex.Message
+UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized,
+KeyNotFoundException => (int)HttpStatusCode.NotFound,
+InvalidOperationException => (int)HttpStatusCode.BadRequest,
+ArgumentException => (int)HttpStatusCode.BadRequest,
+_ => (int)HttpStatusCode.InternalServerError
 };
-await context.Response.WriteAsync(
-JsonSerializer.Serialize(response));
+context.Response.ContentType = "application/json";
+context.Response.StatusCode = statusCode;
+var response = new { success = false, message = ex.Message };
+await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 }
 }
 
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Security\EncryptionService.cs =====
+===== CoreKit.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Security\EncryptionService.cs =====
 using System.Security.Cryptography;
 using System.Text;
 using CoreKit.IAM.Interfaces;
@@ -198,18 +198,18 @@ return plain;
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs =====
 namespace CoreKit.Tenant.Abstractions;
 public interface IStoreLimitService
 {
 Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
 namespace CoreKit.Tenant.Abstractions;
 public interface ITenantContext { Guid? TenantId { get; } }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.Tenant.Entities;
@@ -231,7 +231,7 @@ builder.HasOne(x => x.Tenant)
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.Tenant.Entities;
@@ -247,12 +247,11 @@ builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
 builder.HasIndex(x => x.Slug).IsUnique();
 builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
 builder.HasIndex(x => x.Name).IsUnique();
-builder.HasIndex(x => x.OwnerUserId)
-.IsUnique();
+builder.HasIndex(x => x.OwnerUserId).IsUnique();
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.Tenant.Entities;
@@ -268,7 +267,7 @@ builder.HasOne(x => x.Tenant).WithOne().HasForeignKey<TenantLegalInfo>(x => x.Te
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs =====
 using CoreKit.SharedKernel.Common;
 namespace CoreKit.Tenant.Entities;
 public class Store : AuditableEntity, ITenantScoped
@@ -299,7 +298,7 @@ public bool IsListedOnMarketplace { get; set; }
 public string? MetadataJson { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs =====
 using CoreKit.SharedKernel.Common;
 using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Entities;
@@ -308,12 +307,12 @@ public class TenantEntity : AuditableEntity
 public string Name { get; set; } = default!;
 public string Slug { get; set; } = default!;
 public TenantStatus Status { get; set; } = TenantStatus.Pending;
-public Guid OwnerUserId { get; set; }
+public Guid? OwnerUserId { get; set; }
 public string? MetadataJson { get; set; }
 public ICollection<Store>? Stores { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs =====
 namespace CoreKit.Tenant.Entities;
 public class TenantLegalInfo
 {
@@ -325,7 +324,7 @@ public string? AdditionalJson { get; set; }
 public TenantEntity Tenant { get; set; } = default!;
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs =====
 namespace CoreKit.Tenant.Enums;
 public enum StoreType
 {
@@ -346,7 +345,7 @@ Bakery = 14,
 Other = 99
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs =====
 namespace CoreKit.Tenant.Enums;
 public enum TenantStatus
 {
@@ -357,7 +356,7 @@ Rejected = 4,
 Archived = 5
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs =====
 using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
@@ -395,7 +394,7 @@ return services;
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs =====
 using CoreKit.Tenant.Entities;
 namespace CoreKit.Tenant.Interfaces;
 public interface IStoreRepository
@@ -408,19 +407,20 @@ void Update(Store store);
 void Delete(Store store);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs =====
 using CoreKit.Tenant.Models;
+namespace CoreKit.Tenant.Interfaces;
 public interface IStoreService
 {
 Task<StoreDto?> GetByIdAsync(Guid storeId);
 Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
-Task<StoreDto> CreateAsync(Guid tenantId, CreateStoreRequest request);
+Task<StoreDto> CreateAsync(CreateStoreRequest request);
 Task UpdateAsync(Guid storeId, UpdateStoreRequest request);
 Task DeleteAsync(Guid storeId);
 Task SetMarketplaceListingAsync(Guid storeId, bool isListed);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
 using CoreKit.Tenant.Entities;
 namespace CoreKit.Tenant.Interfaces;
 public interface ITenantLegalInfoRepository
@@ -429,7 +429,7 @@ Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = de
 Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs =====
 using CoreKit.Tenant.Entities;
 namespace CoreKit.Tenant.Interfaces;
 public interface ITenantLegalInfoService
@@ -438,7 +438,7 @@ Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxI
 Task<TenantLegalInfo?> GetAsync(Guid tenantId);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs =====
 using CoreKit.Tenant.Entities;
 namespace CoreKit.Tenant.Interfaces;
 public interface ITenantRepository
@@ -450,7 +450,7 @@ void Add(TenantEntity tenant);
 void Update(TenantEntity tenant);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs =====
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Models;
 namespace CoreKit.Tenant.Interfaces;
@@ -465,7 +465,7 @@ Task ApproveAsync(Guid tenantId);
 Task RejectAsync(Guid tenantId);
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
 using CoreKit.Tenant.Abstractions;
 using Microsoft.AspNetCore.Http;
 namespace CoreKit.Tenant.Middleware;
@@ -489,7 +489,7 @@ await _next(context);
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs =====
 namespace CoreKit.Tenant.Models;
 public class CreateStoreRequest
 {
@@ -509,7 +509,7 @@ public string? CoverImageUrl { get; set; }
 public string? MetadataJson { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs =====
 namespace CoreKit.Tenant.Models;
 public class StoreDto
 {
@@ -522,7 +522,7 @@ public bool IsActive { get; set; }
 public bool IsListedOnMarketplace { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs =====
 namespace CoreKit.Tenant.Models;
 public class TenantKitOptions
 {
@@ -531,7 +531,7 @@ public bool AllowMultipleStores { get; set; } = false;
 public bool EnableLegalInfo { get; set; } = false;
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs =====
 namespace CoreKit.Tenant.Models;
 public class TenantRegistrationRequest
 {
@@ -539,7 +539,7 @@ public string Name { get; set; } = default!;
 public string? MetadataJson { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs =====
 namespace CoreKit.Tenant.Models;
 public class TenantRegistrationResponse
 {
@@ -547,7 +547,7 @@ public Guid TenantId { get; set; }
 public string Message { get; set; } = default!;
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
 namespace CoreKit.Tenant.Models;
 public class UpdateStoreRequest
 {
@@ -567,7 +567,7 @@ public bool? IsActive { get; set; }
 public string? MetadataJson { get; set; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs =====
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -609,7 +609,7 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
@@ -634,7 +634,7 @@ modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 namespace CoreKit.Tenant.Persistence;
@@ -649,7 +649,7 @@ return new TenantDbContext(optionsBuilder.Options);
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs =====
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs =====
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Persistence;
@@ -668,38 +668,5 @@ public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationTo
 public void Add(Store store) => _db.Stores.Add(store);
 public void Update(Store store) => _db.Stores.Update(store);
 public void Delete(Store store) => _db.Stores.Remove(store);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs =====
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Interfaces;
-using CoreKit.Tenant.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.Tenant.Repositories;
-public class TenantLegalInfoRepository : ITenantLegalInfoRepository
-{
-private readonly TenantDbContext _db;
-public TenantLegalInfoRepository(TenantDbContext db) => _db = db;
-public async Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
-=> await (_db.TenantLegalInfos ?? throw new InvalidOperationException("TenantLegalInfos not configured"))
-.FirstOrDefaultAsync(i => i.TenantId == tenantId, ct);
-public async Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default)
-{
-if (_db.TenantLegalInfos == null)
-throw new InvalidOperationException("TenantLegalInfos not configured");
-var existing = await _db.TenantLegalInfos
-.FirstOrDefaultAsync(i => i.TenantId == info.TenantId, ct);
-if (existing != null)
-{
-existing.BusinessLicenseNumber = info.BusinessLicenseNumber;
-existing.TaxId = info.TaxId;
-existing.AdditionalJson = info.AdditionalJson;
-}
-else
-{
-await _db.TenantLegalInfos.AddAsync(info, ct);
-}
-await _db.SaveChangesAsync(ct);
-}
 }
 
