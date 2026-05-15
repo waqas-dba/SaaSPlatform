@@ -4,6 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.IAM.Persistence.Seeders;
 
+/// <summary>
+/// Seeds the minimum required IAM data: modules, permissions, SuperAdmin role,
+/// and a built‑in system admin user (0000000000 / Admin@123).
+/// This seeder is idempotent – it can run multiple times without errors.
+/// </summary>
 public class IamSeeder
 {
     private readonly IamDbContext _db;
@@ -17,7 +22,7 @@ public class IamSeeder
 
     public async Task SeedAsync()
     {
-        // The system tenant ID must match the one created by TenantSeeder
+        // System tenant – must match the one created by TenantSeeder
         var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
         var catalog = Guid.Parse("30000000-0000-0000-0000-000000000001");
@@ -41,11 +46,11 @@ public class IamSeeder
         await _db.SaveChangesAsync();
 
         // ---------- PERMISSIONS ----------
-        var existingPermissionNames = await _db.Permissions.Select(p => p.Name).ToListAsync();
+        var existingPermissions = await _db.Permissions.Select(p => p.Name).ToListAsync();
 
-        void AddIfNew(string name, Guid moduleId)
+        void AddPermissionIfNew(string name, Guid moduleId)
         {
-            if (!existingPermissionNames.Contains(name))
+            if (!existingPermissions.Contains(name))
             {
                 _db.Permissions.Add(new Permission
                 {
@@ -56,15 +61,15 @@ public class IamSeeder
             }
         }
 
-        AddIfNew("catalog.view", catalog);
-        AddIfNew("catalog.create", catalog);
-        AddIfNew("catalog.update", catalog);
-        AddIfNew("orders.view", orders);
-        AddIfNew("orders.manage", orders);
-        AddIfNew("billing.view", billing);
-        AddIfNew("billing.manage", billing);
-        AddIfNew("tenant.view", iam);
-        AddIfNew("tenant.approve", iam);
+        AddPermissionIfNew("catalog.view", catalog);
+        AddPermissionIfNew("catalog.create", catalog);
+        AddPermissionIfNew("catalog.update", catalog);
+        AddPermissionIfNew("orders.view", orders);
+        AddPermissionIfNew("orders.manage", orders);
+        AddPermissionIfNew("billing.view", billing);
+        AddPermissionIfNew("billing.manage", billing);
+        AddPermissionIfNew("tenant.view", iam);
+        AddPermissionIfNew("tenant.approve", iam);
 
         await _db.SaveChangesAsync();
 
@@ -76,6 +81,7 @@ public class IamSeeder
             {
                 Id = Guid.NewGuid(),
                 Name = "SuperAdmin",
+                Description = "System Super Admin",
                 IsSystem = true
             };
             _db.Roles.Add(superAdmin);
@@ -83,12 +89,10 @@ public class IamSeeder
         }
 
         // ---------- DEFAULT SYSTEM USER ----------
-        var userExists = await _db.Users.AnyAsync(x =>
-            x.Phone == "0000000000" || x.Email == "admin@system.com");
-
-        if (!userExists)
+        var user = await _db.Users.FirstOrDefaultAsync(x => x.Phone == "0000000000" || x.Email == "admin@system.com");
+        if (user == null)
         {
-            var user = new User
+            user = new User
             {
                 Id = Guid.NewGuid(),
                 Name = "System Admin",
@@ -99,15 +103,15 @@ public class IamSeeder
             };
             _db.Users.Add(user);
             await _db.SaveChangesAsync();
-
-            // Assign super admin role under the system tenant
-            _db.UserRoles.Add(new UserRole
-            {
-                UserId = user.Id,
-                RoleId = superAdmin.Id,
-                TenantId = systemTenantId    // Required non‑null value
-            });
-            await _db.SaveChangesAsync();
         }
+
+        // ---------- USER‑ROLE ASSIGNMENT (idempotent using PostgreSQL ON CONFLICT) ----------
+        await _db.Database.ExecuteSqlRawAsync(
+            @"INSERT INTO ""IAM_UserRoles"" (""UserId"", ""RoleId"", ""TenantId"") 
+              VALUES ({0}, {1}, {2}) 
+              ON CONFLICT DO NOTHING",
+            user.Id,
+            superAdmin.Id,
+            systemTenantId);
     }
 }

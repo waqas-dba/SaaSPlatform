@@ -23,10 +23,24 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest request)
     {
-        var result = await _authService.LoginAsync(
-            request,
-            _tenantContext.TenantId);
-
+        var result = await _authService.LoginAsync(request, _tenantContext.TenantId);
         return Ok(result);
+    }
+
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+    {
+        var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
+        return Ok(result);   // LoginResponse with accessToken + refreshToken
+    }
+
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RefreshToken))
+            return BadRequest("Refresh token is required.");
+
+        await _authService.LogoutAsync(request.RefreshToken);
+        return Ok(new { message = "Logged out successfully" });
     }
 }
