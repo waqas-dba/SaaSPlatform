@@ -6,22 +6,16 @@ using CoreKit.IAM.Persistence;
 
 namespace CoreKit.IAM.Repositories;
 
-/// <summary>
-/// Repository for user persistence.
-/// </summary>
 public class UserRepository : IUserRepository
 {
     private readonly IamDbContext _db;
 
-    public UserRepository(IamDbContext db)
-    {
-        _db = db;
-    }
+    public UserRepository(IamDbContext db) => _db = db;
 
     public async Task<User?> GetByIdAsync(Guid userId)
     {
         return await _db.Users
-            .Include(u => u.Roles)          // Corrected from UserRoles
+            .Include(u => u.Roles)
             .ThenInclude(ur => ur.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
     }
@@ -32,7 +26,7 @@ public class UserRepository : IUserRepository
         return await _db.Users
             .Include(u => u.Roles)
             .ThenInclude(ur => ur.Role)
-            .FirstOrDefaultAsync(u => u.Phone == phone && u.TenantId == tenantId);
+            .FirstOrDefaultAsync(u => u.Phone == phone);   // no tenant filter
     }
 
     public async Task<User?> GetByEmailAsync(string email, Guid? tenantId = null)
@@ -41,7 +35,7 @@ public class UserRepository : IUserRepository
         return await _db.Users
             .Include(u => u.Roles)
             .ThenInclude(ur => ur.Role)
-            .FirstOrDefaultAsync(u => u.Email == email && u.TenantId == tenantId);
+            .FirstOrDefaultAsync(u => u.Email == email);   // no tenant filter
     }
 
     public async Task<List<User>> GetByTenantAsync(Guid tenantId)
@@ -54,13 +48,13 @@ public class UserRepository : IUserRepository
     public async Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null)
     {
         phone = PhoneNormalizer.Normalize(phone);
-        return await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId);
+        return await _db.Users.AnyAsync(u => u.Phone == phone);
     }
 
     public async Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null)
     {
         email = email.Trim().ToLowerInvariant();
-        return await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId);
+        return await _db.Users.AnyAsync(u => u.Email == email);
     }
 
     public void Add(User user) => _db.Users.Add(user);
@@ -72,13 +66,13 @@ public class UserRepository : IUserRepository
         switch (loginIdentifier.ToLowerInvariant())
         {
             case "email":
-                return await GetByEmailAsync(login, tenantId);
+                return await GetByEmailAsync(login);
             case "both":
                 return login.Contains('@')
-                    ? await GetByEmailAsync(login, tenantId)
-                    : await GetByPhoneAsync(login, tenantId);
+                    ? await GetByEmailAsync(login)
+                    : await GetByPhoneAsync(login);
             default:
-                return await GetByPhoneAsync(login, tenantId);
+                return await GetByPhoneAsync(login);
         }
     }
 }

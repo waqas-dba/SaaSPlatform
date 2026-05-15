@@ -45,4 +45,13 @@ public class TenantsController : ControllerBase
             message = "Tenant approved successfully"
         });
     }
+
+    [HttpGet]
+    [Authorize]
+    [RequiresPermission(Permissions.Tenants.View)]
+    public async Task<IActionResult> GetAll()
+    {
+        var tenants = await _tenantService.GetAllAsync();
+        return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
+    }
 }
