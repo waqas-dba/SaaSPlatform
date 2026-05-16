@@ -414,6 +414,7 @@ public interface ITenantService
 FILE: F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs
 ==================================================
 
+using CoreKit.IAM.Interfaces;   // ✅ added for tenant validation
 using CoreKit.Tenant.Abstractions;
 using Microsoft.AspNetCore.Http;
 
@@ -428,14 +429,32 @@ public class TenantResolutionMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
+    public async Task InvokeAsync(
+        HttpContext context,
+        ITenantContext tenantContext,
+        IUserManagementService? userManagementService,  // ✅ optional, may be null if IAM not registered
+        ICurrentUserService? currentUserService)
     {
-        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid))
+        if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid) &&
+            Guid.TryParse(tid, out var parsed))
         {
-            if (Guid.TryParse(tid, out var parsed))
+            // ✅ If the user is authenticated, verify they actually belong to the requested tenant
+            if (context.User.Identity?.IsAuthenticated == true &&
+                userManagementService != null &&
+                currentUserService?.UserId != null)
             {
-                ((TenantContext)tenantContext).SetTenant(parsed);
+                var user = await userManagementService.GetUserByIdAsync(
+                    currentUserService.UserId.Value, parsed);
+
+                if (user == null)
+                {
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsync("Access denied to the requested tenant.");
+                    return;
+                }
             }
+
+            ((TenantContext)tenantContext).SetTenant(parsed);
         }
 
         await _next(context);
@@ -479,12 +498,15 @@ namespace CoreKit.Tenant.Models;
 
 public class StoreDto
 {
+    // Parameterless constructor for JSON deserialisation
+    public StoreDto() { }
+
+    // Your existing properties (unchanged)
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
     public string Name { get; set; } = default!;
     public string Slug { get; set; } = default!;
     public string? Type { get; set; }
-
     public bool IsActive { get; set; }
     public bool IsListedOnMarketplace { get; set; }
 }
@@ -807,27 +829,33 @@ using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;   // ✅ added
 
 namespace CoreKit.Tenant.Services;
 
-/// <summary>
-/// Manages store entities for the current tenant.
-/// </summary>
 public class StoreService : IStoreService
 {
     private readonly TenantDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly TenantKitOptions _options;        // ✅ injected
+    private readonly IStoreLimitService? _storeLimitService;  // ✅ optional
 
-    public StoreService(TenantDbContext db, ITenantContext tenantContext)
+    public StoreService(
+        TenantDbContext db,
+        ITenantContext tenantContext,
+        IOptions<TenantKitOptions> options,
+        IStoreLimitService? storeLimitService = null)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _options = options.Value;
+        _storeLimitService = storeLimitService;
     }
 
     public async Task<StoreDto?> GetByIdAsync(Guid storeId)
     {
         var tenantId = _tenantContext.TenantId
-                       ?? throw new UnauthorizedAccessException("Missing tenant");
+            ?? throw new UnauthorizedAccessException("Missing tenant");
         var store = await _db.Stores
             .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
         return store == null ? null : Map(store);
@@ -847,7 +875,10 @@ public class StoreService : IStoreService
             throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
 
         var tenantId = _tenantContext.TenantId
-                       ?? throw new UnauthorizedAccessException("Missing tenant");
+            ?? throw new UnauthorizedAccessException("Missing tenant");
+
+        // ✅ Enforce store limit
+        await EnforceStoreLimit(tenantId);
 
         var store = new Store
         {
@@ -879,8 +910,7 @@ public class StoreService : IStoreService
     public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
     {
         var tenantId = _tenantContext.TenantId
-                       ?? throw new UnauthorizedAccessException("Missing tenant");
-
+            ?? throw new UnauthorizedAccessException("Missing tenant");
         var store = await _db.Stores
             .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
             ?? throw new InvalidOperationException("Store not found");
@@ -892,7 +922,7 @@ public class StoreService : IStoreService
         }
         if (request.Type != null) store.Type = request.Type;
         if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
-        // other fields omitted for brevity; add as needed
+        // ... update other fields as needed ...
 
         await _db.SaveChangesAsync();
     }
@@ -900,8 +930,7 @@ public class StoreService : IStoreService
     public async Task DeleteAsync(Guid storeId)
     {
         var tenantId = _tenantContext.TenantId
-                       ?? throw new UnauthorizedAccessException("Missing tenant");
-
+            ?? throw new UnauthorizedAccessException("Missing tenant");
         var store = await _db.Stores
             .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
             ?? throw new InvalidOperationException("Store not found");
@@ -913,14 +942,36 @@ public class StoreService : IStoreService
     public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
     {
         var tenantId = _tenantContext.TenantId
-                       ?? throw new UnauthorizedAccessException("Missing tenant");
-
+            ?? throw new UnauthorizedAccessException("Missing tenant");
         var store = await _db.Stores
             .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
             ?? throw new InvalidOperationException("Store not found");
 
         store.IsListedOnMarketplace = isListed;
         await _db.SaveChangesAsync();
+    }
+
+    // ✅ New helper to enforce store limits
+    private async Task EnforceStoreLimit(Guid tenantId)
+    {
+        if (!_options.AllowMultipleStores)
+        {
+            // Hard limit of 1 store if multiple stores are disabled
+            var existing = await _db.Stores.AnyAsync(s => s.TenantId == tenantId);
+            if (existing)
+                throw new InvalidOperationException("This tenant is limited to one store.");
+        }
+        else if (_storeLimitService != null)
+        {
+            // Dynamic limit from subscription/plan
+            var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
+            if (maxStores.HasValue)
+            {
+                var count = await _db.Stores.CountAsync(s => s.TenantId == tenantId);
+                if (count >= maxStores.Value)
+                    throw new InvalidOperationException($"Store limit of {maxStores.Value} reached.");
+            }
+        }
     }
 
     private static StoreDto Map(Store store) => new()
@@ -1039,7 +1090,6 @@ public class TenantService : ITenantService
             Name = request.Name,
             Slug = request.Name.ToLower().Replace(" ", "-"),
             Status = status,
-            CreatedAt = DateTime.UtcNow,
             OwnerUserId = _currentUser?.UserId   // Set if authenticated
         };
 

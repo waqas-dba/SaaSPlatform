@@ -4,6 +4,10 @@ namespace CoreKit.IAM.Interfaces;
 
 public interface IJwtTokenService
 {
-    (string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
-        IEnumerable<string> roles, IEnumerable<string>? permissions = null);
+    (string Token, DateTime ExpiresAt) GenerateAccessToken(
+        User user,
+        Guid? tenantId,
+        IEnumerable<string> roles,
+        IEnumerable<string>? permissions = null,
+        IEnumerable<Guid>? storeIds = null);   // ← add this optional parameter
 }

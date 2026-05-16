@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Constants;          // ← added for Permissions
+using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -53,6 +54,7 @@ public class IamSeeder
         if (rows == 0) _logger.LogInformation("Module 'IAM' already exists – skipped.");
 
         // ---------- PERMISSIONS ----------
+        // generic modules
         await InsertPermissionIfNew("catalog.view", catalog);
         await InsertPermissionIfNew("catalog.create", catalog);
         await InsertPermissionIfNew("catalog.update", catalog);
@@ -60,10 +62,12 @@ public class IamSeeder
         await InsertPermissionIfNew("orders.manage", orders);
         await InsertPermissionIfNew("billing.view", billing);
         await InsertPermissionIfNew("billing.manage", billing);
-        await InsertPermissionIfNew("tenant.view", iam);
-        await InsertPermissionIfNew("tenant.approve", iam);
-        await InsertPermissionIfNew("store.view", iam);
-        await InsertPermissionIfNew("store.update", iam);
+
+        // IAM‑specific permissions (now aligned with the Permissions constants)
+        await InsertPermissionIfNew(Permissions.Tenants.View, iam);
+        await InsertPermissionIfNew(Permissions.Tenants.Approve, iam);
+        await InsertPermissionIfNew(Permissions.Store.View, iam);
+        await InsertPermissionIfNew(Permissions.Store.Update, iam);
 
         // ---------- SUPER ADMIN ROLE ----------
         var superAdminId = Guid.NewGuid();

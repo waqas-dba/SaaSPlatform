@@ -1,6 +1,9 @@
-﻿using CoreKit.IAM.Interfaces;   // ✅ added for tenant validation
+﻿using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
 using CoreKit.Tenant.Abstractions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CoreKit.Tenant.Middleware;
 
@@ -8,36 +11,32 @@ public class TenantResolutionMiddleware
 {
     private readonly RequestDelegate _next;
 
-    public TenantResolutionMiddleware(RequestDelegate next)
-    {
-        _next = next;
-    }
+    public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
 
-    public async Task InvokeAsync(
-        HttpContext context,
-        ITenantContext tenantContext,
-        IUserManagementService? userManagementService,  // ✅ optional, may be null if IAM not registered
-        ICurrentUserService? currentUserService)
+    public async Task InvokeAsync(HttpContext context)
     {
         if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid) &&
             Guid.TryParse(tid, out var parsed))
         {
-            // ✅ If the user is authenticated, verify they actually belong to the requested tenant
-            if (context.User.Identity?.IsAuthenticated == true &&
-                userManagementService != null &&
-                currentUserService?.UserId != null)
+            if (context.User.Identity?.IsAuthenticated == true)
             {
-                var user = await userManagementService.GetUserByIdAsync(
-                    currentUserService.UserId.Value, parsed);
-
-                if (user == null)
+                var currentUser = context.RequestServices.GetRequiredService<ICurrentUserService>();
+                if (!currentUser.IsSuperAdmin && currentUser.UserId != null)
                 {
-                    context.Response.StatusCode = 403;
-                    await context.Response.WriteAsync("Access denied to the requested tenant.");
-                    return;
+                    var db = context.RequestServices.GetRequiredService<IamDbContext>();
+                    var belongs = await db.UserRoles.IgnoreQueryFilters()
+                        .AnyAsync(ur => ur.UserId == currentUser.UserId.Value
+                                     && ur.TenantId == parsed);
+                    if (!belongs)
+                    {
+                        context.Response.StatusCode = 403;
+                        await context.Response.WriteAsync("Access denied to this tenant.");
+                        return;
+                    }
                 }
             }
 
+            var tenantContext = context.RequestServices.GetRequiredService<ITenantContext>();
             ((TenantContext)tenantContext).SetTenant(parsed);
         }
 

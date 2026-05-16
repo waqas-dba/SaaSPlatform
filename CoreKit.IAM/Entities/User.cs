@@ -19,4 +19,6 @@ public class User : AuditableEntity
     // ✅ MUST exist for your services
     public ICollection<UserRole> Roles { get; set; } = new List<UserRole>();
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+    // Add to existing User entity
+    public ICollection<UserStoreAssignment> StoreAssignments { get; set; } = new List<UserStoreAssignment>();
 }

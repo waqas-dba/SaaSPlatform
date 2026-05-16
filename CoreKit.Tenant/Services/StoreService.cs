@@ -1,10 +1,12 @@
-﻿using CoreKit.Tenant.Abstractions;
+﻿using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Common;
+using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;   // ✅ added
+using Microsoft.Extensions.Options;
 
 namespace CoreKit.Tenant.Services;
 
@@ -12,18 +14,21 @@ public class StoreService : IStoreService
 {
     private readonly TenantDbContext _db;
     private readonly ITenantContext _tenantContext;
-    private readonly TenantKitOptions _options;        // ✅ injected
-    private readonly IStoreLimitService? _storeLimitService;  // ✅ optional
+    private readonly TenantKitOptions _options;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IStoreLimitService? _storeLimitService;
 
     public StoreService(
         TenantDbContext db,
         ITenantContext tenantContext,
         IOptions<TenantKitOptions> options,
+        ICurrentUserService currentUser,
         IStoreLimitService? storeLimitService = null)
     {
         _db = db;
         _tenantContext = tenantContext;
         _options = options.Value;
+        _currentUser = currentUser;
         _storeLimitService = storeLimitService;
     }
 
@@ -31,16 +36,30 @@ public class StoreService : IStoreService
     {
         var tenantId = _tenantContext.TenantId
             ?? throw new UnauthorizedAccessException("Missing tenant");
-        var store = await _db.Stores
-            .FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId);
+        var storeScope = await _currentUser.GetStoreScopeAsync();
+
+        var query = _db.Stores
+            .Where(x => x.Id == storeId && x.TenantId == tenantId);
+
+        // Apply store-level filter if not all stores
+        if (!storeScope.IsAllStores)
+            query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
+
+        var store = await query.FirstOrDefaultAsync();
         return store == null ? null : Map(store);
     }
 
     public async Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId)
     {
-        var stores = await _db.Stores
-            .Where(x => x.TenantId == tenantId)
-            .ToListAsync();
+        var storeScope = await _currentUser.GetStoreScopeAsync();
+
+        var query = _db.Stores.Where(s => s.TenantId == tenantId);
+
+        // Apply store-level filter if not all stores
+        if (!storeScope.IsAllStores)
+            query = query.Where(s => storeScope.StoreIds.Contains(s.Id));
+
+        var stores = await query.ToListAsync();
         return stores.Select(Map).ToList();
     }
 

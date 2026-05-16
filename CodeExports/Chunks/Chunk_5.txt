@@ -1,4 +1,186 @@
 ﻿
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs =====
+namespace CoreKit.Tenant.Models;
+public class CreateStoreRequest
+{
+public string? Name { get; set; }
+public string? Type { get; set; }
+public string? AddressLine1 { get; set; }
+public string? AddressLine2 { get; set; }
+public string? City { get; set; }
+public string? State { get; set; }
+public string? PostalCode { get; set; }
+public string? CountryCode { get; set; }
+public decimal? Latitude { get; set; }
+public decimal? Longitude { get; set; }
+public bool? IsActive { get; set; }
+public string? LogoUrl { get; set; }
+public string? CoverImageUrl { get; set; }
+public string? MetadataJson { get; set; }
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs =====
+namespace CoreKit.Tenant.Models;
+public class StoreDto
+{
+public StoreDto() { }
+public Guid Id { get; set; }
+public Guid TenantId { get; set; }
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? Type { get; set; }
+public bool IsActive { get; set; }
+public bool IsListedOnMarketplace { get; set; }
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs =====
+namespace CoreKit.Tenant.Models;
+public class TenantKitOptions
+{
+public bool AutoApproveTenants { get; set; } = false;
+public bool AllowMultipleStores { get; set; } = false;
+public bool EnableLegalInfo { get; set; } = false;
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs =====
+namespace CoreKit.Tenant.Models;
+public class TenantRegistrationRequest
+{
+public string Name { get; set; } = default!;
+public string? MetadataJson { get; set; }
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs =====
+namespace CoreKit.Tenant.Models;
+public class TenantRegistrationResponse
+{
+public Guid TenantId { get; set; }
+public string Message { get; set; } = default!;
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
+namespace CoreKit.Tenant.Models;
+public class UpdateStoreRequest
+{
+public string? Name { get; set; }
+public string? Type { get; set; }
+public string? AddressLine1 { get; set; }
+public string? AddressLine2 { get; set; }
+public string? City { get; set; }
+public string? State { get; set; }
+public string? PostalCode { get; set; }
+public string? CountryCode { get; set; }
+public decimal? Latitude { get; set; }
+public decimal? Longitude { get; set; }
+public string? LogoUrl { get; set; }
+public string? CoverImageUrl { get; set; }
+public bool? IsActive { get; set; }
+public string? MetadataJson { get; set; }
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Persistence.Seeders;
+public class TenantSeeder
+{
+private readonly TenantDbContext _db;
+public TenantSeeder(TenantDbContext db)
+{
+_db = db;
+}
+public async Task SeedAsync()
+{
+var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+if (!await _db.Tenants.AnyAsync(t => t.Id == systemTenantId))
+{
+_db.Tenants.Add(new TenantEntity
+{
+Id = systemTenantId,
+Name = "System",
+Slug = "system",
+Status = TenantStatus.Active
+});
+await _db.SaveChangesAsync();
+}
+var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+if (!await _db.Stores.AnyAsync(s => s.Id == systemStoreId))
+{
+_db.Stores.Add(new Store
+{
+Id = systemStoreId,
+TenantId = systemTenantId,
+Name = "System Store",
+Slug = "system-store",
+IsActive = true
+});
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContext : AuditableDbContext
+{
+public TenantDbContext(
+DbContextOptions<TenantDbContext> options,
+ICurrentUser? currentUser = null)
+: base(options, currentUser)
+{
+}
+public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
+public DbSet<Store> Stores => Set<Store>();
+public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
+}
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
+{
+public TenantDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
+return new TenantDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class StoreRepository : IStoreRepository
+{
+private readonly TenantDbContext _db;
+public StoreRepository(TenantDbContext db) => _db = db;
+public async Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
+=> await _db.Stores.FirstOrDefaultAsync(s => s.Id == storeId, ct);
+public async Task<Store?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
+=> await _db.Stores.FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
+public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
+=> await _db.Stores.Where(s => s.TenantId == tenantId).ToListAsync(ct);
+public void Add(Store store) => _db.Stores.Add(store);
+public void Update(Store store) => _db.Stores.Update(store);
+public void Delete(Store store) => _db.Stores.Remove(store);
+}
+
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs =====
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
@@ -59,15 +241,24 @@ using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 namespace CoreKit.Tenant.Services;
 public class StoreService : IStoreService
 {
 private readonly TenantDbContext _db;
 private readonly ITenantContext _tenantContext;
-public StoreService(TenantDbContext db, ITenantContext tenantContext)
+private readonly TenantKitOptions _options;
+private readonly IStoreLimitService? _storeLimitService;
+public StoreService(
+TenantDbContext db,
+ITenantContext tenantContext,
+IOptions<TenantKitOptions> options,
+IStoreLimitService? storeLimitService = null)
 {
 _db = db;
 _tenantContext = tenantContext;
+_options = options.Value;
+_storeLimitService = storeLimitService;
 }
 public async Task<StoreDto?> GetByIdAsync(Guid storeId)
 {
@@ -90,6 +281,7 @@ if (string.IsNullOrWhiteSpace(request.Name))
 throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
 var tenantId = _tenantContext.TenantId
 ?? throw new UnauthorizedAccessException("Missing tenant");
+await EnforceStoreLimit(tenantId);
 var store = new Store
 {
 Id = Guid.NewGuid(),
@@ -150,6 +342,25 @@ var store = await _db.Stores
 ?? throw new InvalidOperationException("Store not found");
 store.IsListedOnMarketplace = isListed;
 await _db.SaveChangesAsync();
+}
+private async Task EnforceStoreLimit(Guid tenantId)
+{
+if (!_options.AllowMultipleStores)
+{
+var existing = await _db.Stores.AnyAsync(s => s.TenantId == tenantId);
+if (existing)
+throw new InvalidOperationException("This tenant is limited to one store.");
+}
+else if (_storeLimitService != null)
+{
+var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
+if (maxStores.HasValue)
+{
+var count = await _db.Stores.CountAsync(s => s.TenantId == tenantId);
+if (count >= maxStores.Value)
+throw new InvalidOperationException($"Store limit of {maxStores.Value} reached.");
+}
+}
 }
 private static StoreDto Map(Store store) => new()
 {
@@ -236,7 +447,6 @@ Id = Guid.NewGuid(),
 Name = request.Name,
 Slug = request.Name.ToLower().Replace(" ", "-"),
 Status = status,
-CreatedAt = DateTime.UtcNow,
 OwnerUserId = _currentUser?.UserId
 };
 _tenantRepo.Add(tenant);
@@ -287,346 +497,67 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== SaaSPlatform.Admin.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs =====
+===== SaaSPlatform.Admin.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PermissionsController.cs =====
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
-using CoreKit.Tenant.Interfaces;
-using CoreKit.Tenant.Models;
+using CoreKit.IAM.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Admin.Api.Controllers;
 [ApiController]
-[Route("api/admin/tenants")]
-public class TenantsController : ControllerBase
-{
-private readonly ITenantService _tenantService;
-public TenantsController(ITenantService tenantService)
-{
-_tenantService = tenantService;
-}
-[HttpPost("register")]
-[AllowAnonymous]
-public async Task<IActionResult> Register(TenantRegistrationRequest request)
-{
-var result = await _tenantService.RegisterAsync(request);
-return Ok(result);
-}
-[HttpPost("{tenantId}/approve")]
+[Route("api/admin/permissions")]
 [Authorize]
-[RequiresPermission(Permissions.Tenants.Approve)]
-public async Task<IActionResult> Approve(Guid tenantId)
+public class PermissionsController : ControllerBase
 {
-await _tenantService.ApproveAsync(tenantId);
-return Ok(new
+private readonly IRoleRepository _roleRepo;
+public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;
+[HttpGet]
+[RequiresPermission(Permissions.PermissionsManagement.View)]
+public async Task<IActionResult> GetAll()
 {
-tenantId = tenantId,
-status = "Approved",
-message = "Tenant approved successfully"
-});
+var perms = await _roleRepo.GetAllPermissionsAsync();
+return Ok(perms.Select(p => new { p.Id, p.Name, p.PermissionModuleId }));
 }
 }
 
-===== SaaSPlatform.Admin.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs =====
-using CoreKit.IAM.Extensions;
+===== SaaSPlatform.Admin.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence.Seeders;
-using CoreKit.Infrastructure.Middleware;
-using CoreKit.Infrastructure.Security;
-using CoreKit.Tenant.Abstractions;
-using CoreKit.Tenant.Extensions;
-using CoreKit.Tenant.Middleware;
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-var connectionString =
-builder.Configuration.GetConnectionString("Postgres")!;
-builder.Services.AddSingleton<IEncryptionService>(sp =>
-{
-var key = builder.Configuration["EncryptionKey"]!;
-return new EncryptionService(key);
-});
-builder.Services.AddCoreKitIAM(
-connectionString,
-builder.Configuration.GetSection("Jwt"));
-builder.Services.AddTenantKit(connectionString, options =>
-{
-options.AutoApproveTenants = false;
-options.AllowMultipleStores = true;
-options.EnableLegalInfo = true;
-});
-builder.Services.AddControllers();
-var app = builder.Build();
-app.UseMiddleware<ExceptionMiddleware>();
-app.UseRouting();
-app.UseMiddleware<TenantResolutionMiddleware>();
-app.UseAuthentication();
-app.UseAuthorization();
-app.MapControllers();
-using (var scope = app.Services.CreateScope())
-{
-try
-{
-var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
-await seeder.SeedAsync();
-Console.WriteLine("âœ” IAM Seeder executed successfully");
-}
-catch (Exception ex)
-{
-Console.WriteLine("âŒ Seeder failed: " + ex.Message);
-}
-}
-app.Run();
-
-===== SaaSPlatform.Public.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs =====
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
-using CoreKit.Tenant.Abstractions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-namespace SaaSPlatform.Public.Api.Controllers;
+namespace SaaSPlatform.Admin.Api.Controllers;
 [ApiController]
-[Route("api/auth")]
-public class AuthController : ControllerBase
+[Route("api/admin/roles")]
+[Authorize]
+public class RolesController : ControllerBase
 {
-private readonly IAuthService _authService;
-private readonly ITenantContext _tenantContext;
-public AuthController(
-IAuthService authService,
-ITenantContext tenantContext)
+private readonly IRoleManagementService _roleService;
+public RolesController(IRoleManagementService roleService) => _roleService = roleService;
+[HttpPost]
+[RequiresPermission(Permissions.Roles.Create)]
+public async Task<IActionResult> Create([FromBody] CreateRoleRequest request)
 {
-_authService = authService;
-_tenantContext = tenantContext;
+var role = await _roleService.CreateRoleAsync(request.Name, request.TenantId, request.Description);
+return Ok(new { role.Id, role.Name });
 }
-[HttpPost("login")]
-public async Task<IActionResult> Login(LoginRequest request)
+[HttpPost("{roleId}/permissions")]
+[RequiresPermission(Permissions.Roles.AssignPermission)]
+public async Task<IActionResult> AssignPermission(Guid roleId, [FromBody] AssignPermissionRequest request)
 {
-var result = await _authService.LoginAsync(request, _tenantContext.TenantId);
-return Ok(result);
-}
-[HttpPost("refresh")]
-public async Task<IActionResult> Refresh(RefreshTokenRequest request)
-{
-var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
-return Ok(result);
-}
-[HttpPost("logout")]
-public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
-{
-if (string.IsNullOrWhiteSpace(request?.RefreshToken))
-return BadRequest("Refresh token is required.");
-await _authService.LogoutAsync(request.RefreshToken);
-return Ok(new { message = "Logged out successfully" });
+await _roleService.AssignPermissionAsync(roleId, request.PermissionId);
+return NoContent();
 }
 }
-
-===== SaaSPlatform.Public.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Program.cs =====
-using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence.Seeders;
-using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
-using CoreKit.Tenant.Extensions;
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
-builder.Services.AddCoreKitIAM(
-connectionString,
-builder.Configuration.GetSection("Jwt"),
-options =>
+public class CreateRoleRequest
 {
-options.EnableUserDocuments = true;
-options.EnableUserIdentities = true;
-options.RequireCnic = false;
-});
-builder.Services.AddTenantKit(connectionString, options =>
-{
-options.AutoApproveTenants = false;
-options.AllowMultipleStores = true;
-options.EnableLegalInfo = true;
-});
-builder.Services.AddControllers();
-var app = builder.Build();
-using (var scope = app.Services.CreateScope())
-{
-var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
-await seeder.SeedAsync();
+public string Name { get; set; } = default!;
+public Guid? TenantId { get; set; }
+public string? Description { get; set; }
 }
-app.UseMiddleware<ExceptionMiddleware>();
-app.UseRouting();
-app.UseAuthentication();
-app.UseAuthorization();
-app.MapControllers();
-app.Run();
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs =====
-using CoreKit.SharedKernel.Interfaces;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.SharedKernel.Common;
-public abstract class AuditableDbContext : DbContext
+public class AssignPermissionRequest
 {
-private readonly ICurrentUser? _currentUser;
-protected AuditableDbContext(
-DbContextOptions options,
-ICurrentUser? currentUser = null)
-: base(options)
-{
-_currentUser = currentUser;
-}
-public override async Task<int> SaveChangesAsync(
-CancellationToken cancellationToken = default)
-{
-foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
-{
-switch (entry.State)
-{
-case EntityState.Added:
-entry.Entity.CreatedAt = DateTime.UtcNow;
-entry.Entity.CreatedBy = _currentUser?.UserId;
-break;
-case EntityState.Modified:
-entry.Entity.UpdatedAt = DateTime.UtcNow;
-entry.Entity.UpdatedBy = _currentUser?.UserId;
-if (entry.Entity is ISoftDelete deletable &&
-entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
-deletable.IsDeleted)
-{
-deletable.DeletedAtUtc = DateTime.UtcNow;
-deletable.DeletedBy = _currentUser?.UserId;
-}
-break;
-}
-}
-return await base.SaveChangesAsync(cancellationToken);
-}
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-base.OnModelCreating(modelBuilder);
-foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-{
-if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
-{
-modelBuilder.Entity(entityType.ClrType)
-.HasQueryFilter(ConvertFilterExpression(entityType.ClrType));
-}
-}
-}
-private static System.Linq.Expressions.LambdaExpression ConvertFilterExpression(Type entityType)
-{
-var parameter = System.Linq.Expressions.Expression.Parameter(entityType, "e");
-var property = System.Linq.Expressions.Expression.Property(parameter, nameof(ISoftDelete.IsDeleted));
-var condition = System.Linq.Expressions.Expression.Equal(property, System.Linq.Expressions.Expression.Constant(false));
-return System.Linq.Expressions.Expression.Lambda(condition, parameter);
-}
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class AuditableEntity : BaseEntity
-{
-public DateTime CreatedAt { get; set; }
-public Guid? CreatedBy { get; set; }
-public DateTime? UpdatedAt { get; set; }
-public Guid? UpdatedBy { get; set; }
-public bool IsDeleted { get; set; }
-public DateTime? DeletedAtUtc { get; set; }
-public Guid? DeletedBy { get; set; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class BaseEntity
-{
-public Guid Id { get; set; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs =====
-namespace CoreKit.SharedKernel.Common;
-public interface ISoftDelete
-{
-bool IsDeleted { get; set; }
-DateTime? DeletedAtUtc { get; set; }
-Guid? DeletedBy { get; set; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs =====
-namespace CoreKit.SharedKernel.Common;
-public interface ITenantScoped
-{
-Guid TenantId { get; set; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
-namespace CoreKit.SharedKernel.Interfaces
-{
-public interface IAggregateRoot
-{
-}
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface ICurrentUser
-{
-Guid? UserId { get; }
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface ISlugGenerator
-{
-string Generate(string input);
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface IUnitOfWork : IDisposable
-{
-Task BeginTransactionAsync(CancellationToken cancellationToken = default);
-Task CommitAsync(CancellationToken cancellationToken = default);
-Task RollbackAsync(CancellationToken cancellationToken = default);
-Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
-namespace CoreKit.SharedKernel.Results;
-public class Result
-{
-public bool Succeeded { get; init; }
-public string Message { get; init; } = string.Empty;
-public List<string> Errors { get; init; } = new();
-public static Result Success(string message = "")
-=> new() { Succeeded = true, Message = message };
-public static Result Failure(string message, List<string>? errors = null)
-=> new()
-{
-Succeeded = false,
-Message = message,
-Errors = errors ?? new()
-};
-}
-public class Result<T> : Result
-{
-public T? Data { get; init; }
-public static Result<T> Success(T data, string message = "")
-=> new()
-{
-Succeeded = true,
-Data = data,
-Message = message
-};
-public new static Result<T> Failure(string message, List<string>? errors = null)
-=> new()
-{
-Succeeded = false,
-Message = message,
-Errors = errors ?? new()
-};
+public Guid PermissionId { get; set; }
 }
 

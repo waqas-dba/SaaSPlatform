@@ -70,6 +70,7 @@ public static class Permissions
     public static class Store
     {
         public const string View = "store.view";
+        public const string ViewAll = "store.view_all";
         public const string Update = "store.update";
     }
 

@@ -7,74 +7,87 @@ using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Persistence.Seeders;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// =========================
-// CORE SERVICES
-// =========================
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-builder.Services.AddScoped<IamSeeder>();
-builder.Services.AddScoped<TenantSeeder>();
-
-var connectionString =
-    builder.Configuration.GetConnectionString("Postgres")!;
-
-// =========================
-// ENCRYPTION
-// =========================
-builder.Services.AddSingleton<IEncryptionService>(sp =>
+try
 {
-    var key = builder.Configuration["EncryptionKey"]!;
-    return new EncryptionService(key);
-});
+    var builder = WebApplication.CreateBuilder(args);
 
-// =========================
-// IAM MODULE
-// =========================
-builder.Services.AddCoreKitIAM(
-    connectionString,
-    builder.Configuration.GetSection("Jwt"));
+    // =========================
+    // CORE SERVICES
+    // =========================
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<ITenantContext, TenantContext>();
+    builder.Services.AddScoped<IamSeeder>();
+    builder.Services.AddScoped<TenantSeeder>();
 
-// =========================
-// TENANT MODULE
-// =========================
-builder.Services.AddTenantKit(connectionString, options =>
-{
-    options.AutoApproveTenants = false;
-    options.AllowMultipleStores = true;
-    options.EnableLegalInfo = true;
-});
+    var connectionString =
+        builder.Configuration.GetConnectionString("Postgres")!;
 
-// =========================
-// CONTROLLERS
-// =========================
-builder.Services.AddControllers();
+    // =========================
+    // ENCRYPTION
+    // =========================
+    builder.Services.AddSingleton<IEncryptionService>(sp =>
+    {
+        var key = builder.Configuration["EncryptionKey"]!;
+        return new EncryptionService(key);
+    });
 
-var app = builder.Build();
+    // =========================
+    // IAM MODULE
+    // =========================
+    builder.Services.AddCoreKitIAM(
+        connectionString,
+        builder.Configuration.GetSection("Jwt"));
 
-// =========================
-// MIDDLEWARE PIPELINE
-// =========================
-app.UseMiddleware<ExceptionMiddleware>();
+    // =========================
+    // TENANT MODULE
+    // =========================
+    builder.Services.AddTenantKit(connectionString, options =>
+    {
+        options.AutoApproveTenants = false;
+        options.AllowMultipleStores = true;
+        options.EnableLegalInfo = true;
+    });
 
-app.UseRouting();
+    // =========================
+    // CONTROLLERS
+    // =========================
+    builder.Services.AddControllers();
 
-app.UseMiddleware<TenantResolutionMiddleware>();
+    var app = builder.Build();
 
-app.UseAuthentication();
-app.UseAuthorization();
+    // =========================
+    // MIDDLEWARE PIPELINE
+    // =========================
+    app.UseMiddleware<ExceptionMiddleware>();
 
-app.MapControllers();
+    app.UseRouting();
 
-// =========================
-// 🔥 CRITICAL FIX: RUN SEEDER
-// =========================
-using (var scope = app.Services.CreateScope())
-{
-    var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
-    await seeder.SeedAsync();
+    app.UseMiddleware<TenantResolutionMiddleware>();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    // =========================
+    // 🔥 CRITICAL FIX: RUN SEEDER
+    // =========================
+    using (var scope = app.Services.CreateScope())
+    {
+        var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
+        await seeder.SeedAsync();
+    }
+
+    app.Run();
+
 }
-
-app.Run();
+catch (Exception ex)
+{
+    Console.WriteLine("=============================================");
+    Console.WriteLine(" STARTUP FAILED");
+    Console.WriteLine("=============================================");
+    Console.WriteLine(ex.ToString());
+    Console.WriteLine("=============================================");
+    // Do NOT rethrow – we want to see the output before the process exits
+    Environment.Exit(1);
+}

@@ -321,11 +321,12 @@ void Delete(User user);
 Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleRequest.cs =====
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleWithTenantRequest.cs =====
 namespace CoreKit.IAM.Models;
-public class AssignRoleRequest
+public class AssignRoleWithTenantRequest
 {
 public Guid RoleId { get; set; }
+public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
@@ -342,6 +343,7 @@ public bool EnableUserDocuments { get; set; } = false;
 public bool EnableUserIdentities { get; set; } = false;
 public bool RequireCnic { get; set; } = true;
 public bool EnableRoleDocumentRequirements { get; set; } = false;
+public bool AllowDefaultAdminSeed { get; set; } = false;
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
@@ -391,15 +393,18 @@ public string RefreshToken { get; set; } = default!;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 namespace CoreKit.IAM.Persistence.Seeders;
 public class IamSeeder
 {
 private readonly IamDbContext _db;
 private readonly IPasswordHasher _hasher;
-public IamSeeder(IamDbContext db, IPasswordHasher hasher)
+private readonly ILogger<IamSeeder> _logger;
+public IamSeeder(IamDbContext db, IPasswordHasher hasher, ILogger<IamSeeder> logger)
 {
 _db = db;
 _hasher = hasher;
+_logger = logger;
 }
 public async Task SeedAsync()
 {
@@ -408,73 +413,75 @@ var catalog = Guid.Parse("30000000-0000-0000-0000-000000000001");
 var orders = Guid.Parse("30000000-0000-0000-0000-000000000002");
 var billing = Guid.Parse("30000000-0000-0000-0000-000000000003");
 var iam = Guid.Parse("30000000-0000-0000-0000-000000000004");
-if (!await _db.PermissionModules.AnyAsync(x => x.Id == catalog))
-_db.PermissionModules.Add(new PermissionModule { Id = catalog, Name = "Catalog", Code = "catalog" });
-if (!await _db.PermissionModules.AnyAsync(x => x.Id == orders))
-_db.PermissionModules.Add(new PermissionModule { Id = orders, Name = "Orders", Code = "orders" });
-if (!await _db.PermissionModules.AnyAsync(x => x.Id == billing))
-_db.PermissionModules.Add(new PermissionModule { Id = billing, Name = "Billing", Code = "billing" });
-if (!await _db.PermissionModules.AnyAsync(x => x.Id == iam))
-_db.PermissionModules.Add(new PermissionModule { Id = iam, Name = "IAM", Code = "iam" });
-await _db.SaveChangesAsync();
-var existingPermissions = await _db.Permissions.Select(p => p.Name).ToListAsync();
-void AddPermissionIfNew(string name, Guid moduleId)
-{
-if (!existingPermissions.Contains(name))
-{
-_db.Permissions.Add(new Permission
-{
-Id = Guid.NewGuid(),
-Name = name,
-PermissionModuleId = moduleId
-});
-}
-}
-AddPermissionIfNew("catalog.view", catalog);
-AddPermissionIfNew("catalog.create", catalog);
-AddPermissionIfNew("catalog.update", catalog);
-AddPermissionIfNew("orders.view", orders);
-AddPermissionIfNew("orders.manage", orders);
-AddPermissionIfNew("billing.view", billing);
-AddPermissionIfNew("billing.manage", billing);
-AddPermissionIfNew("tenant.view", iam);
-AddPermissionIfNew("tenant.approve", iam);
-await _db.SaveChangesAsync();
-var superAdmin = await _db.Roles.FirstOrDefaultAsync(x => x.Name == "SuperAdmin");
-if (superAdmin == null)
-{
-superAdmin = new Role
-{
-Id = Guid.NewGuid(),
-Name = "SuperAdmin",
-Description = "System Super Admin",
-IsSystem = true
-};
-_db.Roles.Add(superAdmin);
-await _db.SaveChangesAsync();
-}
-var user = await _db.Users.FirstOrDefaultAsync(x => x.Phone == "0000000000" || x.Email == "admin@system.com");
-if (user == null)
-{
-user = new User
-{
-Id = Guid.NewGuid(),
-Name = "System Admin",
-Phone = "0000000000",
-Email = "admin@system.com",
-PasswordHash = _hasher.Hash("Admin@123"),
-IsActive = true
-};
-_db.Users.Add(user);
-await _db.SaveChangesAsync();
-}
+int rows;
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, 'Catalog', 'catalog', NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", catalog);
+if (rows == 0) _logger.LogInformation("Module 'Catalog' already exists – skipped.");
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, 'Orders', 'orders', NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", orders);
+if (rows == 0) _logger.LogInformation("Module 'Orders' already exists – skipped.");
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, 'Billing', 'billing', NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", billing);
+if (rows == 0) _logger.LogInformation("Module 'Billing' already exists – skipped.");
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, 'IAM', 'iam', NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", iam);
+if (rows == 0) _logger.LogInformation("Module 'IAM' already exists – skipped.");
+await InsertPermissionIfNew("catalog.view", catalog);
+await InsertPermissionIfNew("catalog.create", catalog);
+await InsertPermissionIfNew("catalog.update", catalog);
+await InsertPermissionIfNew("orders.view", orders);
+await InsertPermissionIfNew("orders.manage", orders);
+await InsertPermissionIfNew("billing.view", billing);
+await InsertPermissionIfNew("billing.manage", billing);
+await InsertPermissionIfNew("tenant.view", iam);
+await InsertPermissionIfNew("tenant.approve", iam);
+await InsertPermissionIfNew("store.view", iam);
+await InsertPermissionIfNew("store.update", iam);
+var superAdminId = Guid.NewGuid();
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_Roles"" (""Id"", ""TenantId"", ""Name"", ""Description"", ""IsSystem"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, NULL, 'SuperAdmin', 'System Super Admin', TRUE, NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Roles"" WHERE ""Name"" = 'SuperAdmin' AND ""TenantId"" IS NULL)", superAdminId);
+if (rows == 0) _logger.LogInformation("Role 'SuperAdmin' already exists – skipped.");
+var superAdmin = await _db.Roles.IgnoreQueryFilters()
+.FirstOrDefaultAsync(x => x.Name == "SuperAdmin" && x.TenantId == null);
+var userId = Guid.NewGuid();
+var passwordHash = _hasher.Hash("Admin@123");
+rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_Users"" (""Id"", ""TenantId"", ""Name"", ""Phone"", ""Email"", ""PasswordHash"", ""IsActive"", ""CreatedAt"", ""IsDeleted"", ""FailedLoginAttempts"")
+SELECT {0}, NULL, 'System Admin', '0000000000', 'admin@system.com', {1}, TRUE, NOW(), FALSE, 0
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Users"" WHERE ""Phone"" = '0000000000' OR ""Email"" = 'admin@system.com')", userId, passwordHash);
+if (rows == 0) _logger.LogInformation("User '0000000000' already exists – skipped.");
 await _db.Database.ExecuteSqlRawAsync(
+@"UPDATE ""IAM_Users""
+SET ""PasswordHash"" = {0}
+WHERE (""Phone"" = '0000000000' OR ""Email"" = 'admin@system.com')
+AND ""PasswordHash"" != {0}", passwordHash);
+var user = await _db.Users.IgnoreQueryFilters()
+.FirstOrDefaultAsync(x => x.Phone == "0000000000" || x.Email == "admin@system.com");
+rows = await _db.Database.ExecuteSqlRawAsync(
 @"INSERT INTO ""IAM_UserRoles"" (""UserId"", ""RoleId"", ""TenantId"")
-VALUES ({0}, {1}, {2})
-ON CONFLICT DO NOTHING",
-user.Id,
-superAdmin.Id,
-systemTenantId);
+SELECT {0}, {1}, {2}
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_UserRoles"" WHERE ""UserId"" = {0} AND ""RoleId"" = {1} AND ""TenantId"" = {2})",
+user.Id, superAdmin.Id, systemTenantId);
+if (rows == 0) _logger.LogInformation("UserRole assignment already exists – skipped.");
+}
+private async Task InsertPermissionIfNew(string name, Guid moduleId)
+{
+var rows = await _db.Database.ExecuteSqlRawAsync(
+@"INSERT INTO ""IAM_Permissions"" (""Id"", ""Name"", ""PermissionModuleId"", ""CreatedAt"", ""IsDeleted"")
+SELECT {0}, {1}, {2}, NOW(), FALSE
+WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Permissions"" WHERE ""Name"" = {1})",
+Guid.NewGuid(), name, moduleId);
+if (rows == 0) _logger.LogInformation("Permission '{Name}' already exists – skipped.", name);
 }
 }
 
@@ -572,81 +579,5 @@ select p.Name
 .Distinct()
 .ToListAsync();
 }
-}
-
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RefreshTokenRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Helpers;
-using CoreKit.IAM.Persistence;
-namespace CoreKit.IAM.Repositories;
-public class RefreshTokenRepository : IRefreshTokenRepository
-{
-private readonly IamDbContext _db;
-public RefreshTokenRepository(IamDbContext db)
-{
-_db = db;
-}
-public async Task AddAsync(RefreshToken token)
-{
-await _db.RefreshTokens.AddAsync(token);
-await _db.SaveChangesAsync();
-}
-public async Task<RefreshToken?> GetByTokenHashAsync(string tokenHash)
-=> await _db.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == tokenHash);
-public async Task<List<RefreshToken>> GetByFamilyIdAsync(string familyId)
-=> await _db.RefreshTokens.Where(x => x.FamilyId == familyId).ToListAsync();
-public async Task UpdateAsync(RefreshToken token)
-{
-_db.RefreshTokens.Update(token);
-await _db.SaveChangesAsync();
-}
-public async Task UpdateRangeAsync(IEnumerable<RefreshToken> tokens)
-{
-_db.RefreshTokens.UpdateRange(tokens);
-await _db.SaveChangesAsync();
-}
-public async Task RevokeFamilyAsync(string familyId, string? revokedByIp = null)
-{
-var tokens = await GetByFamilyIdAsync(familyId);
-foreach (var t in tokens)
-{
-t.IsRevoked = true;
-t.RevokedAtUtc = DateTime.UtcNow;
-t.RevokedByIp = revokedByIp;
-}
-await UpdateRangeAsync(tokens);
-}
-}
-
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RoleRepository.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Repositories;
-public class RoleRepository : IRoleRepository
-{
-private readonly IamDbContext _db;
-public RoleRepository(IamDbContext db) => _db = db;
-public async Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId)
-=> await _db.Roles
-.Where(r => r.TenantId == tenantId)
-.Include(r => r.RolePermissions)
-.ToListAsync();
-public async Task<Role?> GetByIdAsync(Guid roleId)
-=> await _db.Roles
-.Include(r => r.RolePermissions)
-.Include(r => r.UserRoles)
-.FirstOrDefaultAsync(r => r.Id == roleId);
-public void Add(Role role) => _db.Roles.Add(role);
-public void Update(Role role) => _db.Roles.Update(role);
-public void Delete(Role role) => _db.Roles.Remove(role);
-public async Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default)
-=> await _db.Permissions.ToListAsync(ct);
-public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
-public void RemoveRolePermission(RolePermission rp) => _db.RolePermissions.Remove(rp);
-public void AddUserRole(UserRole ur) => _db.UserRoles.Add(ur);
 }
 

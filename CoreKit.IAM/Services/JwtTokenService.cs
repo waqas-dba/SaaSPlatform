@@ -23,10 +23,10 @@ public class JwtTokenService : IJwtTokenService
         User user,
         Guid? tenantId,
         IEnumerable<string> roles,
-        IEnumerable<string>? permissions = null)
+        IEnumerable<string>? permissions = null,
+        IEnumerable<Guid>? storeIds = null)       // ← new optional parameter
     {
         var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
-
         var jwtId = Guid.NewGuid().ToString();
 
         var claims = new List<Claim>
@@ -60,12 +60,17 @@ public class JwtTokenService : IJwtTokenService
             }
         }
 
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_settings.Secret));
+        // ---------- Store claims (fast path for StoreScope resolution) ----------
+        if (storeIds != null)
+        {
+            foreach (var storeId in storeIds.Distinct())
+            {
+                claims.Add(new Claim(ClaimConstants.StoreId, storeId.ToString()));
+            }
+        }
 
-        var creds = new SigningCredentials(
-            key,
-            SecurityAlgorithms.HmacSha256);
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
             issuer: _settings.Issuer,
@@ -74,8 +79,6 @@ public class JwtTokenService : IJwtTokenService
             expires: expiresAt,
             signingCredentials: creds);
 
-        return (
-            new JwtSecurityTokenHandler().WriteToken(token),
-            expiresAt);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 }

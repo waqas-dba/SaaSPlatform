@@ -17,8 +17,7 @@ namespace CoreKit.IAM.Authorization
             _permission = permission;
         }
 
-        public async Task OnAuthorizationAsync(
-            AuthorizationFilterContext context)
+        public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
 
@@ -60,9 +59,25 @@ namespace CoreKit.IAM.Authorization
                 return;
             }
 
+            // Resolve tenant scope for the permission check
+            Guid? tenantId;
+            try
+            {
+                var scope = currentUser.GetTenantScope();
+                // For a non‑SuperAdmin user the scope must be tenant‑specific;
+                // a global scope here would be an error (but we treat it as null).
+                tenantId = scope.IsGlobal ? null : scope.TenantId;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Tenant context could not be resolved – deny access
+                context.Result = new ForbidResult();
+                return;
+            }
+
             var hasPermission = await permissionService.HasPermissionAsync(
                 currentUser.UserId.Value,
-                currentUser.TenantId,
+                tenantId,
                 _permission);
 
             if (!hasPermission)

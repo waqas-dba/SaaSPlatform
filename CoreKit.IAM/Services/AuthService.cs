@@ -1,4 +1,6 @@
-﻿using CoreKit.IAM.Interfaces;
+﻿using Microsoft.EntityFrameworkCore;
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 
@@ -57,9 +59,31 @@ public class AuthService : IAuthService
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        var roles = user.Roles.Select(r => r.Role.Name).Distinct().ToList();
+        // Roles scoped to the login tenant (or system‑level SuperAdmin)
+        var roles = user.Roles
+            .Where(r =>
+                r.TenantId == tenantId ||                         // roles granted in this tenant
+                r.Role.Name == _options.SuperAdminRoleName)       // system‑level roles
+            .Select(r => r.Role.Name)
+            .Distinct()
+            .ToList();
+
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles, permissions);
+
+        // Retrieve store assignments for the current tenant
+        List<Guid>? storeIds = null;
+        if (tenantId.HasValue)
+        {
+            storeIds = await _db.Set<UserStoreAssignment>()
+                .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
+                .Select(a => a.StoreId)
+                .ToListAsync();
+
+            if (storeIds.Count == 0) storeIds = null;   // null means no store claims
+        }
+
+        var (accessToken, _) = _jwtService.GenerateAccessToken(
+            user, tenantId, roles, permissions, storeIds);
 
         var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
 
@@ -75,7 +99,7 @@ public class AuthService : IAuthService
         var user = await _userRepo.GetByIdAsync(userId)
             ?? throw new UnauthorizedAccessException("User not found.");
 
-        // ✅ Validate tenant membership if a tenant is requested
+        // Tenant membership check
         if (tenantId.HasValue)
         {
             bool belongsToTenant = user.Roles.Any(ur => ur.TenantId == tenantId);
@@ -83,11 +107,31 @@ public class AuthService : IAuthService
                 throw new UnauthorizedAccessException("User does not belong to this tenant.");
         }
 
-        var roles = user.Roles.Select(r => r.Role.Name).Distinct();
+        // Roles scoped to the tenant (same logic as LoginAsync)
+        var roles = user.Roles
+            .Where(r =>
+                r.TenantId == tenantId ||
+                r.Role.Name == _options.SuperAdminRoleName)
+            .Select(r => r.Role.Name)
+            .Distinct()
+            .ToList();
 
-        // ✅ Re‑embed permissions into the refreshed access token
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-        var (accessToken, _) = _jwtService.GenerateAccessToken(user, tenantId, roles, permissions);
+
+        // Retrieve store assignments for the refreshed token
+        List<Guid>? storeIds = null;
+        if (tenantId.HasValue)
+        {
+            storeIds = await _db.Set<UserStoreAssignment>()
+                .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
+                .Select(a => a.StoreId)
+                .ToListAsync();
+
+            if (storeIds.Count == 0) storeIds = null;
+        }
+
+        var (accessToken, _) = _jwtService.GenerateAccessToken(
+            user, tenantId, roles, permissions, storeIds);
 
         return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
     }
