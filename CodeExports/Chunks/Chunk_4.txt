@@ -1,4 +1,53 @@
 ﻿
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Services;
+public class RoleDocumentRequirementService : IRoleDocumentRequirementService
+{
+private readonly IamDbContext _db;
+public RoleDocumentRequirementService(IamDbContext db) => _db = db;
+public async Task AddRequirementAsync(Guid roleId, string documentType)
+{
+bool exists = await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (!exists)
+{
+_db.RoleDocumentRequirements.Add(new RoleDocumentRequirement
+{
+Id = Guid.NewGuid(),
+RoleId = roleId,
+DocumentType = documentType
+});
+await _db.SaveChangesAsync();
+}
+}
+public async Task RemoveRequirementAsync(Guid roleId, string documentType)
+{
+var req = await _db.RoleDocumentRequirements
+.FirstOrDefaultAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+if (req != null)
+{
+_db.RoleDocumentRequirements.Remove(req);
+await _db.SaveChangesAsync();
+}
+}
+public async Task<List<string>> GetRequiredDocumentsAsync(Guid roleId)
+{
+return await _db.RoleDocumentRequirements
+.Where(r => r.RoleId == roleId)
+.Select(r => r.DocumentType)
+.ToListAsync();
+}
+public async Task<bool> IsRequiredAsync(Guid roleId, string documentType)
+{
+return await _db.RoleDocumentRequirements
+.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+}
+}
+
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleManagementService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
@@ -254,22 +303,23 @@ await _db.SaveChangesAsync();
 public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
 {
 var user = await _db.Users.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+.FirstOrDefaultAsync(u => u.Id == userId)
 ?? throw new KeyNotFoundException("User not found.");
-var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
 ?? throw new KeyNotFoundException("Role not found.");
-if (role.Name == _options.SuperAdminRoleName)
-{
-if (!_currentUser.IsSuperAdmin)
+if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
 throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
-if (await _db.UserRoles.AnyAsync(ur => ur.RoleId == roleId && ur.UserId != userId))
-throw new InvalidOperationException("Only one system account is allowed.");
-}
 if (role.IsSystem && !_currentUser.IsSuperAdmin)
 throw new UnauthorizedAccessException("Cannot assign a system role.");
-if (user.Roles.Any(r => r.RoleId == roleId))
-throw new InvalidOperationException("User already has this role.");
-user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+var effectiveTenantId = tenantId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == effectiveTenantId))
+throw new InvalidOperationException("User already has this role in the tenant.");
+user.Roles.Add(new UserRole
+{
+UserId = userId,
+RoleId = roleId,
+TenantId = effectiveTenantId
+});
 await _db.SaveChangesAsync();
 }
 public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
@@ -531,7 +581,6 @@ services.AddScoped<ITenantService, TenantService>();
 services.AddScoped<IStoreService, StoreService>();
 services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
 services.AddScoped<ITenantContext, TenantContext>();
-services.AddScoped<TenantSeeder>();
 return services;
 }
 }
@@ -569,81 +618,5 @@ public interface ITenantLegalInfoRepository
 {
 Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
 Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default);
-}
-
-===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantLegalInfoService
-{
-Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson);
-Task<TenantLegalInfo?> GetAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantRepository
-{
-Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
-Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default);
-Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
-void Add(TenantEntity tenant);
-void Update(TenantEntity tenant);
-}
-
-===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs =====
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantService
-{
-Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request);
-Task<TenantEntity?> GetByIdAsync(Guid tenantId);
-Task<List<TenantEntity>> GetAllAsync();
-Task UpdateAsync(Guid tenantId, string? name, string? metadataJson);
-Task DeleteAsync(Guid tenantId);
-Task ApproveAsync(Guid tenantId);
-Task RejectAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
-using CoreKit.IAM.Interfaces;
-using CoreKit.Tenant.Abstractions;
-using Microsoft.AspNetCore.Http;
-namespace CoreKit.Tenant.Middleware;
-public class TenantResolutionMiddleware
-{
-private readonly RequestDelegate _next;
-public TenantResolutionMiddleware(RequestDelegate next)
-{
-_next = next;
-}
-public async Task InvokeAsync(
-HttpContext context,
-ITenantContext tenantContext,
-IUserManagementService? userManagementService,
-ICurrentUserService? currentUserService)
-{
-if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid) &&
-Guid.TryParse(tid, out var parsed))
-{
-if (context.User.Identity?.IsAuthenticated == true &&
-userManagementService != null &&
-currentUserService?.UserId != null)
-{
-var user = await userManagementService.GetUserByIdAsync(
-currentUserService.UserId.Value, parsed);
-if (user == null)
-{
-context.Response.StatusCode = 403;
-await context.Response.WriteAsync("Access denied to the requested tenant.");
-return;
-}
-}
-((TenantContext)tenantContext).SetTenant(parsed);
-}
-await _next(context);
-}
 }
 

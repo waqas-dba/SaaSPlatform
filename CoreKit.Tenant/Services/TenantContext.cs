@@ -1,6 +1,8 @@
-﻿namespace CoreKit.Tenant.Abstractions;
+﻿
 
-public class TenantContext : ITenantContext
+namespace CoreKit.Tenant.Services;
+
+public class TenantContext : IMutableTenantContext
 {
     public Guid? TenantId { get; private set; }
 

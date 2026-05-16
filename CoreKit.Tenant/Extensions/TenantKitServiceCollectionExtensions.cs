@@ -1,4 +1,4 @@
-﻿using CoreKit.Tenant.Abstractions;
+﻿// CoreKit.Tenant/Extensions/TenantKitServiceCollectionExtensions.cs
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
@@ -30,13 +30,16 @@ public static class TenantKitServiceCollectionExtensions
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<IStoreRepository, StoreRepository>();
         services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
-
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
 
-        services.AddScoped<ITenantContext, TenantContext>();
-        services.AddScoped<TenantSeeder>();
+        // FIX: Register TenantContext as the concrete type and expose it via
+        // both interfaces so middleware resolves IMutableTenantContext and
+        // controllers resolve ITenantContext — both point to the same instance.
+        services.AddScoped<TenantContext>();
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
 
         return services;
     }

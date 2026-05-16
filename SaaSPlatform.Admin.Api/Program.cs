@@ -1,89 +1,47 @@
+// SaaSPlatform.Admin.Api | SaaSPlatform.Admin.Api/Program.cs
 using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence.Seeders;
-using CoreKit.IAM.Services;   // ✅ Use IAM's EncryptionService, not Infrastructure
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.RateLimiting;
-try
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRateLimiter(options =>
+    options.AddFixedWindowLimiter("login", cfg =>
+    {
+        cfg.PermitLimit = 5;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    }));
+
+builder.Services.AddHttpContextAccessor();
+
+var connStr = builder.Configuration.GetConnectionString("Postgres")!;
+
+// FIX: IEncryptionService is now registered inside AddCoreKitIAM — no
+// duplicate registration needed here.
+builder.Services.AddCoreKitIAM(
+    connStr,
+    builder.Configuration.GetSection("Jwt"),
+    options => options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment());
+
+builder.Services.AddTenantKit(connStr, options =>
 {
-    var builder = WebApplication.CreateBuilder(args);
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
+});
 
-    // ✅ Rate limiting for login/refresh endpoints
-    builder.Services.AddRateLimiter(options =>
-    {
-        options.AddFixedWindowLimiter("login", cfg =>
-        {
-            cfg.PermitLimit = 5;
-            cfg.Window = TimeSpan.FromMinutes(1);
-        });
-    });
+builder.Services.AddControllers();
 
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.AddScoped<ITenantContext, TenantContext>();
+var app = builder.Build();
 
-    var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
 
-    // ✅ Encryption key – use IAM’s service, delete CoreKit.Infrastructure.Security version
-    builder.Services.AddSingleton<IEncryptionService>(sp =>
-    {
-        var key = builder.Configuration["EncryptionKey"]!;
-        return new EncryptionService(key);  // CoreKit.IAM.Services.EncryptionService
-    });
-
-    builder.Services.AddCoreKitIAM(
-        connectionString,
-        builder.Configuration.GetSection("Jwt"),
-        options =>
-        {
-            // Only allow default admin seeding in dev
-            options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment();
-        });
-
-    builder.Services.AddTenantKit(connectionString, options =>
-    {
-        options.AutoApproveTenants = false;
-        options.AllowMultipleStores = true;   // can be false for single‑store tenants
-        options.EnableLegalInfo = true;
-    });
-
-    builder.Services.AddControllers();
-
-    var app = builder.Build();
-
-    app.UseMiddleware<ExceptionMiddleware>();
-    app.UseRouting();
-    app.UseRateLimiter();                       // ✅ Enable rate limiting
-    app.UseMiddleware<TenantResolutionMiddleware>();
-    app.UseAuthentication();
-    app.UseAuthorization();
-    app.MapControllers();
-
-    using (var scope = app.Services.CreateScope())
-    {
-        try
-        {
-            var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
-            await seeder.SeedAsync();
-            Console.WriteLine("✔ IAM Seeder executed successfully");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("❌ Seeder failed: " + ex.Message);
-        }
-    }
-
-    app.Run();
-}
-catch (Exception ex)
-{
-    Console.WriteLine("=============================================");
-    Console.WriteLine(" STARTUP FAILED");
-    Console.WriteLine("=============================================");
-    Console.WriteLine(ex.ToString());
-    Console.WriteLine("=============================================");
-    // Do NOT rethrow – we want to see the output before the process exits
-    Environment.Exit(1);
-}
+app.Run();

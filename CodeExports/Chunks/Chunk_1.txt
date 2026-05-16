@@ -16,8 +16,7 @@ public RequiresPermissionAttribute(string permission)
 {
 _permission = permission;
 }
-public async Task OnAuthorizationAsync(
-AuthorizationFilterContext context)
+public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
 {
 var user = context.HttpContext.User;
 if (user.Identity?.IsAuthenticated != true)
@@ -48,9 +47,20 @@ if (currentUser.UserId == null)
 context.Result = new UnauthorizedResult();
 return;
 }
+Guid? tenantId;
+try
+{
+var scope = currentUser.GetTenantScope();
+tenantId = scope.IsGlobal ? null : scope.TenantId;
+}
+catch (UnauthorizedAccessException)
+{
+context.Result = new ForbidResult();
+return;
+}
 var hasPermission = await permissionService.HasPermissionAsync(
 currentUser.UserId.Value,
-currentUser.TenantId,
+tenantId,
 _permission);
 if (!hasPermission)
 {
@@ -180,12 +190,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Configuration;
-public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
+public class RolePermissionConfiguration
+: IEntityTypeConfiguration<RolePermission>
 {
 public void Configure(EntityTypeBuilder<RolePermission> builder)
 {
 builder.ToTable("IAM_RolePermissions");
-builder.HasKey(x => new { x.RoleId, x.PermissionId });
+builder.HasKey(x => new
+{
+x.RoleId,
+x.PermissionId
+});
 builder.HasOne(rp => rp.Role)
 .WithMany(r => r.RolePermissions)
 .HasForeignKey(rp => rp.RoleId)
@@ -194,7 +209,6 @@ builder.HasOne(rp => rp.Permission)
 .WithMany(p => p.RolePermissions)
 .HasForeignKey(rp => rp.PermissionId)
 .OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(rp => !rp.Role.IsDeleted && !rp.Permission.IsDeleted);
 }
 }
 
@@ -251,19 +265,22 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Configuration;
-public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
+public class UserIdentityConfiguration
+: IEntityTypeConfiguration<UserIdentity>
 {
 public void Configure(EntityTypeBuilder<UserIdentity> builder)
 {
 builder.ToTable("IAM_UserIdentities");
 builder.HasKey(x => x.Id);
-builder.Property(x => x.EncryptedCnic).IsRequired().HasMaxLength(500);
-builder.HasIndex(x => x.UserId).IsUnique();
+builder.Property(x => x.EncryptedCnic)
+.IsRequired()
+.HasMaxLength(500);
+builder.HasIndex(x => x.UserId)
+.IsUnique();
 builder.HasOne(x => x.User)
 .WithOne()
 .HasForeignKey<UserIdentity>(x => x.UserId)
 .OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(ui => !ui.User.IsDeleted);
 }
 }
 
@@ -278,6 +295,12 @@ public void Configure(EntityTypeBuilder<UserRole> builder)
 {
 builder.ToTable("IAM_UserRoles");
 builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
+builder.HasIndex(x => new
+{
+x.UserId,
+x.RoleId,
+x.TenantId
+}).IsUnique();
 builder.HasOne(ur => ur.User)
 .WithMany(u => u.Roles)
 .HasForeignKey(ur => ur.UserId)
@@ -286,7 +309,26 @@ builder.HasOne(ur => ur.Role)
 .WithMany(r => r.UserRoles)
 .HasForeignKey(ur => ur.RoleId)
 .OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(ur => !ur.User.IsDeleted && !ur.Role.IsDeleted);
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserStoreAssignmentConfiguration.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.IAM.Configuration;
+public class UserStoreAssignmentConfiguration : IEntityTypeConfiguration<UserStoreAssignment>
+{
+public void Configure(EntityTypeBuilder<UserStoreAssignment> builder)
+{
+builder.ToTable("IAM_UserStoreAssignments");
+builder.HasKey(x => new { x.UserId, x.StoreId });
+builder.HasIndex(x => new { x.TenantId, x.StoreId });
+builder.HasOne(x => x.User)
+.WithMany(u => u.StoreAssignments)
+.HasForeignKey(x => x.UserId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasQueryFilter(x => !x.User.IsDeleted);
 }
 }
 
@@ -295,6 +337,7 @@ using System.Security.Claims;
 namespace CoreKit.IAM.Constants;
 public static class ClaimConstants
 {
+public const string StoreId = "storeId";
 public const string UserId = "userId";
 public const string TenantId = "tenantId";
 public const string Permission = "permission";
@@ -367,6 +410,7 @@ public const string AuditLogs = "system.audit_logs";
 public static class Store
 {
 public const string View = "store.view";
+public const string ViewAll = "store.view_all";
 public const string Update = "store.update";
 }
 public static IReadOnlyList<string> All => new[]
@@ -498,6 +542,7 @@ public int FailedLoginAttempts { get; set; }
 public DateTime? LockoutEnd { get; set; }
 public ICollection<UserRole> Roles { get; set; } = new List<UserRole>();
 public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+public ICollection<UserStoreAssignment> StoreAssignments { get; set; } = new List<UserStoreAssignment>();
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserDocument.cs =====
@@ -531,6 +576,16 @@ public Guid UserId { get; set; }
 public User User { get; set; } = default!;
 public Guid RoleId { get; set; }
 public Role Role { get; set; } = default!;
-public Guid? TenantId { get; set; }
+public Guid TenantId { get; set; }
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====
+namespace CoreKit.IAM.Entities;
+public class UserStoreAssignment
+{
+public Guid UserId { get; set; }
+public User User { get; set; } = default!;
+public Guid StoreId { get; set; }
+public Guid TenantId { get; set; }
 }
 

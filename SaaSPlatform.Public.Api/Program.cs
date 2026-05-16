@@ -1,76 +1,55 @@
+// SaaSPlatform.Public.Api/Program.cs
 using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
-using Microsoft.AspNetCore.RateLimiting; // ✅ added for tenant resolution
-try
-{
-    var builder = WebApplication.CreateBuilder(args);
+using Microsoft.AspNetCore.RateLimiting;
 
-    // ✅ Rate limiting for authentication endpoints
-    builder.Services.AddRateLimiter(options =>
+var builder = WebApplication.CreateBuilder(args);
+
+// FIX: The rate limiter policy is defined here and applied via
+// [EnableRateLimiting("login")] on AuthController. A global limiter
+// is not applied because most endpoints shouldn't be throttled.
+builder.Services.AddRateLimiter(options =>
+    options.AddFixedWindowLimiter("login", cfg =>
     {
-        options.AddFixedWindowLimiter("login", cfg =>
-        {
-            cfg.PermitLimit = 5;
-            cfg.Window = TimeSpan.FromMinutes(1);
-        });
+        cfg.PermitLimit = 5;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    }));
+
+builder.Services.AddHttpContextAccessor();
+
+var connStr = builder.Configuration.GetConnectionString("Postgres")!;
+
+builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"),
+    options =>
+    {
+        options.EnableUserDocuments = true;
+        options.EnableUserIdentities = true;
+        options.RequireCnic = false;
+        options.AllowDefaultAdminSeed =
+            builder.Environment.IsDevelopment();
     });
 
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.AddScoped<ITenantContext, TenantContext>();
-
-    var connectionString = builder.Configuration.GetConnectionString("Postgres")!;
-
-    builder.Services.AddCoreKitIAM(
-        connectionString,
-        builder.Configuration.GetSection("Jwt"),
-        options =>
-        {
-            options.EnableUserDocuments = true;
-            options.EnableUserIdentities = true;
-            options.RequireCnic = false;
-            options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment(); // ✅ optional
-        });
-
-    builder.Services.AddTenantKit(connectionString, options =>
-    {
-        options.AutoApproveTenants = false;
-        options.AllowMultipleStores = true;
-        options.EnableLegalInfo = true;
-    });
-
-    builder.Services.AddControllers();
-
-    var app = builder.Build();
-
-    // ✅ Run the seeder (base permissions) early
-    using (var scope = app.Services.CreateScope())
-    {
-        var seeder = scope.ServiceProvider.GetRequiredService<IamSeeder>();
-        await seeder.SeedAsync();
-    }
-
-    app.UseMiddleware<ExceptionMiddleware>();
-    app.UseRouting();
-    app.UseRateLimiter();                        // ✅ Enable rate limiting
-    app.UseMiddleware<TenantResolutionMiddleware>(); // ✅ Resolve tenant from header
-    app.UseAuthentication();
-    app.UseAuthorization();
-    app.MapControllers();
-
-    app.Run();
-
-}
-catch (Exception ex)
+// FIX: AddTenantKit now registers TenantContext / ITenantContext /
+// IMutableTenantContext internally — don't register ITenantContext again
+// here, it would create a second unrelated scoped instance.
+builder.Services.AddTenantKit(connStr, options =>
 {
-    Console.WriteLine("=============================================");
-    Console.WriteLine(" STARTUP FAILED");
-    Console.WriteLine("=============================================");
-    Console.WriteLine(ex.ToString());
-    Console.WriteLine("=============================================");
-    // Do NOT rethrow – we want to see the output before the process exits
-    Environment.Exit(1);
-}
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
+});
+
+builder.Services.AddControllers();
+
+var app = builder.Build();
+
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();

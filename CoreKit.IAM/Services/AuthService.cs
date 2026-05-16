@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// CoreKit.IAM | CoreKit.IAM/Services/AuthService.cs
+using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -36,14 +37,16 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
     {
-        var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier)
-            ?? throw new UnauthorizedAccessException("Invalid credentials.");
+        var user = await _userRepo.GetUserByLoginAsync(
+                       request.Login, tenantId, _options.LoginIdentifier)
+                   ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!user.IsActive)
             throw new UnauthorizedAccessException("Account is disabled.");
 
         if (user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow)
-            throw new UnauthorizedAccessException($"Account locked until {user.LockoutEnd:O}");
+            throw new UnauthorizedAccessException(
+                $"Account locked until {user.LockoutEnd:O}");
 
         if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
         {
@@ -59,18 +62,10 @@ public class AuthService : IAuthService
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Roles scoped to the login tenant (or system‑level SuperAdmin)
-        var roles = user.Roles
-            .Where(r =>
-                r.TenantId == tenantId ||                         // roles granted in this tenant
-                r.Role.Name == _options.SuperAdminRoleName)       // system‑level roles
-            .Select(r => r.Role.Name)
-            .Distinct()
-            .ToList();
+        var roles = BuildRoleList(user, tenantId);
+        var permissions = await _permissionService
+            .GetUserPermissionsAsync(user.Id, tenantId);
 
-        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-
-        // Retrieve store assignments for the current tenant
         List<Guid>? storeIds = null;
         if (tenantId.HasValue)
         {
@@ -78,47 +73,49 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
-
-            if (storeIds.Count == 0) storeIds = null;   // null means no store claims
+            if (storeIds.Count == 0) storeIds = null;
         }
 
-        var (accessToken, _) = _jwtService.GenerateAccessToken(
+        var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
-        var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+        var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, jwtId);
 
         return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
     }
 
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
     {
-        var (newToken, compromised, userId) = await _refreshTokenService.RotateAsync(request.RefreshToken);
+        var (newToken, compromised, userId) =
+            await _refreshTokenService.RotateAsync(request.RefreshToken);
+
         if (compromised)
-            throw new UnauthorizedAccessException("Refresh token reuse detected. Session revoked.");
+            throw new UnauthorizedAccessException(
+                "Refresh token reuse detected. Session revoked.");
 
         var user = await _userRepo.GetByIdAsync(userId)
-            ?? throw new UnauthorizedAccessException("User not found.");
+                   ?? throw new UnauthorizedAccessException("User not found.");
 
-        // Tenant membership check
-        if (tenantId.HasValue)
+        // FIX: SuperAdmin has TenantId=null on their UserRole now (no fake GUID).
+        // Check by role name first; only validate tenant membership for non-admins.
+        var isSuperAdmin = user.Roles.Any(r =>
+            r.Role.Name == _options.SuperAdminRoleName);
+
+        if (tenantId.HasValue && !isSuperAdmin)
         {
-            bool belongsToTenant = user.Roles.Any(ur => ur.TenantId == tenantId);
+            // FIX: compare against nullable TenantId correctly
+            bool belongsToTenant = user.Roles.Any(ur =>
+                ur.TenantId.HasValue && ur.TenantId.Value == tenantId.Value);
+
             if (!belongsToTenant)
-                throw new UnauthorizedAccessException("User does not belong to this tenant.");
+                throw new UnauthorizedAccessException(
+                    "User does not belong to this tenant.");
         }
 
-        // Roles scoped to the tenant (same logic as LoginAsync)
-        var roles = user.Roles
-            .Where(r =>
-                r.TenantId == tenantId ||
-                r.Role.Name == _options.SuperAdminRoleName)
-            .Select(r => r.Role.Name)
-            .Distinct()
-            .ToList();
+        var roles = BuildRoleList(user, tenantId);
+        var permissions = await _permissionService
+            .GetUserPermissionsAsync(user.Id, tenantId);
 
-        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-
-        // Retrieve store assignments for the refreshed token
         List<Guid>? storeIds = null;
         if (tenantId.HasValue)
         {
@@ -126,18 +123,27 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
-
             if (storeIds.Count == 0) storeIds = null;
         }
 
-        var (accessToken, _) = _jwtService.GenerateAccessToken(
+        var (accessToken, _, _) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
         return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
     }
 
     public async Task LogoutAsync(string refreshToken)
-    {
-        await _refreshTokenService.RevokeAsync(refreshToken);
-    }
+        => await _refreshTokenService.RevokeAsync(refreshToken);
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private List<string> BuildRoleList(User user, Guid? tenantId)
+        // Include global roles (TenantId=null) and the requested tenant's roles
+        => user.Roles
+            .Where(r =>
+                r.TenantId == null ||
+                r.TenantId == tenantId)
+            .Select(r => r.Role.Name)
+            .Distinct()
+            .ToList();
 }

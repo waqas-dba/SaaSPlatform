@@ -1,12 +1,18 @@
-﻿using CoreKit.IAM.Interfaces;
+﻿// SaaSPlatform.Public.Api/Controllers/AuthController.cs
+using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace SaaSPlatform.Public.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+// FIX: Apply the rate limiter policy to all auth endpoints.
+// Previously the policy was defined but never applied — any endpoint
+// that mutates auth state (login, refresh, logout) should be throttled.
+[EnableRateLimiting("login")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
@@ -31,7 +37,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Refresh(RefreshTokenRequest request)
     {
         var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
-        return Ok(result);   // LoginResponse with accessToken + refreshToken
+        return Ok(result);
     }
 
     [HttpPost("logout")]

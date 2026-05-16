@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿// CoreKit.IAM/Services/RefreshTokenService.cs
+using System.Security.Cryptography;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
@@ -39,8 +40,8 @@ public class RefreshTokenService : IRefreshTokenService
             CreatedByIp = ipAddress,
             UserAgent = userAgent
         };
-        await _repo.AddAsync(entity);
 
+        await _repo.AddAsync(entity);
         return rawToken;
     }
 
@@ -70,19 +71,23 @@ public class RefreshTokenService : IRefreshTokenService
     {
         var hash = TokenHasher.Hash(token);
         var existing = await _repo.GetByTokenHashAsync(hash)
-            ?? throw new UnauthorizedAccessException("Invalid refresh token");
+            ?? throw new UnauthorizedAccessException("Invalid refresh token.");
 
-        // ✅ NEW – Check token expiry before rotation
-        if (existing.ExpiresAtUtc <= DateTime.UtcNow)
-            throw new UnauthorizedAccessException("Refresh token expired");
-
+        // FIX: Check revocation BEFORE expiry.
+        // A token that is both revoked and expired is a reuse/theft signal —
+        // the correct response is family revocation, not an "expired" error
+        // which would hide the compromise.
         if (existing.IsRevoked)
         {
             await _repo.RevokeFamilyAsync(existing.FamilyId);
             return (string.Empty, true, Guid.Empty);
         }
 
+        if (existing.ExpiresAtUtc <= DateTime.UtcNow)
+            throw new UnauthorizedAccessException("Refresh token expired.");
+
         var newToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
         var newEntity = new RefreshToken
         {
             UserId = existing.UserId,
@@ -95,6 +100,7 @@ public class RefreshTokenService : IRefreshTokenService
         existing.IsRevoked = true;
         existing.RevokedAtUtc = DateTime.UtcNow;
         existing.ReplacedByTokenHash = newEntity.TokenHash;
+
         await _repo.UpdateAsync(existing);
         await _repo.AddAsync(newEntity);
 

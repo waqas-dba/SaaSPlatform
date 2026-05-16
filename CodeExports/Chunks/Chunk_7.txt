@@ -1,0 +1,96 @@
+﻿
+===== SaaSPlatform.Tenant.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoresController.cs =====
+using Microsoft.AspNetCore.Mvc;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using Microsoft.AspNetCore.Authorization;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/stores")]
+[Authorize]
+public class StoresController : ControllerBase
+{
+private readonly IStoreService _storeService;
+private readonly ITenantContext _tenantContext;
+public StoresController(IStoreService storeService, ITenantContext tenantContext)
+{
+_storeService = storeService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetAll()
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized("Missing tenant context");
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Create(CreateStoreRequest request)
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized("Missing tenant context");
+var store = await _storeService.CreateAsync(request);
+return Ok(store);
+}
+[HttpPut("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Update(Guid storeId, UpdateStoreRequest request)
+{
+await _storeService.UpdateAsync(storeId, request);
+return NoContent();
+}
+[HttpDelete("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Delete(Guid storeId)
+{
+await _storeService.DeleteAsync(storeId);
+return NoContent();
+}
+[HttpPut("{storeId}/marketplace")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isListed)
+{
+await _storeService.SetMarketplaceListingAsync(storeId, isListed);
+return NoContent();
+}
+}
+
+===== SaaSPlatform.Tenant.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using CoreKit.IAM.Extensions;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence.Seeders;
+using CoreKit.IAM.Services;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using CoreKit.Tenant.Persistence.Seeders;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+var connStr = builder.Configuration.GetConnectionString("Postgres")!;
+builder.Services.AddSingleton<IEncryptionService>(sp =>
+new EncryptionService(builder.Configuration["EncryptionKey"]!));
+builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"));
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddControllers();
+var app = builder.Build();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();
+

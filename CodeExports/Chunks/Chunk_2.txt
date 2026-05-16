@@ -82,7 +82,6 @@ throw new Exception(
 }
 return new EncryptionService(key);
 });
-services.AddScoped<IamSeeder>();
 services
 .AddAuthentication(
 JwtBearerDefaults.AuthenticationScheme)
@@ -148,14 +147,16 @@ Task LogoutAsync(string refreshToken);
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\ICurrentUserService.cs =====
+using CoreKit.SharedKernel.Common;
 namespace CoreKit.IAM.Interfaces;
 public interface ICurrentUserService
 {
 Guid? UserId { get; }
-Guid? TenantId { get; }
 bool IsAuthenticated { get; }
 bool IsSuperAdmin { get; }
 bool HasPermission(string permission);
+TenantScope GetTenantScope();
+Task<StoreScope> GetStoreScopeAsync();
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IEncryptionService.cs =====
@@ -173,8 +174,12 @@ using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IJwtTokenService
 {
-(string Token, DateTime ExpiresAt) GenerateAccessToken(User user, Guid? tenantId,
-IEnumerable<string> roles, IEnumerable<string>? permissions = null);
+(string Token, DateTime ExpiresAt) GenerateAccessToken(
+User user,
+Guid? tenantId,
+IEnumerable<string> roles,
+IEnumerable<string>? permissions = null,
+IEnumerable<Guid>? storeIds = null);
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPasswordHasher.cs =====
@@ -389,105 +394,242 @@ public class RefreshTokenRequest
 public string RefreshToken { get; set; } = default!;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamSeeder.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamBootstrap.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 namespace CoreKit.IAM.Persistence.Seeders;
-public class IamSeeder
+public sealed class IamBootstrap
 {
 private readonly IamDbContext _db;
-private readonly IPasswordHasher _hasher;
-private readonly ILogger<IamSeeder> _logger;
-public IamSeeder(IamDbContext db, IPasswordHasher hasher, ILogger<IamSeeder> logger)
+private readonly PermissionSeeder _permissionSeeder;
+private readonly RoleSeeder _roleSeeder;
+private readonly UserSeeder _userSeeder;
+private readonly RolePermissionSeeder _rolePermissionSeeder;
+private readonly UserRoleSeeder _userRoleSeeder;
+private readonly ILogger<IamBootstrap> _logger;
+public IamBootstrap(
+IamDbContext db,
+PermissionSeeder permissionSeeder,
+RoleSeeder roleSeeder,
+UserSeeder userSeeder,
+RolePermissionSeeder rolePermissionSeeder,
+UserRoleSeeder userRoleSeeder,
+ILogger<IamBootstrap> logger)
 {
 _db = db;
-_hasher = hasher;
+_permissionSeeder = permissionSeeder;
+_roleSeeder = roleSeeder;
+_userSeeder = userSeeder;
+_rolePermissionSeeder = rolePermissionSeeder;
+_userRoleSeeder = userRoleSeeder;
 _logger = logger;
 }
+public async Task RunAsync()
+{
+if (!await _db.Database.CanConnectAsync())
+{
+_logger.LogCritical("Cannot connect to database.");
+throw new InvalidOperationException("Database connection failed.");
+}
+var schemaApplied = await _db.Permissions.IgnoreQueryFilters().AnyAsync();
+if (!schemaApplied)
+{
+_logger.LogInformation("Applying EF Core migrations...");
+await _db.Database.MigrateAsync();
+}
+else
+{
+_logger.LogInformation("Database already migrated — skipping MigrateAsync.");
+}
+_logger.LogInformation("Starting IAM bootstrap...");
+await _permissionSeeder.SeedAsync();
+await _roleSeeder.SeedAsync();
+await _userSeeder.SeedAsync();
+await _rolePermissionSeeder.SeedAsync();
+await _userRoleSeeder.SeedAsync();
+_logger.LogInformation("IAM bootstrap completed successfully.");
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\PermissionSeeder.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class PermissionSeeder
+{
+private readonly IamDbContext _db;
+public PermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var iamModule = await _db.PermissionModules
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(m => m.Code == "iam");
+if (iamModule == null)
+{
+iamModule = new PermissionModule
+{
+Id = Guid.Parse("30000000-0000-0000-0000-000000000004"),
+Name = "IAM",
+Code = "iam"
+};
+_db.PermissionModules.Add(iamModule);
+await _db.SaveChangesAsync();
+}
+foreach (var permissionName in Permissions.All)
+{
+var exists = await _db.Permissions
+.IgnoreQueryFilters()
+.AnyAsync(p => p.Name == permissionName);
+if (exists) continue;
+_db.Permissions.Add(new Permission
+{
+Id = Guid.NewGuid(),
+Name = permissionName,
+PermissionModuleId = iamModule.Id
+});
+}
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RolePermissionSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RolePermissionSeeder
+{
+private readonly IamDbContext _db;
+public RolePermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var superAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
+if (superAdmin == null) return;
+var allPermissions = await _db.Permissions.ToListAsync();
+foreach (var permission in allPermissions)
+{
+var exists = await _db.RolePermissions
+.AnyAsync(rp => rp.RoleId == superAdmin.Id && rp.PermissionId == permission.Id);
+if (exists) continue;
+_db.RolePermissions.Add(new RolePermission
+{
+RoleId = superAdmin.Id,
+PermissionId = permission.Id
+});
+}
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RoleSeeder
+{
+private readonly IamDbContext _db;
+public RoleSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var superAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
+if (superAdmin == null)
+{
+_db.Roles.Add(new Role
+{
+Id = Guid.NewGuid(),
+Name = "SuperAdmin",
+Description = "System Super Administrator",
+TenantId = null,
+IsSystem = true
+});
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserRoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class UserRoleSeeder
+{
+private readonly IamDbContext _db;
+public UserRoleSeeder(IamDbContext db) => _db = db;
 public async Task SeedAsync()
 {
 var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-var catalog = Guid.Parse("30000000-0000-0000-0000-000000000001");
-var orders = Guid.Parse("30000000-0000-0000-0000-000000000002");
-var billing = Guid.Parse("30000000-0000-0000-0000-000000000003");
-var iam = Guid.Parse("30000000-0000-0000-0000-000000000004");
-int rows;
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, 'Catalog', 'catalog', NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", catalog);
-if (rows == 0) _logger.LogInformation("Module 'Catalog' already exists – skipped.");
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, 'Orders', 'orders', NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", orders);
-if (rows == 0) _logger.LogInformation("Module 'Orders' already exists – skipped.");
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, 'Billing', 'billing', NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", billing);
-if (rows == 0) _logger.LogInformation("Module 'Billing' already exists – skipped.");
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_PermissionModules"" (""Id"", ""Name"", ""Code"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, 'IAM', 'iam', NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_PermissionModules"" WHERE ""Id"" = {0})", iam);
-if (rows == 0) _logger.LogInformation("Module 'IAM' already exists – skipped.");
-await InsertPermissionIfNew("catalog.view", catalog);
-await InsertPermissionIfNew("catalog.create", catalog);
-await InsertPermissionIfNew("catalog.update", catalog);
-await InsertPermissionIfNew("orders.view", orders);
-await InsertPermissionIfNew("orders.manage", orders);
-await InsertPermissionIfNew("billing.view", billing);
-await InsertPermissionIfNew("billing.manage", billing);
-await InsertPermissionIfNew("tenant.view", iam);
-await InsertPermissionIfNew("tenant.approve", iam);
-await InsertPermissionIfNew("store.view", iam);
-await InsertPermissionIfNew("store.update", iam);
-var superAdminId = Guid.NewGuid();
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_Roles"" (""Id"", ""TenantId"", ""Name"", ""Description"", ""IsSystem"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, NULL, 'SuperAdmin', 'System Super Admin', TRUE, NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Roles"" WHERE ""Name"" = 'SuperAdmin' AND ""TenantId"" IS NULL)", superAdminId);
-if (rows == 0) _logger.LogInformation("Role 'SuperAdmin' already exists – skipped.");
-var superAdmin = await _db.Roles.IgnoreQueryFilters()
-.FirstOrDefaultAsync(x => x.Name == "SuperAdmin" && x.TenantId == null);
-var userId = Guid.NewGuid();
-var passwordHash = _hasher.Hash("Admin@123");
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_Users"" (""Id"", ""TenantId"", ""Name"", ""Phone"", ""Email"", ""PasswordHash"", ""IsActive"", ""CreatedAt"", ""IsDeleted"", ""FailedLoginAttempts"")
-SELECT {0}, NULL, 'System Admin', '0000000000', 'admin@system.com', {1}, TRUE, NOW(), FALSE, 0
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Users"" WHERE ""Phone"" = '0000000000' OR ""Email"" = 'admin@system.com')", userId, passwordHash);
-if (rows == 0) _logger.LogInformation("User '0000000000' already exists – skipped.");
-await _db.Database.ExecuteSqlRawAsync(
-@"UPDATE ""IAM_Users""
-SET ""PasswordHash"" = {0}
-WHERE (""Phone"" = '0000000000' OR ""Email"" = 'admin@system.com')
-AND ""PasswordHash"" != {0}", passwordHash);
-var user = await _db.Users.IgnoreQueryFilters()
-.FirstOrDefaultAsync(x => x.Phone == "0000000000" || x.Email == "admin@system.com");
-rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_UserRoles"" (""UserId"", ""RoleId"", ""TenantId"")
-SELECT {0}, {1}, {2}
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_UserRoles"" WHERE ""UserId"" = {0} AND ""RoleId"" = {1} AND ""TenantId"" = {2})",
-user.Id, superAdmin.Id, systemTenantId);
-if (rows == 0) _logger.LogInformation("UserRole assignment already exists – skipped.");
-}
-private async Task InsertPermissionIfNew(string name, Guid moduleId)
+var adminUser = await _db.Users
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
+var superAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
+if (adminUser == null || superAdmin == null) return;
+var alreadyAssigned = await _db.UserRoles
+.AnyAsync(ur => ur.UserId == adminUser.Id &&
+ur.RoleId == superAdmin.Id &&
+ur.TenantId == systemTenantId);
+if (alreadyAssigned) return;
+_db.UserRoles.Add(new UserRole
 {
-var rows = await _db.Database.ExecuteSqlRawAsync(
-@"INSERT INTO ""IAM_Permissions"" (""Id"", ""Name"", ""PermissionModuleId"", ""CreatedAt"", ""IsDeleted"")
-SELECT {0}, {1}, {2}, NOW(), FALSE
-WHERE NOT EXISTS (SELECT 1 FROM ""IAM_Permissions"" WHERE ""Name"" = {1})",
-Guid.NewGuid(), name, moduleId);
-if (rows == 0) _logger.LogInformation("Permission '{Name}' already exists – skipped.", name);
+UserId = adminUser.Id,
+RoleId = superAdmin.Id,
+TenantId = systemTenantId
+});
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserSeeder.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class UserSeeder
+{
+private readonly IamDbContext _db;
+private readonly IPasswordHasher _hasher;
+public UserSeeder(IamDbContext db, IPasswordHasher hasher)
+{
+_db = db;
+_hasher = hasher;
+}
+public async Task SeedAsync()
+{
+var adminUser = await _db.Users
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
+if (adminUser == null)
+{
+adminUser = new User
+{
+Id = Guid.NewGuid(),
+Name = "System Admin",
+Phone = "0000000000",
+Email = "admin@system.com",
+PasswordHash = _hasher.Hash("Admin@123"),
+TenantId = null,
+IsActive = true,
+FailedLoginAttempts = 0
+};
+_db.Users.Add(adminUser);
+await _db.SaveChangesAsync();
+}
+else
+{
+adminUser.PasswordHash = _hasher.Hash("Admin@123");
+_db.Users.Update(adminUser);
+await _db.SaveChangesAsync();
+}
 }
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
 using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -509,11 +651,15 @@ public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
 public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
-public DbSet<RoleDocumentRequirement> RoleDocumentRequirements => Set<RoleDocumentRequirement>();
+public DbSet<RoleDocumentRequirement> RoleDocumentRequirements
+=> Set<RoleDocumentRequirement>();
+public DbSet<UserStoreAssignment> UserStoreAssignments
+=> Set<UserStoreAssignment>();
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
 base.OnModelCreating(modelBuilder);
-modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
+modelBuilder.ApplyConfigurationsFromAssembly(
+typeof(IamDbContext).Assembly);
 }
 }
 
@@ -529,55 +675,6 @@ var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
 optionsBuilder.UseNpgsql(
 "Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
 return new IamDbContext(optionsBuilder.Options);
-}
-}
-
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\PermissionRepository.cs =====
-using Microsoft.EntityFrameworkCore;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-namespace CoreKit.IAM.Repositories;
-public class PermissionRepository : IPermissionRepository
-{
-private readonly IamDbContext _db;
-public PermissionRepository(IamDbContext db) => _db = db;
-public async Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
-{
-return await (
-from ur in _db.UserRoles
-join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
-join p in _db.Permissions on rp.PermissionId equals p.Id
-where ur.UserId == userId
-&& ur.TenantId == tenantId
-&& p.Name == permission
-select p
-).AnyAsync();
-}
-public async Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module)
-{
-var prefix = module + ".";
-return await (
-from ur in _db.UserRoles
-join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
-join p in _db.Permissions on rp.PermissionId equals p.Id
-where ur.UserId == userId
-&& ur.TenantId == tenantId
-&& p.Name.StartsWith(prefix)
-select p
-).AnyAsync();
-}
-public async Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId)
-{
-return await (
-from ur in _db.UserRoles
-join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
-join p in _db.Permissions on rp.PermissionId equals p.Id
-where ur.UserId == userId
-&& ur.TenantId == tenantId
-select p.Name
-)
-.Distinct()
-.ToListAsync();
 }
 }
 

@@ -1,6 +1,6 @@
-﻿namespace CoreKit.SharedKernel.Common;
+﻿// CoreKit.SharedKernel | CoreKit.SharedKernel/Common/AuditableEntity.cs
+namespace CoreKit.SharedKernel.Common;
 
-// ✅ Now implements ISoftDelete so soft-delete global filter works for all entities.
 public abstract class AuditableEntity : BaseEntity, ISoftDelete
 {
     public DateTime CreatedAt { get; set; }
@@ -10,4 +10,9 @@ public abstract class AuditableEntity : BaseEntity, ISoftDelete
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAtUtc { get; set; }
     public Guid? DeletedBy { get; set; }
+
+    // FIX: optimistic concurrency — EF will throw DbUpdateConcurrencyException
+    // if two requests try to save the same row simultaneously.
+    // PostgreSQL uses xmin (system column); we map it via ValueGeneratedOnAddOrUpdate.
+    public uint RowVersion { get; set; }
 }

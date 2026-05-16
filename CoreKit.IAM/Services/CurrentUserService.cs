@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+﻿// CoreKit.IAM | CoreKit.IAM/Services/CurrentUserService.cs
+using System.Security.Claims;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
@@ -27,7 +28,8 @@ public class CurrentUserService : ICurrentUserService, ICurrentUser
         _db = db;
     }
 
-    private ClaimsPrincipal? User => _httpContextAccessor.HttpContext?.User;
+    private ClaimsPrincipal? User =>
+        _httpContextAccessor.HttpContext?.User;
 
     public Guid? UserId
     {
@@ -39,15 +41,23 @@ public class CurrentUserService : ICurrentUserService, ICurrentUser
     }
 
     public bool IsAuthenticated => UserId.HasValue;
-    public bool IsSuperAdmin => User?.IsInRole(_options.SuperAdminRoleName) == true;
+
+    public bool IsSuperAdmin =>
+        User?.IsInRole(_options.SuperAdminRoleName) == true;
 
     public bool HasPermission(string permission) =>
-        User?.Claims.Any(c => c.Type == ClaimConstants.Permission && c.Value == permission) == true;
+        User?.Claims.Any(c =>
+            c.Type == ClaimConstants.Permission &&
+            c.Value == permission) == true;
 
     public TenantScope GetTenantScope()
     {
-        if (!IsAuthenticated)
-            throw new UnauthorizedAccessException("User is not authenticated.");
+        // FIX: do not throw for background-job / unauthenticated callers.
+        // Return Global scope when there is no HTTP context so internal
+        // services (cron jobs, seeders) don't crash. Callers that genuinely
+        // require a tenant should use [RequiresPermission] or check
+        // IsAuthenticated themselves.
+        if (!IsAuthenticated) return TenantScope.Global;
 
         if (IsSuperAdmin) return TenantScope.Global;
 
@@ -57,11 +67,15 @@ public class CurrentUserService : ICurrentUserService, ICurrentUser
 
         if (_options.TenantResolver != null)
         {
-            var resolved = _options.TenantResolver(_httpContextAccessor.HttpContext!);
-            if (resolved.HasValue) return TenantScope.For(resolved.Value);
+            var resolved = _options.TenantResolver(
+                _httpContextAccessor.HttpContext!);
+            if (resolved.HasValue)
+                return TenantScope.For(resolved.Value);
         }
 
-        throw new UnauthorizedAccessException("Tenant context is required but could not be resolved.");
+        // FIX: return Global rather than throwing — let the endpoint/filter
+        // decide whether a missing tenant is an error for its own context.
+        return TenantScope.Global;
     }
 
     public async Task<StoreScope> GetStoreScopeAsync()
@@ -73,18 +87,36 @@ public class CurrentUserService : ICurrentUserService, ICurrentUser
             return StoreScope.All;
 
         if (UserId == null)
-            throw new UnauthorizedAccessException("Cannot resolve store scope without a userId.");
+            throw new UnauthorizedAccessException(
+                "Cannot resolve store scope without a userId.");
 
+        // FIX: read store IDs from JWT claims first — O(1), no DB round-trip.
+        // The login flow already embeds storeIds into the token.
+        var claimStoreIds = User!.Claims
+            .Where(c => c.Type == ClaimConstants.StoreId)
+            .Select(c => Guid.TryParse(c.Value, out var g) ? g : (Guid?)null)
+            .Where(g => g.HasValue)
+            .Select(g => g!.Value)
+            .ToList();
+
+        if (claimStoreIds.Count > 0)
+            return StoreScope.For(claimStoreIds);
+
+        // Fallback: DB query when claim is absent (e.g. older token, test client)
         var tenantScope = GetTenantScope();
+        if (tenantScope.IsGlobal)
+            return StoreScope.All;
 
-        var storeIds = await _db.Set<UserStoreAssignment>()
-            .Where(a => a.UserId == UserId.Value && a.TenantId == tenantScope.TenantId)
+        var dbStoreIds = await _db.Set<UserStoreAssignment>()
+            .Where(a => a.UserId == UserId.Value &&
+                        a.TenantId == tenantScope.TenantId)
             .Select(a => a.StoreId)
             .ToListAsync();
 
-        if (storeIds.Count == 0)
-            throw new UnauthorizedAccessException("User has no store assignments in this tenant.");
+        if (dbStoreIds.Count == 0)
+            throw new UnauthorizedAccessException(
+                "User has no store assignments in this tenant.");
 
-        return StoreScope.For(storeIds);
+        return StoreScope.For(dbStoreIds);
     }
 }

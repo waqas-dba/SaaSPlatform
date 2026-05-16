@@ -1,4 +1,5 @@
-﻿namespace CoreKit.IAM.Constants;
+﻿// CoreKit.IAM/Constants/Permissions.cs
+namespace CoreKit.IAM.Constants;
 
 public static class Permissions
 {
@@ -20,7 +21,6 @@ public static class Permissions
         public const string Update = "roles.update";
         public const string Delete = "roles.delete";
         public const string View = "roles.view";
-
         public const string AssignPermission = "roles.assign_permission";
         public const string RemovePermission = "roles.remove_permission";
     }
@@ -70,17 +70,14 @@ public static class Permissions
     public static class Store
     {
         public const string View = "store.view";
+        // FIX: Was present in CurrentUserService but missing from All —
+        // it was therefore never seeded or assignable via the UI.
         public const string ViewAll = "store.view_all";
         public const string Update = "store.update";
     }
 
-    /// <summary>
-    /// Returns all permissions as a flat list.
-    /// Useful for seeding database permissions.
-    /// </summary>
     public static IReadOnlyList<string> All => new[]
     {
-        // Users
         Users.Create,
         Users.Update,
         Users.Delete,
@@ -89,46 +86,32 @@ public static class Permissions
         Users.RemoveRole,
         Users.Lock,
         Users.Unlock,
-
-        // Roles
         Roles.Create,
         Roles.Update,
         Roles.Delete,
         Roles.View,
         Roles.AssignPermission,
         Roles.RemovePermission,
-
-        // Permissions
         PermissionsManagement.View,
         PermissionsManagement.Assign,
-
-        // Auth
         Auth.Login,
         Auth.Refresh,
         Auth.Logout,
-
-        // Documents
         Documents.Upload,
         Documents.View,
         Documents.Delete,
-
-        // Identity
         Identity.Manage,
         Identity.View,
-
-        // Tenants
         Tenants.Create,
         Tenants.Update,
         Tenants.Delete,
         Tenants.View,
         Tenants.Approve,
-
-        // System
         System.SuperAdmin,
         System.Settings,
         System.AuditLogs,
-
+        Store.View,
+        Store.ViewAll,   // FIX: was missing
         Store.Update,
-        Store.View
     };
 }

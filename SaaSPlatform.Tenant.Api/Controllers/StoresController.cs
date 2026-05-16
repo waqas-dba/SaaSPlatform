@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Services;
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using Microsoft.AspNetCore.Authorization;

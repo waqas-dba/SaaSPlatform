@@ -1,12 +1,9 @@
-﻿using CoreKit.SharedKernel.Interfaces;
+﻿// CoreKit.SharedKernel | CoreKit.SharedKernel/Common/AuditableDbContext.cs
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.SharedKernel.Common;
 
-/// <summary>
-/// Base DbContext that automatically sets audit fields (CreatedAt, CreatedBy, etc.)
-/// and enforces soft‑delete filtering.
-/// </summary>
 public abstract class AuditableDbContext : DbContext
 {
     private readonly ICurrentUser? _currentUser;
@@ -30,11 +27,11 @@ public abstract class AuditableDbContext : DbContext
                     entry.Entity.CreatedAt = DateTime.UtcNow;
                     entry.Entity.CreatedBy = _currentUser?.UserId;
                     break;
+
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = DateTime.UtcNow;
                     entry.Entity.UpdatedBy = _currentUser?.UserId;
 
-                    // Handle soft‑delete
                     if (entry.Entity is ISoftDelete deletable &&
                         entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
                         deletable.IsDeleted)
@@ -53,22 +50,38 @@ public abstract class AuditableDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Global query filter for soft‑delete
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
             {
                 modelBuilder.Entity(entityType.ClrType)
-                    .HasQueryFilter(ConvertFilterExpression(entityType.ClrType));
+                    .HasQueryFilter(
+                        BuildSoftDeleteFilter(entityType.ClrType));
+            }
+
+            // FIX: map RowVersion to PostgreSQL xmin system column for
+            // zero-overhead optimistic concurrency on every AuditableEntity.
+            if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
+            {
+                modelBuilder.Entity(entityType.ClrType)
+                    .Property<uint>("RowVersion")
+                    .IsRowVersion()
+                    .HasColumnName("xmin")
+                    .HasColumnType("xid")
+                    .ValueGeneratedOnAddOrUpdate();
             }
         }
     }
 
-    private static System.Linq.Expressions.LambdaExpression ConvertFilterExpression(Type entityType)
+    private static System.Linq.Expressions.LambdaExpression
+        BuildSoftDeleteFilter(Type entityType)
     {
-        var parameter = System.Linq.Expressions.Expression.Parameter(entityType, "e");
-        var property = System.Linq.Expressions.Expression.Property(parameter, nameof(ISoftDelete.IsDeleted));
-        var condition = System.Linq.Expressions.Expression.Equal(property, System.Linq.Expressions.Expression.Constant(false));
-        return System.Linq.Expressions.Expression.Lambda(condition, parameter);
+        var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
+        var property = System.Linq.Expressions.Expression.Property(
+                            param, nameof(ISoftDelete.IsDeleted));
+        var condition = System.Linq.Expressions.Expression.Equal(
+                            property,
+                            System.Linq.Expressions.Expression.Constant(false));
+        return System.Linq.Expressions.Expression.Lambda(condition, param);
     }
 }
