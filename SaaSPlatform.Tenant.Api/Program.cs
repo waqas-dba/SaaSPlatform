@@ -76,59 +76,59 @@ try
     _ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IEncryptionService>();
     Console.WriteLine("[BOOT] IEncryptionService         OK");
 
-    // 2. Check DB connection explicitly with a 5-second timeout
+    // 2. Check DB connection with a real 5-second timeout (cannot hang)
     Console.WriteLine("[BOOT] Testing database connection ...");
     var iamDb = sp.GetRequiredService<CoreKit.IAM.Persistence.IamDbContext>();
 
-    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    var canConnect = await iamDb.Database.CanConnectAsync(cts.Token);
+    var connectTask = Task.Run(() => iamDb.Database.CanConnect());  // sync call on thread pool
+    var delayTask = Task.Delay(TimeSpan.FromSeconds(5));
 
-    if (!canConnect)
+    if (await Task.WhenAny(connectTask, delayTask) == delayTask)
     {
         Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine("[BOOT] DATABASE: CanConnectAsync returned FALSE");
-        Console.WriteLine("[BOOT] Check your PostgreSQL connection string in appsettings.json");
+        Console.WriteLine("[BOOT] DATABASE: connection TIMED OUT after 5 seconds");
+        Console.WriteLine("[BOOT] This usually means SSL negotiation is stalling.");
+        Console.WriteLine("[BOOT] Add 'SSL Mode=Disable' to your connection string.");
         Console.WriteLine($"[BOOT] Connection string used: {app.Configuration.GetConnectionString("Postgres")}");
         Console.ResetColor();
-        // Do NOT throw — let app start so you can still hit health endpoints
+        // Do NOT throw – app continues, but DB‑dependent services won't be resolved
     }
     else
     {
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("[BOOT] DATABASE: connection OK");
-        Console.ResetColor();
+        var canConnect = await connectTask;
+        if (canConnect)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("[BOOT] DATABASE: connection OK");
+            Console.ResetColor();
 
-        Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.ForegroundColor = ConsoleColor.Magenta;
 
-        // 3. Only resolve DB-dependent services if DB is reachable
-        _ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IAuthService>();
-        Console.WriteLine("[BOOT] IAuthService               OK");
+            // 3. Only resolve DB‑dependent services if DB is reachable
+            _ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IAuthService>();
+            Console.WriteLine("[BOOT] IAuthService               OK");
 
-        _ = sp.GetRequiredService<CoreKit.IAM.Interfaces.ICurrentUserService>();
-        Console.WriteLine("[BOOT] ICurrentUserService        OK");
+            _ = sp.GetRequiredService<CoreKit.IAM.Interfaces.ICurrentUserService>();
+            Console.WriteLine("[BOOT] ICurrentUserService        OK");
 
-        _ = sp.GetRequiredService<CoreKit.Tenant.Services.IMutableTenantContext>();
-        Console.WriteLine("[BOOT] IMutableTenantContext      OK");
+            _ = sp.GetRequiredService<CoreKit.Tenant.Services.IMutableTenantContext>();
+            Console.WriteLine("[BOOT] IMutableTenantContext      OK");
 
-        _ = sp.GetRequiredService<CoreKit.Tenant.Middleware.TenantResolutionMiddleware>();
-        Console.WriteLine("[BOOT] TenantResolutionMiddleware OK");
+            _ = sp.GetRequiredService<CoreKit.Tenant.Middleware.TenantResolutionMiddleware>();
+            Console.WriteLine("[BOOT] TenantResolutionMiddleware OK");
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("[BOOT] DATABASE: CanConnect returned FALSE");
+            Console.WriteLine("[BOOT] Check PostgreSQL connection / credentials.");
+            Console.ResetColor();
+        }
     }
 
     Console.WriteLine("[BOOT] ===== BOOT CHECK COMPLETE =====\n");
 }
-catch (OperationCanceledException)
-{
-    Console.ForegroundColor = ConsoleColor.Red;
-    Console.WriteLine("[BOOT] DATABASE: connection TIMED OUT after 5 seconds");
-    Console.WriteLine("[BOOT] PostgreSQL is not reachable — check:");
-    Console.WriteLine("[BOOT]   1. Is PostgreSQL running?");
-    Console.WriteLine("[BOOT]   2. Is the Host/Port correct in appsettings.json?");
-    Console.WriteLine("[BOOT]   3. Is the firewall/docker port open?");
-    Console.WriteLine($"[BOOT]   Connection string: {app.Configuration.GetConnectionString("Postgres")}");
-    Console.ResetColor();
-    // Do NOT throw — print and continue so you see the full picture
-}
-catch (Exception ex)
+catch (Exception ex)   // Catch anything unexpected (still runs!)
 {
     Console.ForegroundColor = ConsoleColor.Red;
     Console.WriteLine($"[BOOT] FAILED: {ex.GetType().Name}");

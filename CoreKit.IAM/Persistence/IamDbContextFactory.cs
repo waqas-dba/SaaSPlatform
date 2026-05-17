@@ -15,7 +15,7 @@ public class IamDbContextFactory : IDesignTimeDbContextFactory<IamDbContext>
     {
         var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
         optionsBuilder.UseNpgsql(
-            "Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123;Timeout=10;CommandTimeout=10");
+            "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;Timeout=10;CommandTimeout=10;SSL Mode=Disable");
         return new IamDbContext(optionsBuilder.Options);
     }
 }
