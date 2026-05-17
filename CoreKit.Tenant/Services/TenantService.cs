@@ -8,15 +8,12 @@ using Microsoft.Extensions.Options;
 
 namespace CoreKit.Tenant.Services;
 
-/// <summary>
-/// Tenant management service.
-/// </summary>
 public class TenantService : ITenantService
 {
     private readonly ITenantRepository _tenantRepo;
     private readonly TenantKitOptions _options;
     private readonly TenantDbContext _db;
-    private readonly ICurrentUserService? _currentUser;   // Null if no authenticated user
+    private readonly ICurrentUserService? _currentUser;
 
     public TenantService(
         ITenantRepository tenantRepo,
@@ -35,24 +32,32 @@ public class TenantService : ITenantService
         if (await _tenantRepo.ExistsByNameAsync(request.Name))
             throw new InvalidOperationException("Tenant already exists.");
 
-        var status = _options.AutoApproveTenants ? TenantStatus.Active : TenantStatus.Pending;
+        var status = _options.AutoApproveTenants
+            ? TenantStatus.Active
+            : TenantStatus.Pending;
+
+        // Use the same safe slug generator used in StoreService — strips special chars
+        var slug = GenerateSlug(request.Name);
 
         var tenant = new TenantEntity
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
-            Slug = request.Name.ToLower().Replace(" ", "-"),
+            Slug = slug,
             Status = status,
-            OwnerUserId = _currentUser?.UserId   // Set if authenticated
+            MetadataJson = request.MetadataJson,
+            OwnerUserId = _currentUser?.UserId
         };
 
         _tenantRepo.Add(tenant);
-        await _db.SaveChangesAsync();   // Critical: persist changes
+        await _db.SaveChangesAsync();
 
         return new TenantRegistrationResponse
         {
             TenantId = tenant.Id,
-            Message = "Tenant created successfully"
+            Message = _options.AutoApproveTenants
+                ? "Tenant registered and activated."
+                : "Tenant registration submitted. Awaiting approval."
         };
     }
 
@@ -65,7 +70,11 @@ public class TenantService : ITenantService
     public async Task ApproveAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-                     ?? throw new KeyNotFoundException("Tenant not found");
+            ?? throw new KeyNotFoundException("Tenant not found.");
+
+        if (tenant.Status == TenantStatus.Active)
+            throw new InvalidOperationException("Tenant is already active.");
+
         tenant.Status = TenantStatus.Active;
         _tenantRepo.Update(tenant);
         await _db.SaveChangesAsync();
@@ -74,7 +83,8 @@ public class TenantService : ITenantService
     public async Task RejectAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-                     ?? throw new KeyNotFoundException("Tenant not found");
+            ?? throw new KeyNotFoundException("Tenant not found.");
+
         tenant.Status = TenantStatus.Rejected;
         _tenantRepo.Update(tenant);
         await _db.SaveChangesAsync();
@@ -83,25 +93,39 @@ public class TenantService : ITenantService
     public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-                     ?? throw new KeyNotFoundException("Tenant not found");
-        if (name != null) tenant.Name = name;
-        if (metadataJson != null) tenant.MetadataJson = metadataJson;
+            ?? throw new KeyNotFoundException("Tenant not found.");
+
+        if (name != null)
+        {
+            tenant.Name = name;
+            tenant.Slug = GenerateSlug(name);
+        }
+
+        if (metadataJson != null)
+            tenant.MetadataJson = metadataJson;
+
         _tenantRepo.Update(tenant);
         await _db.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// Soft‑deletes a tenant by marking it as Archived and setting IsDeleted.
-    /// </summary>
     public async Task DeleteAsync(Guid tenantId)
     {
         var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-                     ?? throw new KeyNotFoundException("Tenant not found");
+            ?? throw new KeyNotFoundException("Tenant not found.");
 
         tenant.IsDeleted = true;
         tenant.Status = TenantStatus.Archived;
-        // AuditableDbContext will automatically set DeletedAtUtc/DeletedBy
         _tenantRepo.Update(tenant);
         await _db.SaveChangesAsync();
+    }
+
+    // Strips special characters so slugs are safe for URLs and routing.
+    // "A&B Corp" → "ab-corp", "Héllo Wörld" → "hllo-wrld" (safe fallback)
+    private static string GenerateSlug(string name)
+    {
+        var slug = name.Trim().ToLowerInvariant();
+        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9\s-]", "");
+        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"\s+", "-");
+        return slug.Trim('-');
     }
 }

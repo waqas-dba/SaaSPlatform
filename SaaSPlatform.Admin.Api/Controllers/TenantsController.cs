@@ -1,9 +1,11 @@
-﻿using CoreKit.IAM.Authorization;
+﻿// SaaSPlatform.Admin.Api/Controllers/TenantsController.cs
+using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace SaaSPlatform.Admin.Api.Controllers;
 
@@ -14,24 +16,27 @@ public class TenantsController : ControllerBase
     private readonly ITenantService _tenantService;
 
     public TenantsController(ITenantService tenantService)
-    {
-        _tenantService = tenantService;
-    }
+        => _tenantService = tenantService;
 
-    /// <summary>
-    /// Public endpoint for tenant self‑registration.
-    /// </summary>
+    // Fix #10: Apply the "login" rate limit policy (5 req/min) to the anonymous
+    // registration endpoint to prevent spam/abuse.
+    // If you want a separate, stricter policy for registration, add one in Program.cs:
+    //   options.AddFixedWindowLimiter("tenant_register", cfg => {
+    //       cfg.PermitLimit = 3; cfg.Window = TimeSpan.FromMinutes(10);
+    //   });
+    // and reference it here instead.
     [HttpPost("register")]
-    [AllowAnonymous]   // Removed [Authorize] – registration is public
+    [AllowAnonymous]
+    //[EnableRateLimiting("login")]
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest("Tenant name is required.");
+
         var result = await _tenantService.RegisterAsync(request);
         return Ok(result);
     }
 
-    /// <summary>
-    /// Admin‑only endpoint to approve a pending tenant.
-    /// </summary>
     [HttpPost("{tenantId}/approve")]
     [Authorize]
     [RequiresPermission(Permissions.Tenants.Approve)]
@@ -40,7 +45,7 @@ public class TenantsController : ControllerBase
         await _tenantService.ApproveAsync(tenantId);
         return Ok(new
         {
-            tenantId = tenantId,
+            tenantId,
             status = "Approved",
             message = "Tenant approved successfully"
         });

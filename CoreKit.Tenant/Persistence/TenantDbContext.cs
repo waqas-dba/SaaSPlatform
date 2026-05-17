@@ -1,5 +1,4 @@
-﻿using CoreKit.IAM.Interfaces;
-using CoreKit.SharedKernel.Common;
+﻿using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -8,51 +7,42 @@ namespace CoreKit.Tenant.Persistence;
 
 public class TenantDbContext : AuditableDbContext
 {
-    private readonly ICurrentUserService? _currentUserService;
+    private Guid? _tenantId;
+
+    private bool _isGlobal = true;
+
+    public void SetTenantScope(Guid? tenantId, bool isGlobal)
+    {
+        _tenantId = tenantId;
+        _isGlobal = isGlobal;
+    }
 
     public TenantDbContext(
         DbContextOptions<TenantDbContext> options,
-        ICurrentUser? currentUser = null,
-        ICurrentUserService? currentUserService = null)
+        ICurrentUser? currentUser = null)
         : base(options, currentUser)
     {
-        _currentUserService = currentUserService;
     }
 
     public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
+
     public DbSet<Store> Stores => Set<Store>();
+
     public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
-
-    private bool IsGlobalScope
-    {
-        get
-        {
-            try { return _currentUserService?.GetTenantScope().IsGlobal ?? true; }
-            catch { return true; }
-        }
-    }
-
-    private Guid? CurrentTenantId
-    {
-        get
-        {
-            try
-            {
-                var scope = _currentUserService?.GetTenantScope();
-                return scope is { IsGlobal: false } ? scope.TenantId : null;
-            }
-            catch { return null; }
-        }
-    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
 
-        // Tenant filter on Store (already on TenantEntity)
-        modelBuilder.Entity<Store>().HasQueryFilter(s =>
-            IsGlobalScope || s.TenantId == CurrentTenantId);
-        // Add for TenantEntity if not already covered (it is not directly ITenantScoped, but it's the owner)
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(TenantDbContext).Assembly);
+
+        modelBuilder.Entity<Store>()
+            .HasQueryFilter(x =>
+                _isGlobal || x.TenantId == _tenantId);
+
+        modelBuilder.Entity<TenantLegalInfo>()
+            .HasQueryFilter(x =>
+                _isGlobal || x.TenantId == _tenantId);
     }
 }

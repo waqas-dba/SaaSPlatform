@@ -1,5 +1,4 @@
-﻿// CoreKit.IAM | CoreKit.IAM/Services/RoleManagementService.cs
-using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,19 +9,23 @@ public class RoleManagementService : IRoleManagementService
 {
     private readonly IamDbContext _db;
     private readonly ICurrentUserService _currentUser;
+    private readonly IPermissionCacheService _permissionCache;
 
-    public RoleManagementService(IamDbContext db, ICurrentUserService currentUser)
+    public RoleManagementService(
+        IamDbContext db,
+        ICurrentUserService currentUser,
+        IPermissionCacheService permissionCache)
     {
         _db = db;
         _currentUser = currentUser;
+        _permissionCache = permissionCache;
     }
 
     public Task<List<Role>> GetRolesAsync(Guid? tenantId)
         => _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
 
     public Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
-        => _db.Roles.FirstOrDefaultAsync(r =>
-               r.Id == roleId && r.TenantId == tenantId);
+        => _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
 
     public async Task<Role> CreateRoleAsync(
         string name, Guid? tenantId, string? description = null)
@@ -50,8 +53,6 @@ public class RoleManagementService : IRoleManagementService
             .FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
             ?? throw new KeyNotFoundException("Role not found.");
 
-        // FIX: system roles are immutable — only a SuperAdmin operation at
-        // seeder time should ever create/touch them.
         GuardSystemRole(role, "modified");
 
         if (!string.IsNullOrWhiteSpace(newName)) role.Name = newName;
@@ -63,19 +64,28 @@ public class RoleManagementService : IRoleManagementService
     public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
     {
         var role = await _db.Roles
+            .Include(r => r.UserRoles)
             .FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
             ?? throw new KeyNotFoundException("Role not found.");
 
         GuardSystemRole(role, "deleted");
 
+        // Invalidate cache for every user who had this role
+        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+
         _db.Roles.Remove(role);
         await _db.SaveChangesAsync();
+
+        // Invalidate after save so stale data is never served
+        foreach (var userId in affectedUserIds)
+            await _permissionCache.InvalidateUserAsync(userId);
     }
 
     public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
     {
         var role = await _db.Roles
             .Include(r => r.RolePermissions)
+            .Include(r => r.UserRoles)
             .FirstOrDefaultAsync(r => r.Id == roleId)
             ?? throw new KeyNotFoundException("Role not found.");
 
@@ -91,24 +101,34 @@ public class RoleManagementService : IRoleManagementService
         });
 
         await _db.SaveChangesAsync();
+
+        // Invalidate cache for every user who has this role
+        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+        foreach (var userId in affectedUserIds)
+            await _permissionCache.InvalidateUserAsync(userId);
     }
 
     public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
     {
         var role = await _db.Roles
+            .Include(r => r.UserRoles)
             .FirstOrDefaultAsync(r => r.Id == roleId)
             ?? throw new KeyNotFoundException("Role not found.");
 
         GuardSystemRole(role, "modified");
 
         var rp = await _db.RolePermissions
-            .FirstOrDefaultAsync(x =>
-                x.RoleId == roleId && x.PermissionId == permissionId);
+            .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId);
 
         if (rp == null) return;
 
         _db.RolePermissions.Remove(rp);
         await _db.SaveChangesAsync();
+
+        // Invalidate cache for every user who has this role
+        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+        foreach (var userId in affectedUserIds)
+            await _permissionCache.InvalidateUserAsync(userId);
     }
 
     public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
@@ -117,9 +137,6 @@ public class RoleManagementService : IRoleManagementService
             .Select(x => x.Permission)
             .ToListAsync();
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
-    // FIX: centralised guard — applied to update, delete, and permission changes.
     private static void GuardSystemRole(Role role, string action)
     {
         if (role.IsSystem)

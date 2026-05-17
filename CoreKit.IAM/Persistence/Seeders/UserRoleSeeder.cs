@@ -10,6 +10,7 @@ public sealed class UserRoleSeeder
 
     public UserRoleSeeder(IamDbContext db) => _db = db;
 
+    // CoreKit.IAM/Persistence/Seeders/UserRoleSeeder.cs
     public async Task SeedAsync()
     {
         var adminUser = await _db.Users
@@ -24,13 +25,11 @@ public sealed class UserRoleSeeder
 
         if (adminUser == null || superAdmin == null) return;
 
-        // FIX: SuperAdmin is a global role — TenantId = null.
-        // No fake system tenant GUID needed now that UserRole.TenantId is nullable.
+        // PK is now (UserId, RoleId) — check on those two columns only.
         var alreadyAssigned = await _db.UserRoles
             .AnyAsync(ur =>
                 ur.UserId == adminUser.Id &&
-                ur.RoleId == superAdmin.Id &&
-                ur.TenantId == null);
+                ur.RoleId == superAdmin.Id);
 
         if (alreadyAssigned) return;
 
@@ -38,7 +37,7 @@ public sealed class UserRoleSeeder
         {
             UserId = adminUser.Id,
             RoleId = superAdmin.Id,
-            TenantId = null   // global scope
+            TenantId = null   // Global SuperAdmin — no tenant
         });
 
         await _db.SaveChangesAsync();

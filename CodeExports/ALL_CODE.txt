@@ -6,18 +6,16 @@ using Microsoft.Extensions.DependencyInjection;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
-namespace CoreKit.IAM.Authorization
-{
+namespace CoreKit.IAM.Authorization;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
 private readonly string _permission;
 public RequiresPermissionAttribute(string permission)
-{
-_permission = permission;
-}
+=> _permission = permission;
 public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
 {
+if (context.Result != null) return;
 var user = context.HttpContext.User;
 if (user.Identity?.IsAuthenticated != true)
 {
@@ -28,16 +26,11 @@ var options = context.HttpContext.RequestServices
 .GetRequiredService<IamOptions>();
 if (options.SuperAdminBypassPermissions &&
 user.IsInRole(options.SuperAdminRoleName))
-{
 return;
-}
-var hasClaimPermission = user.Claims.Any(c =>
+if (user.Claims.Any(c =>
 c.Type == ClaimConstants.Permission &&
-c.Value == _permission);
-if (hasClaimPermission)
-{
+c.Value == _permission))
 return;
-}
 var permissionService = context.HttpContext.RequestServices
 .GetRequiredService<IPermissionService>();
 var currentUser = context.HttpContext.RequestServices
@@ -59,14 +52,9 @@ context.Result = new ForbidResult();
 return;
 }
 var hasPermission = await permissionService.HasPermissionAsync(
-currentUser.UserId.Value,
-tenantId,
-_permission);
+currentUser.UserId.Value, tenantId, _permission);
 if (!hasPermission)
-{
 context.Result = new ForbidResult();
-}
-}
 }
 }
 
@@ -233,8 +221,22 @@ builder.Property(x => x.Email)
 .HasMaxLength(200);
 builder.Property(x => x.PasswordHash)
 .IsRequired();
-builder.HasIndex(x => new { x.Phone, x.TenantId }).IsUnique();
-builder.HasIndex(x => new { x.Email, x.TenantId }).IsUnique();
+builder.HasIndex(x => new { x.Phone, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Phone_TenantId_NotNull");
+builder.HasIndex(x => new { x.Email, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL AND \"Email\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Email_TenantId_NotNull");
+builder.HasIndex(x => x.Phone)
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL")
+.HasDatabaseName("IX_IAM_Users_Phone_Global");
+builder.HasIndex(x => x.Email)
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL AND \"Email\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Email_Global");
 }
 }
 
@@ -294,13 +296,15 @@ public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 public void Configure(EntityTypeBuilder<UserRole> builder)
 {
 builder.ToTable("IAM_UserRoles");
-builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
-builder.HasIndex(x => new
-{
-x.UserId,
-x.RoleId,
-x.TenantId
-}).IsUnique();
+builder.HasKey(x => new { x.UserId, x.RoleId });
+builder.HasIndex(x => new { x.UserId, x.RoleId, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_TenantId_NotNull");
+builder.HasIndex(x => new { x.UserId, x.RoleId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL")
+.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_Global");
 builder.HasOne(ur => ur.User)
 .WithMany(u => u.Roles)
 .HasForeignKey(ur => ur.UserId)
@@ -348,6 +352,7 @@ public const string JwtId = "jti";
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\Permissions.cs =====
+using System.Reflection;
 namespace CoreKit.IAM.Constants;
 public static class Permissions
 {
@@ -413,43 +418,19 @@ public const string View = "store.view";
 public const string ViewAll = "store.view_all";
 public const string Update = "store.update";
 }
-public static IReadOnlyList<string> All => new[]
-{
-Users.Create,
-Users.Update,
-Users.Delete,
-Users.View,
-Users.AssignRole,
-Users.RemoveRole,
-Users.Lock,
-Users.Unlock,
-Roles.Create,
-Roles.Update,
-Roles.Delete,
-Roles.View,
-Roles.AssignPermission,
-Roles.RemovePermission,
-PermissionsManagement.View,
-PermissionsManagement.Assign,
-Auth.Login,
-Auth.Refresh,
-Auth.Logout,
-Documents.Upload,
-Documents.View,
-Documents.Delete,
-Identity.Manage,
-Identity.View,
-Tenants.Create,
-Tenants.Update,
-Tenants.Delete,
-Tenants.View,
-Tenants.Approve,
-System.SuperAdmin,
-System.Settings,
-System.AuditLogs,
-Store.Update,
-Store.View
-};
+public static IReadOnlyList<string> All { get; } =
+typeof(Permissions)
+.GetNestedTypes(BindingFlags.Public | BindingFlags.Static)
+.SelectMany(t => t.GetFields(
+BindingFlags.Public |
+BindingFlags.Static |
+BindingFlags.FlattenHierarchy))
+.Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
+.Select(f => (string)f.GetRawConstantValue()!)
+.Distinct()
+.OrderBy(x => x)
+.ToList()
+.AsReadOnly();
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Permission.cs =====
@@ -576,7 +557,7 @@ public Guid UserId { get; set; }
 public User User { get; set; } = default!;
 public Guid RoleId { get; set; }
 public Role Role { get; set; } = default!;
-public Guid TenantId { get; set; }
+public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====
@@ -594,11 +575,11 @@ using System.Text;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
-using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Repositories;
 using CoreKit.IAM.Services;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -613,21 +594,27 @@ IConfigurationSection jwtSection,
 Action<IamOptions>? configureOptions = null)
 {
 var jwtSettings = jwtSection.Get<JwtSettings>()
-?? throw new Exception("JWT configuration missing.");
+?? throw new InvalidOperationException(
+"JWT configuration is missing. Ensure appsettings.json contains a 'Jwt' section " +
+"with Secret, Issuer, Audience, AccessTokenMinutes, and RefreshTokenDays.");
+if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
+throw new InvalidOperationException("Jwt:Secret is missing from configuration.");
+if (string.IsNullOrWhiteSpace(jwtSettings.Issuer))
+throw new InvalidOperationException("Jwt:Issuer is missing from configuration.");
+if (string.IsNullOrWhiteSpace(jwtSettings.Audience))
+throw new InvalidOperationException("Jwt:Audience is missing from configuration.");
 services.Configure<JwtSettings>(jwtSection);
 var iamOptions = new IamOptions();
 configureOptions?.Invoke(iamOptions);
 services.AddSingleton(iamOptions);
 services.AddHttpContextAccessor();
 services.AddDbContext<IamDbContext>(options =>
-{
-options.UseNpgsql(connectionString);
-});
+options.UseNpgsql(connectionString));
+services.AddMemoryCache();
 services.AddScoped<IUserRepository, UserRepository>();
 services.AddScoped<IRoleRepository, RoleRepository>();
 services.AddScoped<IPermissionRepository, PermissionRepository>();
-services.AddScoped<IRefreshTokenRepository,
-RefreshTokenRepository>();
+services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 services.AddScoped<CurrentUserService>();
 services.AddScoped<ICurrentUserService>(sp =>
 sp.GetRequiredService<CurrentUserService>());
@@ -636,49 +623,33 @@ sp.GetRequiredService<CurrentUserService>());
 services.AddScoped<IAuthService, AuthService>();
 services.AddScoped<IJwtTokenService, JwtTokenService>();
 services.AddScoped<IPasswordHasher, PasswordHasher>();
-services.AddScoped<IRefreshTokenService,
-RefreshTokenService>();
-services.AddScoped<IUserManagementService,
-UserManagementService>();
-services.AddScoped<IRoleManagementService,
-RoleManagementService>();
-services.AddScoped<IPermissionService,
-PermissionService>();
+services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+services.AddScoped<IUserManagementService, UserManagementService>();
+services.AddScoped<IRoleManagementService, RoleManagementService>();
+services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
+services.AddScoped<IPermissionService, PermissionService>();
 if (iamOptions.EnableUserDocuments)
-{
-services.AddScoped<IUserDocumentService,
-UserDocumentService>();
-}
+services.AddScoped<IUserDocumentService, UserDocumentService>();
 if (iamOptions.EnableUserIdentities)
-{
-services.AddScoped<IUserIdentityService,
-UserIdentityService>();
-}
+services.AddScoped<IUserIdentityService, UserIdentityService>();
 if (iamOptions.EnableRoleDocumentRequirements)
-{
-services.AddScoped<
-IRoleDocumentRequirementService,
-RoleDocumentRequirementService>();
-}
+services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
 services.AddSingleton<IEncryptionService>(sp =>
 {
-var configuration =
-sp.GetRequiredService<IConfiguration>();
-var key = configuration["EncryptionKey"];
+var config = sp.GetRequiredService<IConfiguration>();
+var key = config["EncryptionKey"];
 if (string.IsNullOrWhiteSpace(key))
-{
-throw new Exception(
-"EncryptionKey missing.");
-}
+throw new InvalidOperationException(
+"EncryptionKey is missing from configuration. " +
+"Add a 32-byte base64-encoded key to appsettings.json: " +
+"\"EncryptionKey\": \"<base64-32-bytes>\"");
 return new EncryptionService(key);
 });
 services
-.AddAuthentication(
-JwtBearerDefaults.AuthenticationScheme)
-.AddJwtBearer(options =>
+.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+.AddJwtBearer(o =>
 {
-options.TokenValidationParameters =
-new TokenValidationParameters
+o.TokenValidationParameters = new TokenValidationParameters
 {
 ValidateIssuer = true,
 ValidateAudience = true,
@@ -686,12 +657,49 @@ ValidateLifetime = true,
 ValidateIssuerSigningKey = true,
 ValidIssuer = jwtSettings.Issuer,
 ValidAudience = jwtSettings.Audience,
-IssuerSigningKey =
-new SymmetricSecurityKey(
-Encoding.UTF8.GetBytes(
-jwtSettings.Secret)
-),
+IssuerSigningKey = new SymmetricSecurityKey(
+Encoding.UTF8.GetBytes(jwtSettings.Secret)),
 ClockSkew = TimeSpan.Zero
+};
+o.Events = new JwtBearerEvents
+{
+OnChallenge = async ctx =>
+{
+ctx.HandleResponse();
+if (ctx.Response.HasStarted) return;
+ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+ctx.Response.ContentType = "application/json";
+await ctx.Response.WriteAsync(
+"{\"success\":false," +
+"\"errorCode\":\"UNAUTHORIZED\"," +
+"\"message\":\"You are not logged in or your session has expired. " +
+"Please log in and try again.\"}");
+},
+OnForbidden = async ctx =>
+{
+if (ctx.Response.HasStarted) return;
+ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+ctx.Response.ContentType = "application/json";
+await ctx.Response.WriteAsync(
+"{\"success\":false," +
+"\"errorCode\":\"FORBIDDEN\"," +
+"\"message\":\"You do not have permission to perform this action. " +
+"Contact your administrator if you believe this is incorrect.\"}");
+},
+OnAuthenticationFailed = async ctx =>
+{
+if (ctx.Response.HasStarted) return;
+var (code, msg) = ctx.Exception is SecurityTokenExpiredException
+? ("TOKEN_EXPIRED",
+"Your session has expired. Please log in again to continue.")
+: ("TOKEN_INVALID",
+"Your authentication token is invalid. Please log in again.");
+ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+ctx.Response.ContentType = "application/json";
+await ctx.Response.WriteAsync(
+$"{{\"success\":false,\"errorCode\":\"{code}\"," +
+$"\"message\":\"{msg}\"}}");
+}
 };
 });
 services.AddAuthorization();
@@ -764,7 +772,7 @@ using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Interfaces;
 public interface IJwtTokenService
 {
-(string Token, DateTime ExpiresAt) GenerateAccessToken(
+(string Token, DateTime ExpiresAt, string JwtId) GenerateAccessToken(
 User user,
 Guid? tenantId,
 IEnumerable<string> roles,
@@ -778,6 +786,16 @@ public interface IPasswordHasher
 {
 string Hash(string password);
 bool Verify(string password, string passwordHash);
+}
+
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionCacheService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IPermissionCacheService
+{
+Task<List<string>?> GetAsync(Guid userId, Guid? tenantId);
+Task SetAsync(Guid userId, Guid? tenantId, List<string> permissions);
+Task InvalidateAsync(Guid userId, Guid? tenantId);
+Task InvalidateUserAsync(Guid userId);
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionRepository.cs =====
@@ -806,8 +824,8 @@ public interface IRefreshTokenRepository
 Task AddAsync(RefreshToken token);
 Task<RefreshToken?> GetByTokenHashAsync(string tokenHash);
 Task<List<RefreshToken>> GetByFamilyIdAsync(string familyId);
-Task UpdateAsync(RefreshToken token);
-Task UpdateRangeAsync(IEnumerable<RefreshToken> tokens);
+void Update(RefreshToken token);
+void UpdateRange(IEnumerable<RefreshToken> tokens);
 Task RevokeFamilyAsync(string familyId, string? revokedByIp = null);
 }
 
@@ -939,6 +957,7 @@ public bool EnableUserIdentities { get; set; } = false;
 public bool RequireCnic { get; set; } = true;
 public bool EnableRoleDocumentRequirements { get; set; } = false;
 public bool AllowDefaultAdminSeed { get; set; } = false;
+public bool RunMigrationsOnBootstrap { get; set; } = false;
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
@@ -1021,15 +1040,16 @@ if (!await _db.Database.CanConnectAsync())
 _logger.LogCritical("Cannot connect to database.");
 throw new InvalidOperationException("Database connection failed.");
 }
-var schemaApplied = await _db.Permissions.IgnoreQueryFilters().AnyAsync();
-if (!schemaApplied)
+var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
+if (pendingMigrations.Any())
 {
-_logger.LogInformation("Applying EF Core migrations...");
+_logger.LogInformation("Applying {Count} pending EF Core migration(s)...",
+pendingMigrations.Count());
 await _db.Database.MigrateAsync();
 }
 else
 {
-_logger.LogInformation("Database already migrated — skipping MigrateAsync.");
+_logger.LogInformation("No pending migrations — skipping MigrateAsync.");
 }
 _logger.LogInformation("Starting IAM bootstrap...");
 await _permissionSeeder.SeedAsync();
@@ -1151,24 +1171,25 @@ private readonly IamDbContext _db;
 public UserRoleSeeder(IamDbContext db) => _db = db;
 public async Task SeedAsync()
 {
-var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 var adminUser = await _db.Users
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
+.FirstOrDefaultAsync(u =>
+u.Phone == "0000000000" || u.Email == "admin@system.com");
 var superAdmin = await _db.Roles
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
+.FirstOrDefaultAsync(r =>
+r.Name == "SuperAdmin" && r.TenantId == null);
 if (adminUser == null || superAdmin == null) return;
 var alreadyAssigned = await _db.UserRoles
-.AnyAsync(ur => ur.UserId == adminUser.Id &&
-ur.RoleId == superAdmin.Id &&
-ur.TenantId == systemTenantId);
+.AnyAsync(ur =>
+ur.UserId == adminUser.Id &&
+ur.RoleId == superAdmin.Id);
 if (alreadyAssigned) return;
 _db.UserRoles.Add(new UserRole
 {
 UserId = adminUser.Id,
 RoleId = superAdmin.Id,
-TenantId = systemTenantId
+TenantId = null
 });
 await _db.SaveChangesAsync();
 }
@@ -1178,43 +1199,59 @@ await _db.SaveChangesAsync();
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 namespace CoreKit.IAM.Persistence.Seeders;
 public sealed class UserSeeder
 {
 private readonly IamDbContext _db;
 private readonly IPasswordHasher _hasher;
-public UserSeeder(IamDbContext db, IPasswordHasher hasher)
+private readonly IConfiguration _configuration;
+private readonly ILogger<UserSeeder> _logger;
+public UserSeeder(
+IamDbContext db,
+IPasswordHasher hasher,
+IConfiguration configuration,
+ILogger<UserSeeder> logger)
 {
 _db = db;
 _hasher = hasher;
+_configuration = configuration;
+_logger = logger;
 }
 public async Task SeedAsync()
 {
-var adminUser = await _db.Users
+var adminExists = await _db.Users
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
-if (adminUser == null)
+.AnyAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
+if (adminExists) return;
+var seedPassword = _configuration["Seeder:AdminPassword"];
+if (string.IsNullOrWhiteSpace(seedPassword))
 {
-adminUser = new User
+seedPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16] + "A1!";
+_logger.LogWarning(
+"Seeder:AdminPassword is not configured. A random password was generated " +
+"for the admin account. Set 'Seeder:AdminPassword' in your configuration " +
+"before running in production. The password has NOT been logged.");
+Console.WriteLine(
+$"[SEEDER] Temporary admin password (not logged): {seedPassword}");
+Console.WriteLine(
+"[SEEDER] Store this safely and rotate it before going to production.");
+}
+var adminUser = new User
 {
 Id = Guid.NewGuid(),
 Name = "System Admin",
 Phone = "0000000000",
 Email = "admin@system.com",
-PasswordHash = _hasher.Hash("Admin@123"),
+PasswordHash = _hasher.Hash(seedPassword),
 TenantId = null,
 IsActive = true,
 FailedLoginAttempts = 0
 };
 _db.Users.Add(adminUser);
 await _db.SaveChangesAsync();
-}
-else
-{
-adminUser.PasswordHash = _hasher.Hash("Admin@123");
-_db.Users.Update(adminUser);
-await _db.SaveChangesAsync();
-}
+_logger.LogInformation("System admin user seeded successfully.");
 }
 }
 
@@ -1263,7 +1300,7 @@ public IamDbContext CreateDbContext(string[] args)
 {
 var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
 optionsBuilder.UseNpgsql(
-"Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
+"Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123;Timeout=10;CommandTimeout=10");
 return new IamDbContext(optionsBuilder.Options);
 }
 }
@@ -1277,19 +1314,21 @@ public class PermissionRepository : IPermissionRepository
 {
 private readonly IamDbContext _db;
 public PermissionRepository(IamDbContext db) => _db = db;
-public async Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
+public async Task<bool> HasPermissionAsync(
+Guid userId, Guid? tenantId, string permission)
 {
 return await (
 from ur in _db.UserRoles
 join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
 join p in _db.Permissions on rp.PermissionId equals p.Id
 where ur.UserId == userId
-&& ur.TenantId == tenantId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
 && p.Name == permission
 select p
 ).AnyAsync();
 }
-public async Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module)
+public async Task<bool> HasPermissionByModuleAsync(
+Guid userId, Guid? tenantId, string module)
 {
 var prefix = module + ".";
 return await (
@@ -1297,19 +1336,20 @@ from ur in _db.UserRoles
 join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
 join p in _db.Permissions on rp.PermissionId equals p.Id
 where ur.UserId == userId
-&& ur.TenantId == tenantId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
 && p.Name.StartsWith(prefix)
 select p
 ).AnyAsync();
 }
-public async Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId)
+public async Task<List<string>> GetPermissionsAsync(
+Guid userId, Guid? tenantId)
 {
 return await (
 from ur in _db.UserRoles
 join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
 join p in _db.Permissions on rp.PermissionId equals p.Id
 where ur.UserId == userId
-&& ur.TenantId == tenantId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
 select p.Name
 )
 .Distinct()
@@ -1321,35 +1361,24 @@ select p.Name
 using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Persistence;
 namespace CoreKit.IAM.Repositories;
 public class RefreshTokenRepository : IRefreshTokenRepository
 {
 private readonly IamDbContext _db;
-public RefreshTokenRepository(IamDbContext db)
-{
-_db = db;
-}
+public RefreshTokenRepository(IamDbContext db) => _db = db;
 public async Task AddAsync(RefreshToken token)
 {
 await _db.RefreshTokens.AddAsync(token);
-await _db.SaveChangesAsync();
 }
 public async Task<RefreshToken?> GetByTokenHashAsync(string tokenHash)
 => await _db.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == tokenHash);
 public async Task<List<RefreshToken>> GetByFamilyIdAsync(string familyId)
 => await _db.RefreshTokens.Where(x => x.FamilyId == familyId).ToListAsync();
-public async Task UpdateAsync(RefreshToken token)
-{
-_db.RefreshTokens.Update(token);
-await _db.SaveChangesAsync();
-}
-public async Task UpdateRangeAsync(IEnumerable<RefreshToken> tokens)
-{
-_db.RefreshTokens.UpdateRange(tokens);
-await _db.SaveChangesAsync();
-}
+public void Update(RefreshToken token)
+=> _db.RefreshTokens.Update(token);
+public void UpdateRange(IEnumerable<RefreshToken> tokens)
+=> _db.RefreshTokens.UpdateRange(tokens);
 public async Task RevokeFamilyAsync(string familyId, string? revokedByIp = null)
 {
 var tokens = await GetByFamilyIdAsync(familyId);
@@ -1359,7 +1388,7 @@ t.IsRevoked = true;
 t.RevokedAtUtc = DateTime.UtcNow;
 t.RevokedByIp = revokedByIp;
 }
-await UpdateRangeAsync(tokens);
+UpdateRange(tokens);
 }
 }
 
@@ -1377,16 +1406,19 @@ public async Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId)
 => await _db.Roles
 .Where(r => r.TenantId == tenantId)
 .Include(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
 .ToListAsync();
 public async Task<Role?> GetByIdAsync(Guid roleId)
 => await _db.Roles
 .Include(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
 .Include(r => r.UserRoles)
 .FirstOrDefaultAsync(r => r.Id == roleId);
 public void Add(Role role) => _db.Roles.Add(role);
 public void Update(Role role) => _db.Roles.Update(role);
 public void Delete(Role role) => _db.Roles.Remove(role);
-public async Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default)
+public async Task<List<Permission>> GetAllPermissionsAsync(
+CancellationToken ct = default)
 => await _db.Permissions.ToListAsync(ct);
 public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
 public void RemoveRolePermission(RolePermission rp) => _db.RolePermissions.Remove(rp);
@@ -1506,6 +1538,7 @@ private readonly IUserRepository _userRepo;
 private readonly IJwtTokenService _jwtService;
 private readonly IRefreshTokenService _refreshTokenService;
 private readonly IPermissionService _permissionService;
+private readonly IPermissionCacheService _permissionCache;
 private readonly IPasswordHasher _passwordHasher;
 private readonly IamDbContext _db;
 private readonly IamOptions _options;
@@ -1514,6 +1547,7 @@ IUserRepository userRepo,
 IJwtTokenService jwtService,
 IRefreshTokenService refreshTokenService,
 IPermissionService permissionService,
+IPermissionCacheService permissionCache,
 IPasswordHasher passwordHasher,
 IamDbContext db,
 IamOptions options)
@@ -1522,18 +1556,21 @@ _userRepo = userRepo;
 _jwtService = jwtService;
 _refreshTokenService = refreshTokenService;
 _permissionService = permissionService;
+_permissionCache = permissionCache;
 _passwordHasher = passwordHasher;
 _db = db;
 _options = options;
 }
 public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
 {
-var user = await _userRepo.GetUserByLoginAsync(request.Login, tenantId, _options.LoginIdentifier)
+var user = await _userRepo.GetUserByLoginAsync(
+request.Login, tenantId, _options.LoginIdentifier)
 ?? throw new UnauthorizedAccessException("Invalid credentials.");
 if (!user.IsActive)
 throw new UnauthorizedAccessException("Account is disabled.");
 if (user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow)
-throw new UnauthorizedAccessException($"Account locked until {user.LockoutEnd:O}");
+throw new UnauthorizedAccessException(
+$"Account locked until {user.LockoutEnd:O}");
 if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
 {
 user.FailedLoginAttempts++;
@@ -1546,13 +1583,8 @@ user.FailedLoginAttempts = 0;
 user.LockoutEnd = null;
 user.LastLoginAt = DateTime.UtcNow;
 await _db.SaveChangesAsync();
-var roles = user.Roles
-.Where(r =>
-r.TenantId == tenantId ||
-r.Role.Name == _options.SuperAdminRoleName)
-.Select(r => r.Role.Name)
-.Distinct()
-.ToList();
+var roles = BuildRoleList(user, tenantId);
+await _permissionCache.InvalidateAsync(user.Id, tenantId);
 var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 List<Guid>? storeIds = null;
 if (tenantId.HasValue)
@@ -1563,31 +1595,34 @@ storeIds = await _db.Set<UserStoreAssignment>()
 .ToListAsync();
 if (storeIds.Count == 0) storeIds = null;
 }
-var (accessToken, _) = _jwtService.GenerateAccessToken(
+var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
 user, tenantId, roles, permissions, storeIds);
-var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, Guid.NewGuid().ToString());
+var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, jwtId);
 return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
 }
 public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
 {
-var (newToken, compromised, userId) = await _refreshTokenService.RotateAsync(request.RefreshToken);
+var (newToken, compromised, userId) =
+await _refreshTokenService.RotateAsync(request.RefreshToken);
 if (compromised)
-throw new UnauthorizedAccessException("Refresh token reuse detected. Session revoked.");
+throw new UnauthorizedAccessException(
+"Refresh token reuse detected. Session revoked.");
 var user = await _userRepo.GetByIdAsync(userId)
 ?? throw new UnauthorizedAccessException("User not found.");
-if (tenantId.HasValue)
+if (!user.IsActive)
+throw new UnauthorizedAccessException("Account is disabled.");
+var isSuperAdmin = user.Roles.Any(r =>
+r.Role.Name == _options.SuperAdminRoleName);
+if (tenantId.HasValue && !isSuperAdmin)
 {
-bool belongsToTenant = user.Roles.Any(ur => ur.TenantId == tenantId);
+bool belongsToTenant = user.Roles.Any(ur =>
+ur.TenantId.HasValue && ur.TenantId.Value == tenantId.Value);
 if (!belongsToTenant)
-throw new UnauthorizedAccessException("User does not belong to this tenant.");
+throw new UnauthorizedAccessException(
+"User does not belong to this tenant.");
 }
-var roles = user.Roles
-.Where(r =>
-r.TenantId == tenantId ||
-r.Role.Name == _options.SuperAdminRoleName)
-.Select(r => r.Role.Name)
-.Distinct()
-.ToList();
+var roles = BuildRoleList(user, tenantId);
+await _permissionCache.InvalidateAsync(user.Id, tenantId);
 var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 List<Guid>? storeIds = null;
 if (tenantId.HasValue)
@@ -1598,14 +1633,20 @@ storeIds = await _db.Set<UserStoreAssignment>()
 .ToListAsync();
 if (storeIds.Count == 0) storeIds = null;
 }
-var (accessToken, _) = _jwtService.GenerateAccessToken(
+var (accessToken, _, _) = _jwtService.GenerateAccessToken(
 user, tenantId, roles, permissions, storeIds);
 return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
 }
 public async Task LogoutAsync(string refreshToken)
-{
-await _refreshTokenService.RevokeAsync(refreshToken);
-}
+=> await _refreshTokenService.RevokeAsync(refreshToken);
+private List<string> BuildRoleList(User user, Guid? tenantId)
+=> user.Roles
+.Where(r =>
+r.TenantId == null ||
+r.TenantId == tenantId)
+.Select(r => r.Role.Name)
+.Distinct()
+.ToList();
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\CurrentUserService.cs =====
@@ -1634,7 +1675,8 @@ _httpContextAccessor = httpContextAccessor;
 _options = options;
 _db = db;
 }
-private ClaimsPrincipal? User => _httpContextAccessor.HttpContext?.User;
+private ClaimsPrincipal? User =>
+_httpContextAccessor.HttpContext?.User;
 public Guid? UserId
 {
 get
@@ -1644,23 +1686,27 @@ return Guid.TryParse(value, out var id) ? id : null;
 }
 }
 public bool IsAuthenticated => UserId.HasValue;
-public bool IsSuperAdmin => User?.IsInRole(_options.SuperAdminRoleName) == true;
+public bool IsSuperAdmin =>
+User?.IsInRole(_options.SuperAdminRoleName) == true;
 public bool HasPermission(string permission) =>
-User?.Claims.Any(c => c.Type == ClaimConstants.Permission && c.Value == permission) == true;
+User?.Claims.Any(c =>
+c.Type == ClaimConstants.Permission &&
+c.Value == permission) == true;
 public TenantScope GetTenantScope()
 {
-if (!IsAuthenticated)
-throw new UnauthorizedAccessException("User is not authenticated.");
+if (!IsAuthenticated) return TenantScope.Global;
 if (IsSuperAdmin) return TenantScope.Global;
 var claimValue = User?.FindFirst(ClaimConstants.TenantId)?.Value;
 if (Guid.TryParse(claimValue, out var tenantId) && tenantId != Guid.Empty)
 return TenantScope.For(tenantId);
 if (_options.TenantResolver != null)
 {
-var resolved = _options.TenantResolver(_httpContextAccessor.HttpContext!);
-if (resolved.HasValue) return TenantScope.For(resolved.Value);
+var resolved = _options.TenantResolver(
+_httpContextAccessor.HttpContext!);
+if (resolved.HasValue)
+return TenantScope.For(resolved.Value);
 }
-throw new UnauthorizedAccessException("Tenant context is required but could not be resolved.");
+return TenantScope.Global;
 }
 public async Task<StoreScope> GetStoreScopeAsync()
 {
@@ -1669,15 +1715,28 @@ throw new UnauthorizedAccessException("User is not authenticated.");
 if (IsSuperAdmin || HasPermission(Permissions.Store.ViewAll))
 return StoreScope.All;
 if (UserId == null)
-throw new UnauthorizedAccessException("Cannot resolve store scope without a userId.");
+throw new UnauthorizedAccessException(
+"Cannot resolve store scope without a userId.");
+var claimStoreIds = User!.Claims
+.Where(c => c.Type == ClaimConstants.StoreId)
+.Select(c => Guid.TryParse(c.Value, out var g) ? g : (Guid?)null)
+.Where(g => g.HasValue)
+.Select(g => g!.Value)
+.ToList();
+if (claimStoreIds.Count > 0)
+return StoreScope.For(claimStoreIds);
 var tenantScope = GetTenantScope();
-var storeIds = await _db.Set<UserStoreAssignment>()
-.Where(a => a.UserId == UserId.Value && a.TenantId == tenantScope.TenantId)
+if (tenantScope.IsGlobal)
+return StoreScope.All;
+var dbStoreIds = await _db.Set<UserStoreAssignment>()
+.Where(a => a.UserId == UserId.Value &&
+a.TenantId == tenantScope.TenantId)
 .Select(a => a.StoreId)
 .ToListAsync();
-if (storeIds.Count == 0)
-throw new UnauthorizedAccessException("User has no store assignments in this tenant.");
-return StoreScope.For(storeIds);
+if (dbStoreIds.Count == 0)
+throw new UnauthorizedAccessException(
+"User has no store assignments in this tenant.");
+return StoreScope.For(dbStoreIds);
 }
 }
 
@@ -1760,7 +1819,7 @@ public JwtTokenService(IOptions<JwtSettings> options)
 {
 _settings = options.Value;
 }
-public (string Token, DateTime ExpiresAt) GenerateAccessToken(
+public (string Token, DateTime ExpiresAt, string JwtId) GenerateAccessToken(
 User user,
 Guid? tenantId,
 IEnumerable<string> roles,
@@ -1771,37 +1830,23 @@ var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
 var jwtId = Guid.NewGuid().ToString();
 var claims = new List<Claim>
 {
-new(ClaimConstants.UserId, user.Id.ToString()),
-new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-new(JwtRegisteredClaimNames.Jti, jwtId),
-new(ClaimConstants.Name, user.Name)
+new(ClaimConstants.UserId,              user.Id.ToString()),
+new(JwtRegisteredClaimNames.Sub,         user.Id.ToString()),
+new(JwtRegisteredClaimNames.Jti,         jwtId),
+new(ClaimConstants.Name,                 user.Name)
 };
 if (!string.IsNullOrWhiteSpace(user.Email))
-{
 claims.Add(new Claim(ClaimConstants.Email, user.Email));
-}
 if (tenantId.HasValue)
-{
 claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
-}
 foreach (var role in roles.Distinct())
-{
 claims.Add(new Claim(ClaimConstants.Role, role));
-}
 if (permissions != null)
-{
 foreach (var permission in permissions.Distinct())
-{
 claims.Add(new Claim(ClaimConstants.Permission, permission));
-}
-}
 if (storeIds != null)
-{
 foreach (var storeId in storeIds.Distinct())
-{
 claims.Add(new Claim(ClaimConstants.StoreId, storeId.ToString()));
-}
-}
 var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
 var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 var token = new JwtSecurityToken(
@@ -1810,7 +1855,7 @@ audience: _settings.Audience,
 claims: claims,
 expires: expiresAt,
 signingCredentials: creds);
-return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt, jwtId);
 }
 }
 
@@ -1823,19 +1868,105 @@ public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
 public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
 }
 
+===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionCacheService.cs =====
+using System.Collections.Concurrent;
+using CoreKit.IAM.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
+namespace CoreKit.IAM.Services;
+public class PermissionCacheService : IPermissionCacheService
+{
+private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
+private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> _userKeys
+= new();
+private readonly IMemoryCache _cache;
+public PermissionCacheService(IMemoryCache cache) => _cache = cache;
+public Task<List<string>?> GetAsync(Guid userId, Guid? tenantId)
+{
+_cache.TryGetValue(CacheKey(userId, tenantId), out List<string>? result);
+return Task.FromResult(result);
+}
+public Task SetAsync(Guid userId, Guid? tenantId, List<string> permissions)
+{
+var key = CacheKey(userId, tenantId);
+var keySet = _userKeys.GetOrAdd(userId, _ => new ConcurrentDictionary<string, byte>());
+keySet.TryAdd(key, 0);
+var options = new MemoryCacheEntryOptions
+{
+AbsoluteExpirationRelativeToNow = Ttl
+};
+options.RegisterPostEvictionCallback((evictedKey, _, _, _) =>
+{
+if (evictedKey is string k &&
+_userKeys.TryGetValue(userId, out var set))
+{
+set.TryRemove(k, out _);
+if (set.IsEmpty)
+_userKeys.TryRemove(userId, out _);
+}
+});
+_cache.Set(key, permissions, options);
+return Task.CompletedTask;
+}
+public Task InvalidateAsync(Guid userId, Guid? tenantId)
+{
+var key = CacheKey(userId, tenantId);
+_cache.Remove(key);
+if (_userKeys.TryGetValue(userId, out var keySet))
+{
+keySet.TryRemove(key, out _);
+if (keySet.IsEmpty)
+_userKeys.TryRemove(userId, out _);
+}
+return Task.CompletedTask;
+}
+public Task InvalidateUserAsync(Guid userId)
+{
+if (!_userKeys.TryRemove(userId, out var keySet))
+return Task.CompletedTask;
+foreach (var key in keySet.Keys)
+_cache.Remove(key);
+return Task.CompletedTask;
+}
+private static string CacheKey(Guid userId, Guid? tenantId)
+=> $"perm:{userId}:{tenantId?.ToString() ?? "global"}";
+}
+
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionService.cs =====
 using CoreKit.IAM.Interfaces;
 namespace CoreKit.IAM.Services;
 public class PermissionService : IPermissionService
 {
 private readonly IPermissionRepository _repo;
-public PermissionService(IPermissionRepository repo) => _repo = repo;
-public Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission)
-=> _repo.HasPermissionAsync(userId, tenantId, permission);
-public Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module)
-=> _repo.HasPermissionByModuleAsync(userId, tenantId, module);
-public Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId)
-=> _repo.GetPermissionsAsync(userId, tenantId);
+private readonly IPermissionCacheService _cache;
+public PermissionService(
+IPermissionRepository repo,
+IPermissionCacheService cache)
+{
+_repo = repo;
+_cache = cache;
+}
+public async Task<bool> HasPermissionAsync(
+Guid userId, Guid? tenantId, string permission)
+{
+var permissions = await GetUserPermissionsAsync(userId, tenantId);
+return permissions.Contains(permission);
+}
+public async Task<bool> HasModuleAccessAsync(
+Guid userId, Guid? tenantId, string module)
+{
+var permissions = await GetUserPermissionsAsync(userId, tenantId);
+var prefix = module + ".";
+return permissions.Any(p => p.StartsWith(prefix));
+}
+public async Task<List<string>> GetUserPermissionsAsync(
+Guid userId, Guid? tenantId)
+{
+var cached = await _cache.GetAsync(userId, tenantId);
+if (cached != null) return cached;
+var fresh = await _repo.GetPermissionsAsync(userId, tenantId);
+await _cache.SetAsync(userId, tenantId, fresh);
+return fresh;
+}
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RefreshTokenService.cs =====
@@ -1844,17 +1975,22 @@ using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 namespace CoreKit.IAM.Services;
 public class RefreshTokenService : IRefreshTokenService
 {
 private readonly IRefreshTokenRepository _repo;
+private readonly IamDbContext _db;
 private readonly JwtSettings _settings;
 public RefreshTokenService(
 IRefreshTokenRepository repo,
+IamDbContext db,
 IOptions<JwtSettings> options)
 {
 _repo = repo;
+_db = db;
 _settings = options.Value;
 }
 public async Task<string> GenerateAsync(
@@ -1864,18 +2000,18 @@ string? ipAddress = null,
 string? userAgent = null)
 {
 var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-var familyId = Guid.NewGuid().ToString();
 var entity = new RefreshToken
 {
 UserId = userId,
 JwtId = jwtId,
-FamilyId = familyId,
+FamilyId = Guid.NewGuid().ToString(),
 TokenHash = TokenHasher.Hash(rawToken),
 ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
 CreatedByIp = ipAddress,
 UserAgent = userAgent
 };
 await _repo.AddAsync(entity);
+await _db.SaveChangesAsync();
 return rawToken;
 }
 public async Task<bool> ValidateAsync(string token)
@@ -1895,35 +2031,55 @@ if (stored == null) return;
 stored.IsRevoked = true;
 stored.RevokedAtUtc = DateTime.UtcNow;
 stored.RevokedByIp = revokedByIp;
-await _repo.UpdateAsync(stored);
+_repo.Update(stored);
+await _db.SaveChangesAsync();
 }
 public async Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token)
 {
 var hash = TokenHasher.Hash(token);
-var existing = await _repo.GetByTokenHashAsync(hash)
-?? throw new UnauthorizedAccessException("Invalid refresh token");
-if (existing.ExpiresAtUtc <= DateTime.UtcNow)
-throw new UnauthorizedAccessException("Refresh token expired");
+await using var tx = await _db.Database.BeginTransactionAsync();
+try
+{
+var existing = await _db.RefreshTokens
+.FromSqlRaw(
+"SELECT * FROM \"RefreshTokens\" WHERE \"TokenHash\" = {0} FOR UPDATE",
+hash)
+.FirstOrDefaultAsync();
+if (existing == null)
+throw new UnauthorizedAccessException("Invalid refresh token.");
 if (existing.IsRevoked)
 {
 await _repo.RevokeFamilyAsync(existing.FamilyId);
+await _db.SaveChangesAsync();
+await tx.CommitAsync();
 return (string.Empty, true, Guid.Empty);
 }
-var newToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+if (existing.ExpiresAtUtc <= DateTime.UtcNow)
+throw new UnauthorizedAccessException("Refresh token expired.");
+var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+var newHash = TokenHasher.Hash(newRaw);
 var newEntity = new RefreshToken
 {
 UserId = existing.UserId,
 JwtId = existing.JwtId,
 FamilyId = existing.FamilyId,
-TokenHash = TokenHasher.Hash(newToken),
+TokenHash = newHash,
 ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays)
 };
 existing.IsRevoked = true;
 existing.RevokedAtUtc = DateTime.UtcNow;
-existing.ReplacedByTokenHash = newEntity.TokenHash;
-await _repo.UpdateAsync(existing);
+existing.ReplacedByTokenHash = newHash;
+_repo.Update(existing);
 await _repo.AddAsync(newEntity);
-return (newToken, false, existing.UserId);
+await _db.SaveChangesAsync();
+await tx.CommitAsync();
+return (newRaw, false, existing.UserId);
+}
+catch
+{
+await tx.RollbackAsync();
+throw;
+}
 }
 public string ComputeHash(string token) => TokenHasher.Hash(token);
 }
@@ -1987,20 +2143,25 @@ public class RoleManagementService : IRoleManagementService
 {
 private readonly IamDbContext _db;
 private readonly ICurrentUserService _currentUser;
-public RoleManagementService(IamDbContext db, ICurrentUserService currentUser)
+private readonly IPermissionCacheService _permissionCache;
+public RoleManagementService(
+IamDbContext db,
+ICurrentUserService currentUser,
+IPermissionCacheService permissionCache)
 {
 _db = db;
 _currentUser = currentUser;
+_permissionCache = permissionCache;
 }
 public Task<List<Role>> GetRolesAsync(Guid? tenantId)
 => _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
 public Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
 => _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
-public async Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null)
+public async Task<Role> CreateRoleAsync(
+string name, Guid? tenantId, string? description = null)
 {
-var exists = await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId);
-if (exists)
-throw new InvalidOperationException("Role already exists");
+if (await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId))
+throw new InvalidOperationException("Role already exists.");
 var role = new Role
 {
 Id = Guid.NewGuid(),
@@ -2012,29 +2173,38 @@ _db.Roles.Add(role);
 await _db.SaveChangesAsync();
 return role;
 }
-public async Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId)
+public async Task UpdateRoleAsync(
+Guid roleId, string? newName, string? newDescription, Guid? tenantId)
 {
-var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+var role = await _db.Roles
+.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
 ?? throw new KeyNotFoundException("Role not found.");
-if (!string.IsNullOrWhiteSpace(newName))
-role.Name = newName;
-if (newDescription != null)
-role.Description = newDescription;
+GuardSystemRole(role, "modified");
+if (!string.IsNullOrWhiteSpace(newName)) role.Name = newName;
+if (newDescription != null) role.Description = newDescription;
 await _db.SaveChangesAsync();
 }
 public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
 {
-var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
+var role = await _db.Roles
+.Include(r => r.UserRoles)
+.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
 ?? throw new KeyNotFoundException("Role not found.");
+GuardSystemRole(role, "deleted");
+var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
 _db.Roles.Remove(role);
 await _db.SaveChangesAsync();
+foreach (var userId in affectedUserIds)
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
 {
 var role = await _db.Roles
 .Include(r => r.RolePermissions)
+.Include(r => r.UserRoles)
 .FirstOrDefaultAsync(r => r.Id == roleId)
 ?? throw new KeyNotFoundException("Role not found.");
+GuardSystemRole(role, "modified");
 if (role.RolePermissions.Any(p => p.PermissionId == permissionId))
 return;
 role.RolePermissions.Add(new RolePermission
@@ -2043,20 +2213,37 @@ RoleId = roleId,
 PermissionId = permissionId
 });
 await _db.SaveChangesAsync();
+var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+foreach (var userId in affectedUserIds)
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
 {
+var role = await _db.Roles
+.Include(r => r.UserRoles)
+.FirstOrDefaultAsync(r => r.Id == roleId)
+?? throw new KeyNotFoundException("Role not found.");
+GuardSystemRole(role, "modified");
 var rp = await _db.RolePermissions
 .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId);
 if (rp == null) return;
 _db.RolePermissions.Remove(rp);
 await _db.SaveChangesAsync();
+var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+foreach (var userId in affectedUserIds)
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
 => await _db.RolePermissions
 .Where(x => x.RoleId == roleId)
 .Select(x => x.Permission)
 .ToListAsync();
+private static void GuardSystemRole(Role role, string action)
+{
+if (role.IsSystem)
+throw new InvalidOperationException(
+$"System role '{role.Name}' cannot be {action}.");
+}
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserDocumentService.cs =====
@@ -2164,11 +2351,11 @@ await _db.SaveChangesAsync();
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
 using CoreKit.IAM.Entities;
+using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 namespace CoreKit.IAM.Services;
 public class UserManagementService : IUserManagementService
 {
@@ -2176,29 +2363,38 @@ private readonly IamDbContext _db;
 private readonly ICurrentUserService _currentUser;
 private readonly IPasswordHasher _passwordHasher;
 private readonly IamOptions _options;
+private readonly IPermissionCacheService _permissionCache;
 public UserManagementService(
 IamDbContext db,
 ICurrentUserService currentUser,
 IPasswordHasher passwordHasher,
-IamOptions options)
+IamOptions options,
+IPermissionCacheService permissionCache)
 {
 _db = db;
 _currentUser = currentUser;
 _passwordHasher = passwordHasher;
 _options = options;
+_permissionCache = permissionCache;
 }
-public async Task<List<User>> GetUsersAsync(Guid? tenantId)
-=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
-public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
-=> await _db.Users.Include(u => u.Roles).ThenInclude(r => r.Role)
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
-public async Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId)
+public async Task<User> CreateUserAsync(
+string name, string phone, string? email,
+string password, Guid? tenantId)
 {
+phone = PhoneNormalizer.Normalize(phone);
+email = string.IsNullOrWhiteSpace(email)
+? null
+: email.Trim().ToLowerInvariant();
 if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
-throw new InvalidOperationException("A user with this phone already exists in the tenant.");
-if (!string.IsNullOrWhiteSpace(email) &&
+throw new InvalidOperationException(
+"A user with this phone already exists in the tenant.");
+if (email != null &&
 await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
-throw new InvalidOperationException("A user with this email already exists in the tenant.");
+throw new InvalidOperationException(
+"A user with this email already exists in the tenant.");
+if (password.Length < _options.MinPasswordLength)
+throw new ArgumentException(
+$"Password must be at least {_options.MinPasswordLength} characters.");
 var user = new User
 {
 Id = Guid.NewGuid(),
@@ -2213,25 +2409,58 @@ _db.Users.Add(user);
 await _db.SaveChangesAsync();
 return user;
 }
-public async Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId)
+public async Task UpdateUserAsync(
+Guid userId, string? name, string? email,
+string? phone, Guid? tenantId)
 {
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+var user = await _db.Users
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
 ?? throw new KeyNotFoundException("User not found.");
 if (name != null) user.Name = name;
-if (phone != null) user.Phone = phone;
-if (email != null) user.Email = email;
+if (phone != null)
+{
+var normalizedPhone = PhoneNormalizer.Normalize(phone);
+var phoneInUse = await _db.Users.AnyAsync(u =>
+u.Phone == normalizedPhone &&
+u.TenantId == tenantId &&
+u.Id != userId);
+if (phoneInUse)
+throw new InvalidOperationException("Phone already in use.");
+user.Phone = normalizedPhone;
+}
+if (email != null)
+{
+var normalizedEmail = email.Trim().ToLowerInvariant();
+var emailInUse = await _db.Users.AnyAsync(u =>
+u.Email == normalizedEmail &&
+u.TenantId == tenantId &&
+u.Id != userId);
+if (emailInUse)
+throw new InvalidOperationException("Email already in use.");
+user.Email = normalizedEmail;
+}
 await _db.SaveChangesAsync();
 }
+public async Task<List<User>> GetUsersAsync(Guid? tenantId)
+=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
+=> await _db.Users
+.Include(u => u.Roles).ThenInclude(r => r.Role)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
 public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
 {
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+var user = await _db.Users
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
 ?? throw new KeyNotFoundException("User not found.");
-_db.Users.Remove(user);
+user.IsDeleted = true;
+user.IsActive = false;
 await _db.SaveChangesAsync();
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
 {
-var user = await _db.Users.Include(u => u.Roles)
+var user = await _db.Users
+.Include(u => u.Roles)
 .FirstOrDefaultAsync(u => u.Id == userId)
 ?? throw new KeyNotFoundException("User not found.");
 var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
@@ -2240,27 +2469,26 @@ if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
 throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
 if (role.IsSystem && !_currentUser.IsSuperAdmin)
 throw new UnauthorizedAccessException("Cannot assign a system role.");
-var effectiveTenantId = tenantId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
-if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == effectiveTenantId))
-throw new InvalidOperationException("User already has this role in the tenant.");
-user.Roles.Add(new UserRole
-{
-UserId = userId,
-RoleId = roleId,
-TenantId = effectiveTenantId
-});
+if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
+throw new InvalidOperationException(
+"User already has this role in the specified scope.");
+user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
 await _db.SaveChangesAsync();
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
 {
-var user = await _db.Users.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+var user = await _db.Users
+.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId)
 ?? throw new KeyNotFoundException("User not found.");
-var userRole = user.Roles.FirstOrDefault(r => r.RoleId == roleId);
-if (userRole == null)
-throw new KeyNotFoundException("User does not have this role.");
+var userRole = user.Roles.FirstOrDefault(r =>
+r.RoleId == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException(
+"User does not have this role in the specified scope.");
 user.Roles.Remove(userRole);
 await _db.SaveChangesAsync();
+await _permissionCache.InvalidateUserAsync(userId);
 }
 public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
 {
@@ -2280,60 +2508,213 @@ await _db.SaveChangesAsync();
 }
 
 ===== CoreKit.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs =====
-using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 namespace CoreKit.Infrastructure.Middleware;
 public class ExceptionMiddleware
 {
 private readonly RequestDelegate _next;
 private readonly ILogger<ExceptionMiddleware> _logger;
-public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+private static readonly JsonSerializerOptions JsonOptions =
+new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+public ExceptionMiddleware(
+RequestDelegate next,
+ILogger<ExceptionMiddleware> logger)
 {
 _next = next;
 _logger = logger;
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("[BOOT] ExceptionMiddleware instantiated OK");
+Console.ResetColor();
 }
 public async Task InvokeAsync(HttpContext context)
 {
+var traceId = context.Items.TryGetValue("TraceId", out var t)
+? t?.ToString() : "??";
+Console.ForegroundColor = ConsoleColor.DarkGray;
+Console.WriteLine($"[{traceId}] >>> ENTERING ExceptionMiddleware");
+Console.ResetColor();
 try
 {
 await _next(context);
+Console.ForegroundColor = ConsoleColor.DarkGray;
+Console.WriteLine($"[{traceId}] <<< LEAVING ExceptionMiddleware — status={context.Response.StatusCode}");
+Console.ResetColor();
+}
+catch (OperationCanceledException)
+when (context.RequestAborted.IsCancellationRequested)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] ExceptionMiddleware: client disconnected");
+Console.ResetColor();
+_logger.LogInformation(
+"Request cancelled by client: {Method} {Path}",
+context.Request.Method,
+context.Request.Path);
+if (!context.Response.HasStarted)
+context.Response.StatusCode = 499;
 }
 catch (Exception ex)
 {
-_logger.LogError(ex, "An unhandled exception occurred.");
-var statusCode = ex switch
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[{traceId}] ExceptionMiddleware: CAUGHT {ex.GetType().Name}: {ex.Message}");
+Console.ResetColor();
+_logger.LogError(ex,
+"Unhandled exception: {Method} {Path}",
+context.Request.Method,
+context.Request.Path);
+await WriteErrorAsync(context, ex);
+}
+}
+private static async Task WriteErrorAsync(HttpContext context, Exception ex)
 {
-UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized,
-KeyNotFoundException => (int)HttpStatusCode.NotFound,
-InvalidOperationException => (int)HttpStatusCode.BadRequest,
-ArgumentException => (int)HttpStatusCode.BadRequest,
-_ => (int)HttpStatusCode.InternalServerError
-};
-context.Response.ContentType = "application/json";
+if (context.Response.HasStarted)
+return;
+var (statusCode, message, errorCode) = Classify(ex);
+context.Response.Clear();
 context.Response.StatusCode = statusCode;
-var response = new { success = false, message = ex.Message };
-await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+context.Response.ContentType = "application/json";
+var body = new ApiErrorResponse
+{
+Success = false,
+ErrorCode = errorCode,
+Message = message
+};
+await context.Response.WriteAsync(
+JsonSerializer.Serialize(body, JsonOptions));
+}
+private static (int StatusCode, string Message, string ErrorCode) Classify(Exception ex)
+=> ex switch
+{
+UnauthorizedAccessException =>
+(401,
+"You are not authorised to perform this action. Please log in and try again.",
+"UNAUTHORIZED"),
+KeyNotFoundException =>
+(404,
+"The requested resource was not found.",
+"NOT_FOUND"),
+InvalidOperationException =>
+(400,
+ex.Message,
+"INVALID_OPERATION"),
+ArgumentException =>
+(400,
+ex.Message,
+"BAD_REQUEST"),
+DbUpdateConcurrencyException =>
+(409,
+"The record was modified by another user. Please refresh and try again.",
+"CONFLICT"),
+DbUpdateException =>
+(422,
+"The request could not be saved. Please check your input and try again.",
+"UNPROCESSABLE"),
+TimeoutException =>
+(504,
+"The request took too long. Please try again.",
+"TIMEOUT"),
+_ =>
+(500,
+"Something went wrong on our end. Please try again in a moment.",
+"SERVER_ERROR")
+};
+private sealed class ApiErrorResponse
+{
+public bool Success { get; init; }
+public string ErrorCode { get; init; } = string.Empty;
+public string Message { get; init; } = string.Empty;
+}
+}
+
+===== CoreKit.Infrastructure | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\RequestTracingMiddleware.cs =====
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+namespace CoreKit.Infrastructure.Middleware;
+public class RequestTracingMiddleware
+{
+private readonly RequestDelegate _next;
+private readonly ILogger<RequestTracingMiddleware> _logger;
+public RequestTracingMiddleware(
+RequestDelegate next,
+ILogger<RequestTracingMiddleware> logger)
+{
+_next = next;
+_logger = logger;
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("[BOOT] RequestTracingMiddleware instantiated OK");
+Console.ResetColor();
+}
+public async Task InvokeAsync(HttpContext context)
+{
+var traceId = Guid.NewGuid().ToString()[..8].ToUpper();
+context.Items["TraceId"] = traceId;
+var method = context.Request.Method;
+var path = context.Request.Path;
+var hasTenant = context.Request.Headers
+.TryGetValue("x-tenant-id", out var tenantHeader);
+var hasAuth = context.Request.Headers
+.ContainsKey("Authorization");
+Console.ForegroundColor = ConsoleColor.Cyan;
+Console.WriteLine($"\n[{traceId}] ======= NEW REQUEST =======");
+Console.WriteLine($"[{traceId}] {method} {path}");
+Console.WriteLine($"[{traceId}] x-tenant-id : {(hasTenant ? tenantHeader.ToString() : "NOT PROVIDED")}");
+Console.WriteLine($"[{traceId}] Authorization: {(hasAuth ? "PROVIDED" : "NOT PROVIDED")}");
+Console.ResetColor();
+Console.ForegroundColor = ConsoleColor.DarkGray;
+Console.WriteLine($"[{traceId}] >>> PASSING TO ExceptionMiddleware");
+Console.ResetColor();
+var sw = System.Diagnostics.Stopwatch.StartNew();
+try
+{
+await _next(context);
+sw.Stop();
+var color = context.Response.StatusCode switch
+{
+>= 500 => ConsoleColor.Red,
+>= 400 => ConsoleColor.Yellow,
+_ => ConsoleColor.Green
+};
+Console.ForegroundColor = color;
+Console.WriteLine($"[{traceId}] <<< FINAL STATUS {context.Response.StatusCode} — {sw.ElapsedMilliseconds}ms");
+Console.ResetColor();
+}
+catch (Exception ex)
+{
+sw.Stop();
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[{traceId}] <<< UNHANDLED EXCEPTION after {sw.ElapsedMilliseconds}ms");
+Console.WriteLine($"[{traceId}]     {ex.GetType().Name}: {ex.Message}");
+Console.ResetColor();
+throw;
 }
 }
 }
 
+===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IMutableTenantContext.cs =====
+namespace CoreKit.Tenant.Services;
+public interface IMutableTenantContext : ITenantContext
+{
+void SetTenant(Guid tenantId);
+}
+
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs =====
-namespace CoreKit.Tenant.Abstractions;
+namespace CoreKit.Tenant.Services;
 public interface IStoreLimitService
 {
 Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
-namespace CoreKit.Tenant.Abstractions;
+namespace CoreKit.Tenant.Services;
 public interface ITenantContext { Guid? TenantId { get; } }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
+using CoreKit.Tenant.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.Tenant.Entities;
 namespace CoreKit.Tenant.Configuration;
 public class StoreConfiguration : IEntityTypeConfiguration<Store>
 {
@@ -2341,10 +2722,16 @@ public void Configure(EntityTypeBuilder<Store> builder)
 {
 builder.ToTable("TNT_Stores");
 builder.HasKey(x => x.Id);
-builder.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
-builder.HasIndex(x => x.TenantId);
-builder.Property(x => x.Latitude).HasPrecision(9, 6);
-builder.Property(x => x.Longitude).HasPrecision(9, 6);
+builder.Property(x => x.Name)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Slug)
+.HasMaxLength(200)
+.IsRequired();
+builder.HasIndex(x => new { x.TenantId, x.Slug })
+.IsUnique();
+builder.Property(x => x.Type)
+.HasConversion<int?>();
 builder.HasOne(x => x.Tenant)
 .WithMany(x => x.Stores)
 .HasForeignKey(x => x.TenantId)
@@ -2353,10 +2740,9 @@ builder.HasOne(x => x.Tenant)
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
+using CoreKit.Tenant.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Configuration;
 public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
 {
@@ -2364,11 +2750,17 @@ public void Configure(EntityTypeBuilder<TenantEntity> builder)
 {
 builder.ToTable("TNT_Tenants");
 builder.HasKey(x => x.Id);
-builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
-builder.HasIndex(x => x.Slug).IsUnique();
-builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
+builder.Property(x => x.Name)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Slug)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Status)
+.HasConversion<int>()
+.IsRequired();
 builder.HasIndex(x => x.Name).IsUnique();
-builder.HasIndex(x => x.OwnerUserId).IsUnique();
+builder.HasIndex(x => x.Slug).IsUnique();
 }
 }
 
@@ -2390,6 +2782,7 @@ builder.HasOne(x => x.Tenant).WithOne().HasForeignKey<TenantLegalInfo>(x => x.Te
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs =====
 using CoreKit.SharedKernel.Common;
+using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Entities;
 public class Store : AuditableEntity, ITenantScoped
 {
@@ -2397,7 +2790,7 @@ public Guid TenantId { get; set; }
 public TenantEntity Tenant { get; set; } = default!;
 public string Name { get; set; } = default!;
 public string Slug { get; set; } = default!;
-public string? Type { get; set; }
+public StoreType Type { get; set; } = StoreType.Other;
 public string? Description { get; set; }
 public string? Email { get; set; }
 public string? PhoneNumber { get; set; }
@@ -2478,11 +2871,10 @@ Archived = 5
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs =====
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
-using CoreKit.Tenant.Persistence.Seeders;
 using CoreKit.Tenant.Repositories;
 using CoreKit.Tenant.Services;
 using Microsoft.EntityFrameworkCore;
@@ -2509,7 +2901,12 @@ services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
 services.AddScoped<ITenantService, TenantService>();
 services.AddScoped<IStoreService, StoreService>();
 services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
-services.AddScoped<ITenantContext, TenantContext>();
+services.AddScoped<TenantContext>();
+services.AddScoped<ITenantContext>(sp =>
+sp.GetRequiredService<TenantContext>());
+services.AddScoped<IMutableTenantContext>(sp =>
+sp.GetRequiredService<TenantContext>());
+services.AddScoped<TenantResolutionMiddleware>();
 return services;
 }
 }
@@ -2534,6 +2931,7 @@ public interface IStoreService
 {
 Task<StoreDto?> GetByIdAsync(Guid storeId);
 Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
+Task<List<StoreDto>> GetAllStoresAsync();
 Task<StoreDto> CreateAsync(CreateStoreRequest request);
 Task UpdateAsync(Guid storeId, UpdateStoreRequest request);
 Task DeleteAsync(Guid storeId);
@@ -2564,6 +2962,7 @@ namespace CoreKit.Tenant.Interfaces;
 public interface ITenantRepository
 {
 Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
+Task<TenantEntity?> GetByIdIncludeDeletedAsync(Guid tenantId, CancellationToken ct = default);
 Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default);
 Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
 void Add(TenantEntity tenant);
@@ -2586,52 +2985,236 @@ Task RejectAsync(Guid tenantId);
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
+using System.Text.Json;
 using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+using CoreKit.Tenant.Persistence;
+using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 namespace CoreKit.Tenant.Middleware;
-public class TenantResolutionMiddleware
+public class TenantResolutionMiddleware : IMiddleware
 {
-private readonly RequestDelegate _next;
-public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
-public async Task InvokeAsync(HttpContext context)
+private readonly TenantDbContext _db;
+private readonly IMutableTenantContext _tenantContext;
+private readonly ICurrentUserService _currentUser;
+private readonly ILogger<TenantResolutionMiddleware> _logger;
+private static readonly JsonSerializerOptions JsonOptions =
+new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+public TenantResolutionMiddleware(
+TenantDbContext db,
+IMutableTenantContext tenantContext,
+ICurrentUserService currentUser,
+ILogger<TenantResolutionMiddleware> logger)
 {
-if (context.Request.Headers.TryGetValue("x-tenant-id", out var tid) &&
-Guid.TryParse(tid, out var parsed))
+_db = db;
+_tenantContext = tenantContext;
+_currentUser = currentUser;
+_logger = logger;
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("[BOOT] TenantResolutionMiddleware instantiated OK");
+Console.ResetColor();
+}
+public async Task InvokeAsync(HttpContext context, RequestDelegate next)
 {
+var traceId = context.Items.TryGetValue("TraceId", out var t)
+? t?.ToString() : "??";
+var path = context.Request.Path.Value?.ToLowerInvariant();
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] >>> ENTERING TenantResolutionMiddleware — path={path}");
+Console.ResetColor();
+if (path != null &&
+(path.StartsWith("/api/auth/login") ||
+path.StartsWith("/api/auth/refresh") ||
+path.StartsWith("/api/auth/logout")))
+{
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: auth path — bypassing");
+Console.ResetColor();
+await next(context);
+return;
+}
+if (!context.Request.Headers.TryGetValue("x-tenant-id", out var tid))
+{
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: no x-tenant-id — passing through");
+Console.ResetColor();
+await next(context);
+return;
+}
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: x-tenant-id={tid}");
+Console.ResetColor();
+if (!Guid.TryParse(tid, out var tenantId))
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: invalid GUID — 400");
+Console.ResetColor();
+await WriteAsync(context, 400, "BAD_REQUEST",
+"The x-tenant-id header value is not a valid identifier. " +
+"Please provide a valid tenant ID.");
+return;
+}
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: querying DB for tenant {tenantId} ...");
+Console.ResetColor();
+TenantEntity? tenant;
+try
+{
+tenant = await _db.Tenants
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(x => x.Id == tenantId,
+context.RequestAborted);
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine(tenant == null
+? $"[{traceId}] TenantMW: tenant NOT found in DB"
+: $"[{traceId}] TenantMW: tenant found — Name={tenant.Name} Status={tenant.Status} IsDeleted={tenant.IsDeleted}");
+Console.ResetColor();
+}
+catch (OperationCanceledException)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: cancelled during DB lookup");
+Console.ResetColor();
+if (!context.Response.HasStarted)
+context.Response.StatusCode = 499;
+return;
+}
+catch (Exception ex)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[{traceId}] TenantMW: DB EXCEPTION — {ex.GetType().Name}: {ex.Message}");
+Console.ResetColor();
+_logger.LogError(ex,
+"[{TraceId}] DB error resolving tenant {TenantId}", traceId, tenantId);
+await WriteAsync(context, 500, "SERVER_ERROR",
+"Something went wrong on our end. Please try again in a moment.");
+return;
+}
+if (tenant == null)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: tenant null — 404");
+Console.ResetColor();
+await WriteAsync(context, 404, "TENANT_NOT_FOUND",
+"The tenant specified in x-tenant-id was not found. " +
+"Please check the tenant ID and try again.");
+return;
+}
+if (tenant.IsDeleted)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: tenant deleted — 410");
+Console.ResetColor();
+await WriteAsync(context, 410, "TENANT_DELETED",
+"This tenant account has been permanently removed and is no longer accessible.");
+return;
+}
+if (tenant.Status != TenantStatus.Active)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: tenant inactive ({tenant.Status}) — 403");
+Console.ResetColor();
+var msg = tenant.Status switch
+{
+TenantStatus.Pending =>
+"This tenant account is pending approval and cannot be accessed yet. " +
+"Please contact support if you believe this is a mistake.",
+TenantStatus.Suspended =>
+"This tenant account has been suspended. " +
+"Please contact support to resolve this.",
+TenantStatus.Rejected =>
+"This tenant account registration was not approved.",
+TenantStatus.Archived =>
+"This tenant account has been archived and is no longer active.",
+_ =>
+$"This tenant account is currently {tenant.Status} and cannot be accessed."
+};
+await WriteAsync(context, 403, "TENANT_INACTIVE", msg);
+return;
+}
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: tenant active — setting context");
+Console.ResetColor();
+_tenantContext.SetTenant(tenantId);
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: IsAuthenticated={context.User.Identity?.IsAuthenticated}");
+Console.ResetColor();
 if (context.User.Identity?.IsAuthenticated == true)
 {
-var currentUser = context.RequestServices.GetRequiredService<ICurrentUserService>();
-if (!currentUser.IsSuperAdmin && currentUser.UserId != null)
+try
 {
-var db = context.RequestServices.GetRequiredService<IamDbContext>();
-var belongs = await db.UserRoles.IgnoreQueryFilters()
-.AnyAsync(ur => ur.UserId == currentUser.UserId.Value
-&& ur.TenantId == parsed);
-if (!belongs)
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: IsSuperAdmin={_currentUser.IsSuperAdmin} UserId={_currentUser.UserId}");
+Console.ResetColor();
+if (!_currentUser.IsSuperAdmin && _currentUser.UserId != null)
 {
-context.Response.StatusCode = 403;
-await context.Response.WriteAsync("Access denied to this tenant.");
+var scope = _currentUser.GetTenantScope();
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: scope IsGlobal={scope.IsGlobal} ScopeTenantId={scope.TenantId}");
+Console.ResetColor();
+if (!scope.IsGlobal && scope.TenantId != tenantId)
+{
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"[{traceId}] TenantMW: cross-tenant blocked — 403");
+Console.ResetColor();
+_logger.LogWarning(
+"[{TraceId}] User {UserId} cross-tenant attempt to {TenantId}",
+traceId, _currentUser.UserId, tenantId);
+await WriteAsync(context, 403, "TENANT_ACCESS_DENIED",
+"You do not have access to this tenant. " +
+"Please use the credentials associated with this account.");
 return;
 }
 }
 }
-var tenantContext = context.RequestServices.GetRequiredService<ITenantContext>();
-((TenantContext)tenantContext).SetTenant(parsed);
+catch (Exception ex)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[{traceId}] TenantMW: EXCEPTION in scope check — {ex.GetType().Name}: {ex.Message}");
+Console.ResetColor();
+_logger.LogError(ex,
+"[{TraceId}] Scope check failed for user {UserId}",
+traceId, _currentUser.UserId);
+await WriteAsync(context, 401, "AUTH_VALIDATION_FAILED",
+"Your session could not be validated. Please log in again.");
+return;
 }
-await _next(context);
+}
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] TenantMW: all checks passed — calling next");
+Console.ResetColor();
+await next(context);
+Console.ForegroundColor = ConsoleColor.DarkCyan;
+Console.WriteLine($"[{traceId}] <<< LEAVING TenantResolutionMiddleware — status={context.Response.StatusCode}");
+Console.ResetColor();
+}
+private static Task WriteAsync(
+HttpContext context,
+int statusCode,
+string errorCode,
+string message)
+{
+if (context.Response.HasStarted)
+return Task.CompletedTask;
+context.Response.StatusCode = statusCode;
+context.Response.ContentType = "application/json";
+var body = JsonSerializer.Serialize(
+new { success = false, errorCode, message },
+JsonOptions);
+return context.Response.WriteAsync(body);
 }
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs =====
+using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Models;
 public class CreateStoreRequest
 {
 public string? Name { get; set; }
-public string? Type { get; set; }
+public StoreType? Type { get; set; }
 public string? AddressLine1 { get; set; }
 public string? AddressLine2 { get; set; }
 public string? City { get; set; }
@@ -2647,6 +3230,7 @@ public string? MetadataJson { get; set; }
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs =====
+using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Models;
 public class StoreDto
 {
@@ -2655,7 +3239,7 @@ public Guid Id { get; set; }
 public Guid TenantId { get; set; }
 public string Name { get; set; } = default!;
 public string Slug { get; set; } = default!;
-public string? Type { get; set; }
+public StoreType Type { get; set; }
 public bool IsActive { get; set; }
 public bool IsListedOnMarketplace { get; set; }
 }
@@ -2686,11 +3270,12 @@ public string Message { get; set; } = default!;
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
+using CoreKit.Tenant.Enums;
 namespace CoreKit.Tenant.Models;
 public class UpdateStoreRequest
 {
 public string? Name { get; set; }
-public string? Type { get; set; }
+public StoreType? Type { get; set; }
 public string? AddressLine1 { get; set; }
 public string? AddressLine2 { get; set; }
 public string? City { get; set; }
@@ -2764,7 +3349,6 @@ _logger.LogInformation("Tenant seeding completed.");
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
-using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Entities;
@@ -2772,44 +3356,33 @@ using Microsoft.EntityFrameworkCore;
 namespace CoreKit.Tenant.Persistence;
 public class TenantDbContext : AuditableDbContext
 {
-private readonly ICurrentUserService? _currentUserService;
+private Guid? _tenantId;
+private bool _isGlobal = true;
+public void SetTenantScope(Guid? tenantId, bool isGlobal)
+{
+_tenantId = tenantId;
+_isGlobal = isGlobal;
+}
 public TenantDbContext(
 DbContextOptions<TenantDbContext> options,
-ICurrentUser? currentUser = null,
-ICurrentUserService? currentUserService = null)
+ICurrentUser? currentUser = null)
 : base(options, currentUser)
 {
-_currentUserService = currentUserService;
 }
 public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
 public DbSet<Store> Stores => Set<Store>();
 public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
-private bool IsGlobalScope
-{
-get
-{
-try { return _currentUserService?.GetTenantScope().IsGlobal ?? true; }
-catch { return true; }
-}
-}
-private Guid? CurrentTenantId
-{
-get
-{
-try
-{
-var scope = _currentUserService?.GetTenantScope();
-return scope is { IsGlobal: false } ? scope.TenantId : null;
-}
-catch { return null; }
-}
-}
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
 base.OnModelCreating(modelBuilder);
-modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
-modelBuilder.Entity<Store>().HasQueryFilter(s =>
-IsGlobalScope || s.TenantId == CurrentTenantId);
+modelBuilder.ApplyConfigurationsFromAssembly(
+typeof(TenantDbContext).Assembly);
+modelBuilder.Entity<Store>()
+.HasQueryFilter(x =>
+_isGlobal || x.TenantId == _tenantId);
+modelBuilder.Entity<TenantLegalInfo>()
+.HasQueryFilter(x =>
+_isGlobal || x.TenantId == _tenantId);
 }
 }
 
@@ -2823,7 +3396,7 @@ public TenantDbContext CreateDbContext(string[] args)
 {
 var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
 optionsBuilder.UseNpgsql(
-"Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
+"Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123;Timeout=10;CommandTimeout=10");
 return new TenantDbContext(optionsBuilder.Options);
 }
 }
@@ -2892,8 +3465,15 @@ public class TenantRepository : ITenantRepository
 {
 private readonly TenantDbContext _db;
 public TenantRepository(TenantDbContext db) => _db = db;
-public async Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default)
-=> await _db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+public async Task<TenantEntity?> GetByIdAsync(
+Guid tenantId, CancellationToken ct = default)
+=> await _db.Tenants
+.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+public async Task<TenantEntity?> GetByIdIncludeDeletedAsync(
+Guid tenantId, CancellationToken ct = default)
+=> await _db.Tenants
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
 public async Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default)
 => await _db.Tenants.ToListAsync(ct);
 public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
@@ -2903,10 +3483,11 @@ public void Update(TenantEntity tenant) => _db.Tenants.Update(tenant);
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs =====
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
@@ -2935,11 +3516,12 @@ _storeLimitService = storeLimitService;
 }
 public async Task<StoreDto?> GetByIdAsync(Guid storeId)
 {
-var tenantId = _tenantContext.TenantId
-?? throw new UnauthorizedAccessException("Missing tenant");
-var storeScope = await _currentUser.GetStoreScopeAsync();
-var query = _db.Stores
-.Where(x => x.Id == storeId && x.TenantId == tenantId);
+var storeScope = await ResolveStoreScopeAsync();
+var query = _currentUser.IsSuperAdmin
+? _db.Stores.Where(x => x.Id == storeId)
+: _db.Stores.Where(x =>
+x.Id == storeId &&
+x.TenantId == _tenantContext.TenantId);
 if (!storeScope.IsAllStores)
 query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
 var store = await query.FirstOrDefaultAsync();
@@ -2947,27 +3529,35 @@ return store == null ? null : Map(store);
 }
 public async Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId)
 {
-var storeScope = await _currentUser.GetStoreScopeAsync();
+var storeScope = await ResolveStoreScopeAsync();
 var query = _db.Stores.Where(s => s.TenantId == tenantId);
 if (!storeScope.IsAllStores)
 query = query.Where(s => storeScope.StoreIds.Contains(s.Id));
-var stores = await query.ToListAsync();
-return stores.Select(Map).ToList();
+return (await query.ToListAsync()).Select(Map).ToList();
 }
+public async Task<List<StoreDto>> GetAllStoresAsync()
+=> (await _db.Stores.ToListAsync()).Select(Map).ToList();
 public async Task<StoreDto> CreateAsync(CreateStoreRequest request)
 {
 if (string.IsNullOrWhiteSpace(request.Name))
 throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
 var tenantId = _tenantContext.TenantId
-?? throw new UnauthorizedAccessException("Missing tenant");
-await EnforceStoreLimit(tenantId);
+?? throw new UnauthorizedAccessException(
+"Provide x-tenant-id header to specify which tenant to create the store under.");
+await using var tx = await _db.Database.BeginTransactionAsync();
+try
+{
+var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
+await _db.Database.ExecuteSqlRawAsync(
+"SELECT pg_advisory_xact_lock({0})", lockKey);
+await EnforceStoreLimitAsync(tenantId);
 var store = new Store
 {
 Id = Guid.NewGuid(),
 TenantId = tenantId,
 Name = request.Name,
 Slug = GenerateSlug(request.Name),
-Type = request.Type,
+Type = request.Type ?? StoreType.Other,
 AddressLine1 = request.AddressLine1,
 AddressLine2 = request.AddressLine2,
 City = request.City,
@@ -2979,67 +3569,96 @@ Longitude = request.Longitude,
 LogoUrl = request.LogoUrl,
 CoverImageUrl = request.CoverImageUrl,
 MetadataJson = request.MetadataJson,
-IsActive = true,
+IsActive = request.IsActive ?? true,
+IsPrimary = false,
 IsListedOnMarketplace = false
 };
 _db.Stores.Add(store);
 await _db.SaveChangesAsync();
+await tx.CommitAsync();
 return Map(store);
+}
+catch
+{
+await tx.RollbackAsync();
+throw;
+}
 }
 public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
 {
-var tenantId = _tenantContext.TenantId
-?? throw new UnauthorizedAccessException("Missing tenant");
-var store = await _db.Stores
-.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
-?? throw new InvalidOperationException("Store not found");
+var store = _currentUser.IsSuperAdmin
+? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
+?? throw new KeyNotFoundException("Store not found.")
+: await _db.Stores.FirstOrDefaultAsync(x =>
+x.Id == storeId &&
+x.TenantId == _tenantContext.TenantId)
+?? throw new KeyNotFoundException("Store not found.");
 if (request.Name != null)
 {
 store.Name = request.Name;
 store.Slug = GenerateSlug(request.Name);
 }
-if (request.Type != null) store.Type = request.Type;
+if (request.Type.HasValue) store.Type = request.Type.Value;
+if (request.AddressLine1 != null) store.AddressLine1 = request.AddressLine1;
+if (request.AddressLine2 != null) store.AddressLine2 = request.AddressLine2;
+if (request.City != null) store.City = request.City;
+if (request.State != null) store.State = request.State;
+if (request.PostalCode != null) store.PostalCode = request.PostalCode;
+if (request.CountryCode != null) store.CountryCode = request.CountryCode;
+if (request.Latitude.HasValue) store.Latitude = request.Latitude.Value;
+if (request.Longitude.HasValue) store.Longitude = request.Longitude.Value;
+if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
+if (request.CoverImageUrl != null) store.CoverImageUrl = request.CoverImageUrl;
 if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
+if (request.MetadataJson != null) store.MetadataJson = request.MetadataJson;
 await _db.SaveChangesAsync();
 }
 public async Task DeleteAsync(Guid storeId)
 {
-var tenantId = _tenantContext.TenantId
-?? throw new UnauthorizedAccessException("Missing tenant");
-var store = await _db.Stores
-.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
-?? throw new InvalidOperationException("Store not found");
+var store = _currentUser.IsSuperAdmin
+? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
+?? throw new KeyNotFoundException("Store not found.")
+: await _db.Stores.FirstOrDefaultAsync(x =>
+x.Id == storeId &&
+x.TenantId == _tenantContext.TenantId)
+?? throw new KeyNotFoundException("Store not found.");
 _db.Stores.Remove(store);
 await _db.SaveChangesAsync();
 }
 public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
 {
-var tenantId = _tenantContext.TenantId
-?? throw new UnauthorizedAccessException("Missing tenant");
-var store = await _db.Stores
-.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId)
-?? throw new InvalidOperationException("Store not found");
+var store = _currentUser.IsSuperAdmin
+? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
+?? throw new KeyNotFoundException("Store not found.")
+: await _db.Stores.FirstOrDefaultAsync(x =>
+x.Id == storeId &&
+x.TenantId == _tenantContext.TenantId)
+?? throw new KeyNotFoundException("Store not found.");
 store.IsListedOnMarketplace = isListed;
 await _db.SaveChangesAsync();
 }
-private async Task EnforceStoreLimit(Guid tenantId)
+private async Task<StoreScope> ResolveStoreScopeAsync()
+{
+if (_currentUser.IsSuperAdmin ||
+_currentUser.HasPermission(Permissions.Store.ViewAll))
+return StoreScope.All;
+return await _currentUser.GetStoreScopeAsync();
+}
+private async Task EnforceStoreLimitAsync(Guid tenantId)
 {
 if (!_options.AllowMultipleStores)
 {
-var existing = await _db.Stores.AnyAsync(s => s.TenantId == tenantId);
-if (existing)
+if (await _db.Stores.AnyAsync(s => s.TenantId == tenantId))
 throw new InvalidOperationException("This tenant is limited to one store.");
+return;
 }
-else if (_storeLimitService != null)
-{
+if (_storeLimitService == null) return;
 var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
-if (maxStores.HasValue)
-{
+if (!maxStores.HasValue) return;
 var count = await _db.Stores.CountAsync(s => s.TenantId == tenantId);
 if (count >= maxStores.Value)
-throw new InvalidOperationException($"Store limit of {maxStores.Value} reached.");
-}
-}
+throw new InvalidOperationException(
+$"Store limit of {maxStores.Value} reached.");
 }
 private static StoreDto Map(Store store) => new()
 {
@@ -3052,12 +3671,17 @@ IsActive = store.IsActive,
 IsListedOnMarketplace = store.IsListedOnMarketplace
 };
 private static string GenerateSlug(string name)
-=> name.Trim().ToLower().Replace(" ", "-");
+{
+var slug = name.Trim().ToLowerInvariant();
+slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9\s-]", "");
+slug = System.Text.RegularExpressions.Regex.Replace(slug, @"\s+", "-");
+return slug.Trim('-');
+}
 }
 
 ===== CoreKit.Tenant | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs =====
-namespace CoreKit.Tenant.Abstractions;
-public class TenantContext : ITenantContext
+namespace CoreKit.Tenant.Services;
+public class TenantContext : IMutableTenantContext
 {
 public Guid? TenantId { get; private set; }
 public void SetTenant(Guid tenantId)
@@ -3119,13 +3743,17 @@ public async Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRe
 {
 if (await _tenantRepo.ExistsByNameAsync(request.Name))
 throw new InvalidOperationException("Tenant already exists.");
-var status = _options.AutoApproveTenants ? TenantStatus.Active : TenantStatus.Pending;
+var status = _options.AutoApproveTenants
+? TenantStatus.Active
+: TenantStatus.Pending;
+var slug = GenerateSlug(request.Name);
 var tenant = new TenantEntity
 {
 Id = Guid.NewGuid(),
 Name = request.Name,
-Slug = request.Name.ToLower().Replace(" ", "-"),
+Slug = slug,
 Status = status,
+MetadataJson = request.MetadataJson,
 OwnerUserId = _currentUser?.UserId
 };
 _tenantRepo.Add(tenant);
@@ -3133,7 +3761,9 @@ await _db.SaveChangesAsync();
 return new TenantRegistrationResponse
 {
 TenantId = tenant.Id,
-Message = "Tenant created successfully"
+Message = _options.AutoApproveTenants
+? "Tenant registered and activated."
+: "Tenant registration submitted. Awaiting approval."
 };
 }
 public Task<TenantEntity?> GetByIdAsync(Guid tenantId)
@@ -3143,7 +3773,9 @@ public Task<List<TenantEntity>> GetAllAsync()
 public async Task ApproveAsync(Guid tenantId)
 {
 var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-?? throw new KeyNotFoundException("Tenant not found");
+?? throw new KeyNotFoundException("Tenant not found.");
+if (tenant.Status == TenantStatus.Active)
+throw new InvalidOperationException("Tenant is already active.");
 tenant.Status = TenantStatus.Active;
 _tenantRepo.Update(tenant);
 await _db.SaveChangesAsync();
@@ -3151,7 +3783,7 @@ await _db.SaveChangesAsync();
 public async Task RejectAsync(Guid tenantId)
 {
 var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-?? throw new KeyNotFoundException("Tenant not found");
+?? throw new KeyNotFoundException("Tenant not found.");
 tenant.Status = TenantStatus.Rejected;
 _tenantRepo.Update(tenant);
 await _db.SaveChangesAsync();
@@ -3159,20 +3791,32 @@ await _db.SaveChangesAsync();
 public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
 {
 var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-?? throw new KeyNotFoundException("Tenant not found");
-if (name != null) tenant.Name = name;
-if (metadataJson != null) tenant.MetadataJson = metadataJson;
+?? throw new KeyNotFoundException("Tenant not found.");
+if (name != null)
+{
+tenant.Name = name;
+tenant.Slug = GenerateSlug(name);
+}
+if (metadataJson != null)
+tenant.MetadataJson = metadataJson;
 _tenantRepo.Update(tenant);
 await _db.SaveChangesAsync();
 }
 public async Task DeleteAsync(Guid tenantId)
 {
 var tenant = await _tenantRepo.GetByIdAsync(tenantId)
-?? throw new KeyNotFoundException("Tenant not found");
+?? throw new KeyNotFoundException("Tenant not found.");
 tenant.IsDeleted = true;
 tenant.Status = TenantStatus.Archived;
 _tenantRepo.Update(tenant);
 await _db.SaveChangesAsync();
+}
+private static string GenerateSlug(string name)
+{
+var slug = name.Trim().ToLowerInvariant();
+slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9\s-]", "");
+slug = System.Text.RegularExpressions.Regex.Replace(slug, @"\s+", "-");
+return slug.Trim('-');
 }
 }
 
@@ -3247,6 +3891,7 @@ using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 namespace SaaSPlatform.Admin.Api.Controllers;
 [ApiController]
 [Route("api/admin/tenants")]
@@ -3254,13 +3899,13 @@ public class TenantsController : ControllerBase
 {
 private readonly ITenantService _tenantService;
 public TenantsController(ITenantService tenantService)
-{
-_tenantService = tenantService;
-}
+=> _tenantService = tenantService;
 [HttpPost("register")]
 [AllowAnonymous]
 public async Task<IActionResult> Register(TenantRegistrationRequest request)
 {
+if (string.IsNullOrWhiteSpace(request.Name))
+return BadRequest("Tenant name is required.");
 var result = await _tenantService.RegisterAsync(request);
 return Ok(result);
 }
@@ -3272,7 +3917,7 @@ public async Task<IActionResult> Approve(Guid tenantId)
 await _tenantService.ApproveAsync(tenantId);
 return Ok(new
 {
-tenantId = tenantId,
+tenantId,
 status = "Approved",
 message = "Tenant approved successfully"
 });
@@ -3328,30 +3973,55 @@ public Guid? TenantId { get; set; }
 }
 
 ===== SaaSPlatform.Admin.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs =====
+using System.Threading.RateLimiting;
 using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence.Seeders;
-using CoreKit.IAM.Services;
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
-using CoreKit.Tenant.Persistence.Seeders;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. Please wait {retryAfter} seconds before trying again.\"}}",
+token);
+};
 options.AddFixedWindowLimiter("login", cfg =>
 {
 cfg.PermitLimit = 5;
 cfg.Window = TimeSpan.FromMinutes(1);
-}));
+});
+options.AddFixedWindowLimiter("tenant_register", cfg =>
+{
+cfg.PermitLimit = 3;
+cfg.Window = TimeSpan.FromMinutes(10);
+});
+});
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-var connStr = builder.Configuration.GetConnectionString("Postgres")!;
-builder.Services.AddSingleton<IEncryptionService>(sp =>
-new EncryptionService(builder.Configuration["EncryptionKey"]!));
-builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"),
-options => options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment());
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"),
+options =>
+{
+options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment();
+options.SuperAdminBypassPermissions = true;
+options.SuperAdminRoleName = "SuperAdmin";
+});
 builder.Services.AddTenantKit(connStr, options =>
 {
 options.AutoApproveTenants = false;
@@ -3360,11 +4030,71 @@ options.EnableLegalInfo = true;
 });
 builder.Services.AddControllers();
 var app = builder.Build();
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("\n[BOOT] ===== SERVICE RESOLUTION CHECK =====");
+try
+{
+using var scope = app.Services.CreateScope();
+var sp = scope.ServiceProvider;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IEncryptionService>();
+Console.WriteLine("[BOOT] IEncryptionService         OK");
+Console.WriteLine("[BOOT] Testing database connection ...");
+var iamDb = sp.GetRequiredService<CoreKit.IAM.Persistence.IamDbContext>();
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+var canConnect = await iamDb.Database.CanConnectAsync(cts.Token);
+if (!canConnect)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: CanConnectAsync returned FALSE");
+Console.WriteLine("[BOOT] Check your PostgreSQL connection string in appsettings.json");
+Console.WriteLine($"[BOOT] Connection string used: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+else
+{
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("[BOOT] DATABASE: connection OK");
+Console.ResetColor();
+Console.ForegroundColor = ConsoleColor.Magenta;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IAuthService>();
+Console.WriteLine("[BOOT] IAuthService               OK");
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.ICurrentUserService>();
+Console.WriteLine("[BOOT] ICurrentUserService        OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Services.IMutableTenantContext>();
+Console.WriteLine("[BOOT] IMutableTenantContext      OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Middleware.TenantResolutionMiddleware>();
+Console.WriteLine("[BOOT] TenantResolutionMiddleware OK");
+}
+Console.WriteLine("[BOOT] ===== BOOT CHECK COMPLETE =====\n");
+}
+catch (OperationCanceledException)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: connection TIMED OUT after 5 seconds");
+Console.WriteLine("[BOOT] PostgreSQL is not reachable â€” check:");
+Console.WriteLine("[BOOT]   1. Is PostgreSQL running?");
+Console.WriteLine("[BOOT]   2. Is the Host/Port correct in appsettings.json?");
+Console.WriteLine("[BOOT]   3. Is the firewall/docker port open?");
+Console.WriteLine($"[BOOT]   Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+catch (Exception ex)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[BOOT] FAILED: {ex.GetType().Name}");
+Console.WriteLine($"[BOOT] {ex.Message}");
+if (ex.InnerException != null)
+Console.WriteLine($"[BOOT] Inner: {ex.InnerException.Message}");
+Console.WriteLine($"[BOOT] Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+Console.ResetColor();
+app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
 app.UseRateLimiter();
-app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
@@ -3372,11 +4102,13 @@ app.Run();
 ===== SaaSPlatform.Public.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs =====
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 namespace SaaSPlatform.Public.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
+[EnableRateLimiting("login")]
 public class AuthController : ControllerBase
 {
 private readonly IAuthService _authService;
@@ -3411,30 +4143,52 @@ return Ok(new { message = "Logged out successfully" });
 }
 
 ===== SaaSPlatform.Public.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Program.cs =====
+using System.Threading.RateLimiting;
 using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. Please wait {retryAfter} seconds before trying again.\"}}",
+token);
+};
 options.AddFixedWindowLimiter("login", cfg =>
 {
 cfg.PermitLimit = 5;
 cfg.Window = TimeSpan.FromMinutes(1);
-}));
+});
+});
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-var connStr = builder.Configuration.GetConnectionString("Postgres")!;
-builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"),
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"),
 options =>
 {
 options.EnableUserDocuments = true;
 options.EnableUserIdentities = true;
 options.RequireCnic = false;
 options.AllowDefaultAdminSeed = builder.Environment.IsDevelopment();
+options.SuperAdminBypassPermissions = true;
+options.SuperAdminRoleName = "SuperAdmin";
 });
 builder.Services.AddTenantKit(connStr, options =>
 {
@@ -3444,11 +4198,71 @@ options.EnableLegalInfo = true;
 });
 builder.Services.AddControllers();
 var app = builder.Build();
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("\n[BOOT] ===== SERVICE RESOLUTION CHECK =====");
+try
+{
+using var scope = app.Services.CreateScope();
+var sp = scope.ServiceProvider;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IEncryptionService>();
+Console.WriteLine("[BOOT] IEncryptionService         OK");
+Console.WriteLine("[BOOT] Testing database connection ...");
+var iamDb = sp.GetRequiredService<CoreKit.IAM.Persistence.IamDbContext>();
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+var canConnect = await iamDb.Database.CanConnectAsync(cts.Token);
+if (!canConnect)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: CanConnectAsync returned FALSE");
+Console.WriteLine("[BOOT] Check your PostgreSQL connection string in appsettings.json");
+Console.WriteLine($"[BOOT] Connection string used: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+else
+{
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("[BOOT] DATABASE: connection OK");
+Console.ResetColor();
+Console.ForegroundColor = ConsoleColor.Magenta;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IAuthService>();
+Console.WriteLine("[BOOT] IAuthService               OK");
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.ICurrentUserService>();
+Console.WriteLine("[BOOT] ICurrentUserService        OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Services.IMutableTenantContext>();
+Console.WriteLine("[BOOT] IMutableTenantContext      OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Middleware.TenantResolutionMiddleware>();
+Console.WriteLine("[BOOT] TenantResolutionMiddleware OK");
+}
+Console.WriteLine("[BOOT] ===== BOOT CHECK COMPLETE =====\n");
+}
+catch (OperationCanceledException)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: connection TIMED OUT after 5 seconds");
+Console.WriteLine("[BOOT] PostgreSQL is not reachable â€” check:");
+Console.WriteLine("[BOOT]   1. Is PostgreSQL running?");
+Console.WriteLine("[BOOT]   2. Is the Host/Port correct in appsettings.json?");
+Console.WriteLine("[BOOT]   3. Is the firewall/docker port open?");
+Console.WriteLine($"[BOOT]   Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+catch (Exception ex)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[BOOT] FAILED: {ex.GetType().Name}");
+Console.WriteLine($"[BOOT] {ex.Message}");
+if (ex.InnerException != null)
+Console.WriteLine($"[BOOT] Inner: {ex.InnerException.Message}");
+Console.WriteLine($"[BOOT] Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+Console.ResetColor();
+app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
 app.UseRateLimiter();
-app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
@@ -3531,8 +4345,18 @@ ICurrentUser? currentUser = null)
 {
 _currentUser = currentUser;
 }
+public override int SaveChanges(bool acceptAllChangesOnSuccess)
+{
+StampAuditFields();
+return base.SaveChanges(acceptAllChangesOnSuccess);
+}
 public override async Task<int> SaveChangesAsync(
 CancellationToken cancellationToken = default)
+{
+StampAuditFields();
+return await base.SaveChangesAsync(cancellationToken);
+}
+private void StampAuditFields()
 {
 foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
 {
@@ -3555,7 +4379,6 @@ deletable.DeletedBy = _currentUser?.UserId;
 break;
 }
 }
-return await base.SaveChangesAsync(cancellationToken);
 }
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
@@ -3563,18 +4386,27 @@ base.OnModelCreating(modelBuilder);
 foreach (var entityType in modelBuilder.Model.GetEntityTypes())
 {
 if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
-{
 modelBuilder.Entity(entityType.ClrType)
-.HasQueryFilter(ConvertFilterExpression(entityType.ClrType));
+.HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
+if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
+modelBuilder.Entity(entityType.ClrType)
+.Property<uint>("RowVersion")
+.IsRowVersion()
+.HasColumnName("xmin")
+.HasColumnType("xid")
+.ValueGeneratedOnAddOrUpdate();
 }
 }
-}
-private static System.Linq.Expressions.LambdaExpression ConvertFilterExpression(Type entityType)
+private static System.Linq.Expressions.LambdaExpression
+BuildSoftDeleteFilter(Type entityType)
 {
-var parameter = System.Linq.Expressions.Expression.Parameter(entityType, "e");
-var property = System.Linq.Expressions.Expression.Property(parameter, nameof(ISoftDelete.IsDeleted));
-var condition = System.Linq.Expressions.Expression.Equal(property, System.Linq.Expressions.Expression.Constant(false));
-return System.Linq.Expressions.Expression.Lambda(condition, parameter);
+var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
+var property = System.Linq.Expressions.Expression.Property(
+param, nameof(ISoftDelete.IsDeleted));
+var condition = System.Linq.Expressions.Expression.Equal(
+property,
+System.Linq.Expressions.Expression.Constant(false));
+return System.Linq.Expressions.Expression.Lambda(condition, param);
 }
 }
 
@@ -3589,6 +4421,7 @@ public Guid? UpdatedBy { get; set; }
 public bool IsDeleted { get; set; }
 public DateTime? DeletedAtUtc { get; set; }
 public Guid? DeletedBy { get; set; }
+public uint RowVersion { get; set; }
 }
 
 ===== CoreKit.SharedKernel | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
@@ -3751,7 +4584,7 @@ Errors = errors ?? new()
 using Microsoft.AspNetCore.Mvc;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Services;
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using Microsoft.AspNetCore.Authorization;
@@ -3769,11 +4602,14 @@ _storeService = storeService;
 _tenantContext = tenantContext;
 }
 [HttpGet]
-[RequiresPermission(Permissions.Store.View)]
+[RequiresPermission(Permissions.Store.ViewAll)]
 public async Task<IActionResult> GetAll()
 {
 if (_tenantContext.TenantId == null)
-return Unauthorized("Missing tenant context");
+{
+var all = await _storeService.GetAllStoresAsync();
+return Ok(all);
+}
 var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
 return Ok(stores);
 }
@@ -3807,25 +4643,61 @@ public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isList
 await _storeService.SetMarketplaceListingAsync(storeId, isListed);
 return NoContent();
 }
+[HttpGet("my")]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetMine()
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized("Missing tenant context.");
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
 }
 
 ===== SaaSPlatform.Tenant.Api | F:\Waqas-dba\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using System.Threading.RateLimiting;
 using CoreKit.IAM.Extensions;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence.Seeders;
-using CoreKit.IAM.Services;
 using CoreKit.Infrastructure.Middleware;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
-using CoreKit.Tenant.Persistence.Seeders;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. Please wait {retryAfter} seconds before trying again.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("default", cfg =>
+{
+cfg.PermitLimit = 100;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, TenantContext>();
-var connStr = builder.Configuration.GetConnectionString("Postgres")!;
-builder.Services.AddSingleton<IEncryptionService>(sp =>
-new EncryptionService(builder.Configuration["EncryptionKey"]!));
-builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"));
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"),
+options =>
+{
+options.SuperAdminBypassPermissions = true;
+options.SuperAdminRoleName = "SuperAdmin";
+});
 builder.Services.AddTenantKit(connStr, options =>
 {
 options.AutoApproveTenants = false;
@@ -3834,10 +4706,71 @@ options.EnableLegalInfo = true;
 });
 builder.Services.AddControllers();
 var app = builder.Build();
+Console.ForegroundColor = ConsoleColor.Magenta;
+Console.WriteLine("\n[BOOT] ===== SERVICE RESOLUTION CHECK =====");
+try
+{
+using var scope = app.Services.CreateScope();
+var sp = scope.ServiceProvider;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IEncryptionService>();
+Console.WriteLine("[BOOT] IEncryptionService         OK");
+Console.WriteLine("[BOOT] Testing database connection ...");
+var iamDb = sp.GetRequiredService<CoreKit.IAM.Persistence.IamDbContext>();
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+var canConnect = await iamDb.Database.CanConnectAsync(cts.Token);
+if (!canConnect)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: CanConnectAsync returned FALSE");
+Console.WriteLine("[BOOT] Check your PostgreSQL connection string in appsettings.json");
+Console.WriteLine($"[BOOT] Connection string used: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+else
+{
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("[BOOT] DATABASE: connection OK");
+Console.ResetColor();
+Console.ForegroundColor = ConsoleColor.Magenta;
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.IAuthService>();
+Console.WriteLine("[BOOT] IAuthService               OK");
+_ = sp.GetRequiredService<CoreKit.IAM.Interfaces.ICurrentUserService>();
+Console.WriteLine("[BOOT] ICurrentUserService        OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Services.IMutableTenantContext>();
+Console.WriteLine("[BOOT] IMutableTenantContext      OK");
+_ = sp.GetRequiredService<CoreKit.Tenant.Middleware.TenantResolutionMiddleware>();
+Console.WriteLine("[BOOT] TenantResolutionMiddleware OK");
+}
+Console.WriteLine("[BOOT] ===== BOOT CHECK COMPLETE =====\n");
+}
+catch (OperationCanceledException)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine("[BOOT] DATABASE: connection TIMED OUT after 5 seconds");
+Console.WriteLine("[BOOT] PostgreSQL is not reachable â€” check:");
+Console.WriteLine("[BOOT]   1. Is PostgreSQL running?");
+Console.WriteLine("[BOOT]   2. Is the Host/Port correct in appsettings.json?");
+Console.WriteLine("[BOOT]   3. Is the firewall/docker port open?");
+Console.WriteLine($"[BOOT]   Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+catch (Exception ex)
+{
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"[BOOT] FAILED: {ex.GetType().Name}");
+Console.WriteLine($"[BOOT] {ex.Message}");
+if (ex.InnerException != null)
+Console.WriteLine($"[BOOT] Inner: {ex.InnerException.Message}");
+Console.WriteLine($"[BOOT] Connection string: {app.Configuration.GetConnectionString("Postgres")}");
+Console.ResetColor();
+}
+Console.ResetColor();
+app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
-app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();

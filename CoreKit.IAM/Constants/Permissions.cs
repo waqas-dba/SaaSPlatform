@@ -1,4 +1,6 @@
 ﻿// CoreKit.IAM/Constants/Permissions.cs
+using System.Reflection;
+
 namespace CoreKit.IAM.Constants;
 
 public static class Permissions
@@ -70,48 +72,23 @@ public static class Permissions
     public static class Store
     {
         public const string View = "store.view";
-        // FIX: Was present in CurrentUserService but missing from All —
-        // it was therefore never seeded or assignable via the UI.
         public const string ViewAll = "store.view_all";
         public const string Update = "store.update";
     }
 
-    public static IReadOnlyList<string> All => new[]
-    {
-        Users.Create,
-        Users.Update,
-        Users.Delete,
-        Users.View,
-        Users.AssignRole,
-        Users.RemoveRole,
-        Users.Lock,
-        Users.Unlock,
-        Roles.Create,
-        Roles.Update,
-        Roles.Delete,
-        Roles.View,
-        Roles.AssignPermission,
-        Roles.RemovePermission,
-        PermissionsManagement.View,
-        PermissionsManagement.Assign,
-        Auth.Login,
-        Auth.Refresh,
-        Auth.Logout,
-        Documents.Upload,
-        Documents.View,
-        Documents.Delete,
-        Identity.Manage,
-        Identity.View,
-        Tenants.Create,
-        Tenants.Update,
-        Tenants.Delete,
-        Tenants.View,
-        Tenants.Approve,
-        System.SuperAdmin,
-        System.Settings,
-        System.AuditLogs,
-        Store.View,
-        Store.ViewAll,   // FIX: was missing
-        Store.Update,
-    };
+    // Fix #9: Reflection-driven — any new nested const string is picked up automatically.
+    // No more forgetting to add to a manual list.
+    public static IReadOnlyList<string> All { get; } =
+        typeof(Permissions)
+            .GetNestedTypes(BindingFlags.Public | BindingFlags.Static)
+            .SelectMany(t => t.GetFields(
+                BindingFlags.Public |
+                BindingFlags.Static |
+                BindingFlags.FlattenHierarchy))
+            .Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList()
+            .AsReadOnly();
 }

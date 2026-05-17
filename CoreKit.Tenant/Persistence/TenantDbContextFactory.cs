@@ -10,7 +10,7 @@ public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContex
         var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
 
         optionsBuilder.UseNpgsql(
-            "Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123");
+            "Host=localhost;Port=5432;Database=saas_db;Username=postgres;Password=123;Timeout=10;CommandTimeout=10");
 
         return new TenantDbContext(optionsBuilder.Options);
     }

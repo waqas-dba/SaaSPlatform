@@ -6,18 +6,16 @@ using Microsoft.Extensions.DependencyInjection;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
-namespace CoreKit.IAM.Authorization
-{
+namespace CoreKit.IAM.Authorization;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
 private readonly string _permission;
 public RequiresPermissionAttribute(string permission)
-{
-_permission = permission;
-}
+=> _permission = permission;
 public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
 {
+if (context.Result != null) return;
 var user = context.HttpContext.User;
 if (user.Identity?.IsAuthenticated != true)
 {
@@ -28,16 +26,11 @@ var options = context.HttpContext.RequestServices
 .GetRequiredService<IamOptions>();
 if (options.SuperAdminBypassPermissions &&
 user.IsInRole(options.SuperAdminRoleName))
-{
 return;
-}
-var hasClaimPermission = user.Claims.Any(c =>
+if (user.Claims.Any(c =>
 c.Type == ClaimConstants.Permission &&
-c.Value == _permission);
-if (hasClaimPermission)
-{
+c.Value == _permission))
 return;
-}
 var permissionService = context.HttpContext.RequestServices
 .GetRequiredService<IPermissionService>();
 var currentUser = context.HttpContext.RequestServices
@@ -59,14 +52,9 @@ context.Result = new ForbidResult();
 return;
 }
 var hasPermission = await permissionService.HasPermissionAsync(
-currentUser.UserId.Value,
-tenantId,
-_permission);
+currentUser.UserId.Value, tenantId, _permission);
 if (!hasPermission)
-{
 context.Result = new ForbidResult();
-}
-}
 }
 }
 
@@ -233,8 +221,22 @@ builder.Property(x => x.Email)
 .HasMaxLength(200);
 builder.Property(x => x.PasswordHash)
 .IsRequired();
-builder.HasIndex(x => new { x.Phone, x.TenantId }).IsUnique();
-builder.HasIndex(x => new { x.Email, x.TenantId }).IsUnique();
+builder.HasIndex(x => new { x.Phone, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Phone_TenantId_NotNull");
+builder.HasIndex(x => new { x.Email, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL AND \"Email\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Email_TenantId_NotNull");
+builder.HasIndex(x => x.Phone)
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL")
+.HasDatabaseName("IX_IAM_Users_Phone_Global");
+builder.HasIndex(x => x.Email)
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL AND \"Email\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_Users_Email_Global");
 }
 }
 
@@ -294,13 +296,15 @@ public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 public void Configure(EntityTypeBuilder<UserRole> builder)
 {
 builder.ToTable("IAM_UserRoles");
-builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
-builder.HasIndex(x => new
-{
-x.UserId,
-x.RoleId,
-x.TenantId
-}).IsUnique();
+builder.HasKey(x => new { x.UserId, x.RoleId });
+builder.HasIndex(x => new { x.UserId, x.RoleId, x.TenantId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL")
+.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_TenantId_NotNull");
+builder.HasIndex(x => new { x.UserId, x.RoleId })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL")
+.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_Global");
 builder.HasOne(ur => ur.User)
 .WithMany(u => u.Roles)
 .HasForeignKey(ur => ur.UserId)
@@ -348,6 +352,7 @@ public const string JwtId = "jti";
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\Permissions.cs =====
+using System.Reflection;
 namespace CoreKit.IAM.Constants;
 public static class Permissions
 {
@@ -413,43 +418,19 @@ public const string View = "store.view";
 public const string ViewAll = "store.view_all";
 public const string Update = "store.update";
 }
-public static IReadOnlyList<string> All => new[]
-{
-Users.Create,
-Users.Update,
-Users.Delete,
-Users.View,
-Users.AssignRole,
-Users.RemoveRole,
-Users.Lock,
-Users.Unlock,
-Roles.Create,
-Roles.Update,
-Roles.Delete,
-Roles.View,
-Roles.AssignPermission,
-Roles.RemovePermission,
-PermissionsManagement.View,
-PermissionsManagement.Assign,
-Auth.Login,
-Auth.Refresh,
-Auth.Logout,
-Documents.Upload,
-Documents.View,
-Documents.Delete,
-Identity.Manage,
-Identity.View,
-Tenants.Create,
-Tenants.Update,
-Tenants.Delete,
-Tenants.View,
-Tenants.Approve,
-System.SuperAdmin,
-System.Settings,
-System.AuditLogs,
-Store.Update,
-Store.View
-};
+public static IReadOnlyList<string> All { get; } =
+typeof(Permissions)
+.GetNestedTypes(BindingFlags.Public | BindingFlags.Static)
+.SelectMany(t => t.GetFields(
+BindingFlags.Public |
+BindingFlags.Static |
+BindingFlags.FlattenHierarchy))
+.Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
+.Select(f => (string)f.GetRawConstantValue()!)
+.Distinct()
+.OrderBy(x => x)
+.ToList()
+.AsReadOnly();
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Permission.cs =====
@@ -576,7 +557,7 @@ public Guid UserId { get; set; }
 public User User { get; set; } = default!;
 public Guid RoleId { get; set; }
 public Role Role { get; set; } = default!;
-public Guid TenantId { get; set; }
+public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====

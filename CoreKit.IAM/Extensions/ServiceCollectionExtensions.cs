@@ -1,4 +1,4 @@
-﻿// CoreKit.IAM | CoreKit.IAM/Extensions/ServiceCollectionExtensions.cs
+﻿// CoreKit.IAM/Extensions/ServiceCollectionExtensions.cs
 using System.Text;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -7,6 +7,7 @@ using CoreKit.IAM.Repositories;
 using CoreKit.IAM.Services;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,16 @@ public static class ServiceCollectionExtensions
         Action<IamOptions>? configureOptions = null)
     {
         var jwtSettings = jwtSection.Get<JwtSettings>()
-            ?? throw new Exception("JWT configuration missing.");
+            ?? throw new InvalidOperationException(
+                "JWT configuration is missing. Ensure appsettings.json contains a 'Jwt' section " +
+                "with Secret, Issuer, Audience, AccessTokenMinutes, and RefreshTokenDays.");
+
+        if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
+            throw new InvalidOperationException("Jwt:Secret is missing from configuration.");
+        if (string.IsNullOrWhiteSpace(jwtSettings.Issuer))
+            throw new InvalidOperationException("Jwt:Issuer is missing from configuration.");
+        if (string.IsNullOrWhiteSpace(jwtSettings.Audience))
+            throw new InvalidOperationException("Jwt:Audience is missing from configuration.");
 
         services.Configure<JwtSettings>(jwtSection);
 
@@ -36,8 +46,6 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<IamDbContext>(options =>
             options.UseNpgsql(connectionString));
 
-        // FIX: IMemoryCache is required by PermissionCacheService.
-        // AddMemoryCache is idempotent — safe to call multiple times.
         services.AddMemoryCache();
 
         services.AddScoped<IUserRepository, UserRepository>();
@@ -57,8 +65,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<IUserManagementService, UserManagementService>();
         services.AddScoped<IRoleManagementService, RoleManagementService>();
-
-        // FIX: register cache service before PermissionService which depends on it
         services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
         services.AddScoped<IPermissionService, PermissionService>();
 
@@ -69,25 +75,25 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IUserIdentityService, UserIdentityService>();
 
         if (iamOptions.EnableRoleDocumentRequirements)
-            services.AddScoped<IRoleDocumentRequirementService,
-                RoleDocumentRequirementService>();
+            services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
 
-        // FIX: EncryptionService is registered here from configuration so
-        // Program.cs files don't need to duplicate it.
         services.AddSingleton<IEncryptionService>(sp =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
             var key = config["EncryptionKey"];
             if (string.IsNullOrWhiteSpace(key))
-                throw new Exception("EncryptionKey is missing from configuration.");
+                throw new InvalidOperationException(
+                    "EncryptionKey is missing from configuration. " +
+                    "Add a 32-byte base64-encoded key to appsettings.json: " +
+                    "\"EncryptionKey\": \"<base64-32-bytes>\"");
             return new EncryptionService(key);
         });
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
+            .AddJwtBearer(o =>
             {
-                options.TokenValidationParameters = new TokenValidationParameters
+                o.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidateAudience = true,
@@ -98,6 +104,53 @@ public static class ServiceCollectionExtensions
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(jwtSettings.Secret)),
                     ClockSkew = TimeSpan.Zero
+                };
+
+                o.Events = new JwtBearerEvents
+                {
+                    OnChallenge = async ctx =>
+                    {
+                        ctx.HandleResponse();
+                        if (ctx.Response.HasStarted) return;
+
+                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsync(
+                            "{\"success\":false," +
+                            "\"errorCode\":\"UNAUTHORIZED\"," +
+                            "\"message\":\"You are not logged in or your session has expired. " +
+                            "Please log in and try again.\"}");
+                    },
+
+                    OnForbidden = async ctx =>
+                    {
+                        if (ctx.Response.HasStarted) return;
+
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsync(
+                            "{\"success\":false," +
+                            "\"errorCode\":\"FORBIDDEN\"," +
+                            "\"message\":\"You do not have permission to perform this action. " +
+                            "Contact your administrator if you believe this is incorrect.\"}");
+                    },
+
+                    OnAuthenticationFailed = async ctx =>
+                    {
+                        if (ctx.Response.HasStarted) return;
+
+                        var (code, msg) = ctx.Exception is SecurityTokenExpiredException
+                            ? ("TOKEN_EXPIRED",
+                               "Your session has expired. Please log in again to continue.")
+                            : ("TOKEN_INVALID",
+                               "Your authentication token is invalid. Please log in again.");
+
+                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsync(
+                            $"{{\"success\":false,\"errorCode\":\"{code}\"," +
+                            $"\"message\":\"{msg}\"}}");
+                    }
                 };
             });
 

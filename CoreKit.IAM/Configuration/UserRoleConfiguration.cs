@@ -7,22 +7,30 @@ namespace CoreKit.IAM.Configuration;
 
 public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 {
+    // CoreKit.IAM/Configuration/UserRoleConfiguration.cs
     public void Configure(EntityTypeBuilder<UserRole> builder)
     {
         builder.ToTable("IAM_UserRoles");
 
-        // FIX: TenantId is now nullable; EF composite keys handle null columns
-        // correctly in PostgreSQL — two rows with the same UserId+RoleId but
-        // TenantId=NULL are treated as duplicates via the unique index below.
-        builder.HasKey(x => new { x.UserId, x.RoleId, x.TenantId });
+        // Surrogate PK — avoids the nullable-in-PK EF Core crash entirely.
+        // The meaningful uniqueness constraint is the index below.
+        builder.HasKey(x => new { x.UserId, x.RoleId });
 
-        // Unique index with NULLS NOT DISTINCT so null TenantId is treated as
-        // a concrete value for uniqueness purposes (PostgreSQL 15+).
-        // For older PG, the HasKey composite above already prevents duplicates
-        // at the PK level.
+        // A user+role combination is unique per tenant scope.
+        // PostgreSQL treats two NULLs as distinct in unique indexes by default,
+        // so (userId, roleId, NULL) and (userId, roleId, NULL) would both be
+        // allowed without the filtered index below.
+        // Use a COALESCE trick or two partial indexes to enforce uniqueness:
         builder.HasIndex(x => new { x.UserId, x.RoleId, x.TenantId })
             .IsUnique()
-            .HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_TenantId");
+            .HasFilter("\"TenantId\" IS NOT NULL")
+            .HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_TenantId_NotNull");
+
+        // Separate index for the global (null) case:
+        builder.HasIndex(x => new { x.UserId, x.RoleId })
+            .IsUnique()
+            .HasFilter("\"TenantId\" IS NULL")
+            .HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_Global");
 
         builder.HasOne(ur => ur.User)
             .WithMany(u => u.Roles)

@@ -1,4 +1,4 @@
-﻿// CoreKit.SharedKernel | CoreKit.SharedKernel/Common/AuditableDbContext.cs
+﻿// CoreKit.SharedKernel/Common/AuditableDbContext.cs
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,8 +16,23 @@ public abstract class AuditableDbContext : DbContext
         _currentUser = currentUser;
     }
 
+    // Fix #1: Override sync SaveChanges to route through the async audit path.
+    // Without this, calling SaveChanges() bypasses audit field stamping entirely.
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        StampAuditFields();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
     public override async Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default)
+    {
+        StampAuditFields();
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    // Extracted so both sync and async paths share the same logic.
+    private void StampAuditFields()
     {
         foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
         {
@@ -42,8 +57,6 @@ public abstract class AuditableDbContext : DbContext
                     break;
             }
         }
-
-        return await base.SaveChangesAsync(cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -53,23 +66,16 @@ public abstract class AuditableDbContext : DbContext
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
-            {
                 modelBuilder.Entity(entityType.ClrType)
-                    .HasQueryFilter(
-                        BuildSoftDeleteFilter(entityType.ClrType));
-            }
+                    .HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
 
-            // FIX: map RowVersion to PostgreSQL xmin system column for
-            // zero-overhead optimistic concurrency on every AuditableEntity.
             if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
-            {
                 modelBuilder.Entity(entityType.ClrType)
                     .Property<uint>("RowVersion")
                     .IsRowVersion()
                     .HasColumnName("xmin")
                     .HasColumnType("xid")
                     .ValueGeneratedOnAddOrUpdate();
-            }
         }
     }
 
@@ -78,10 +84,10 @@ public abstract class AuditableDbContext : DbContext
     {
         var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
         var property = System.Linq.Expressions.Expression.Property(
-                            param, nameof(ISoftDelete.IsDeleted));
+            param, nameof(ISoftDelete.IsDeleted));
         var condition = System.Linq.Expressions.Expression.Equal(
-                            property,
-                            System.Linq.Expressions.Expression.Constant(false));
+            property,
+            System.Linq.Expressions.Expression.Constant(false));
         return System.Linq.Expressions.Expression.Lambda(condition, param);
     }
 }

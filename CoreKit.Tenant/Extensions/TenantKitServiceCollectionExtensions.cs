@@ -1,8 +1,7 @@
-﻿// CoreKit.Tenant/Extensions/TenantKitServiceCollectionExtensions.cs
-using CoreKit.Tenant.Interfaces;
+﻿using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
-using CoreKit.Tenant.Persistence.Seeders;
 using CoreKit.Tenant.Repositories;
 using CoreKit.Tenant.Services;
 using Microsoft.EntityFrameworkCore;
@@ -34,12 +33,15 @@ public static class TenantKitServiceCollectionExtensions
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
 
-        // FIX: Register TenantContext as the concrete type and expose it via
-        // both interfaces so middleware resolves IMutableTenantContext and
-        // controllers resolve ITenantContext — both point to the same instance.
         services.AddScoped<TenantContext>();
-        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
-        services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<ITenantContext>(sp =>
+            sp.GetRequiredService<TenantContext>());
+        services.AddScoped<IMutableTenantContext>(sp =>
+            sp.GetRequiredService<TenantContext>());
+
+        // Required: IMiddleware implementations must be registered in DI
+        // Without this line UseMiddleware<TenantResolutionMiddleware>() stalls silently
+        services.AddScoped<TenantResolutionMiddleware>();
 
         return services;
     }

@@ -1,5 +1,4 @@
-﻿// CoreKit.IAM | CoreKit.IAM/Services/AuthService.cs
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -13,6 +12,7 @@ public class AuthService : IAuthService
     private readonly IJwtTokenService _jwtService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IPermissionService _permissionService;
+    private readonly IPermissionCacheService _permissionCache;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IamDbContext _db;
     private readonly IamOptions _options;
@@ -22,6 +22,7 @@ public class AuthService : IAuthService
         IJwtTokenService jwtService,
         IRefreshTokenService refreshTokenService,
         IPermissionService permissionService,
+        IPermissionCacheService permissionCache,
         IPasswordHasher passwordHasher,
         IamDbContext db,
         IamOptions options)
@@ -30,6 +31,7 @@ public class AuthService : IAuthService
         _jwtService = jwtService;
         _refreshTokenService = refreshTokenService;
         _permissionService = permissionService;
+        _permissionCache = permissionCache;
         _passwordHasher = passwordHasher;
         _db = db;
         _options = options;
@@ -38,8 +40,8 @@ public class AuthService : IAuthService
     public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
     {
         var user = await _userRepo.GetUserByLoginAsync(
-                       request.Login, tenantId, _options.LoginIdentifier)
-                   ?? throw new UnauthorizedAccessException("Invalid credentials.");
+            request.Login, tenantId, _options.LoginIdentifier)
+            ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!user.IsActive)
             throw new UnauthorizedAccessException("Account is disabled.");
@@ -53,6 +55,7 @@ public class AuthService : IAuthService
             user.FailedLoginAttempts++;
             if (user.FailedLoginAttempts >= 5)
                 user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
+
             await _db.SaveChangesAsync();
             throw new UnauthorizedAccessException("Invalid credentials.");
         }
@@ -63,8 +66,10 @@ public class AuthService : IAuthService
         await _db.SaveChangesAsync();
 
         var roles = BuildRoleList(user, tenantId);
-        var permissions = await _permissionService
-            .GetUserPermissionsAsync(user.Id, tenantId);
+
+        // Always fetch fresh permissions at login — bypass cache
+        await _permissionCache.InvalidateAsync(user.Id, tenantId);
+        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
         List<Guid>? storeIds = null;
         if (tenantId.HasValue)
@@ -73,6 +78,7 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
+
             if (storeIds.Count == 0) storeIds = null;
         }
 
@@ -94,16 +100,16 @@ public class AuthService : IAuthService
                 "Refresh token reuse detected. Session revoked.");
 
         var user = await _userRepo.GetByIdAsync(userId)
-                   ?? throw new UnauthorizedAccessException("User not found.");
+            ?? throw new UnauthorizedAccessException("User not found.");
 
-        // FIX: SuperAdmin has TenantId=null on their UserRole now (no fake GUID).
-        // Check by role name first; only validate tenant membership for non-admins.
+        if (!user.IsActive)
+            throw new UnauthorizedAccessException("Account is disabled.");
+
         var isSuperAdmin = user.Roles.Any(r =>
             r.Role.Name == _options.SuperAdminRoleName);
 
         if (tenantId.HasValue && !isSuperAdmin)
         {
-            // FIX: compare against nullable TenantId correctly
             bool belongsToTenant = user.Roles.Any(ur =>
                 ur.TenantId.HasValue && ur.TenantId.Value == tenantId.Value);
 
@@ -113,8 +119,12 @@ public class AuthService : IAuthService
         }
 
         var roles = BuildRoleList(user, tenantId);
-        var permissions = await _permissionService
-            .GetUserPermissionsAsync(user.Id, tenantId);
+
+        // Always invalidate cache on token refresh — permissions may have changed
+        // since the last login. This ensures a demoted user never keeps elevated
+        // permissions past the next refresh cycle.
+        await _permissionCache.InvalidateAsync(user.Id, tenantId);
+        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
         List<Guid>? storeIds = null;
         if (tenantId.HasValue)
@@ -123,6 +133,7 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
+
             if (storeIds.Count == 0) storeIds = null;
         }
 
@@ -135,10 +146,7 @@ public class AuthService : IAuthService
     public async Task LogoutAsync(string refreshToken)
         => await _refreshTokenService.RevokeAsync(refreshToken);
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
     private List<string> BuildRoleList(User user, Guid? tenantId)
-        // Include global roles (TenantId=null) and the requested tenant's roles
         => user.Roles
             .Where(r =>
                 r.TenantId == null ||
