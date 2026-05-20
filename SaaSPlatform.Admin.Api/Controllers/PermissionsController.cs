@@ -1,6 +1,7 @@
 ﻿using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,7 +10,7 @@ namespace SaaSPlatform.Admin.Api.Controllers;
 [ApiController]
 [Route("api/admin/permissions")]
 [Authorize]
-public class PermissionsController : ControllerBase
+public class PermissionsController : ApiControllerBase
 {
     private readonly IRoleRepository _roleRepo;
     public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;

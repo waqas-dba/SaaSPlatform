@@ -8,7 +8,6 @@ namespace CoreKit.Tenant.Persistence;
 public class TenantDbContext : AuditableDbContext
 {
     private Guid? _tenantId;
-
     private bool _isGlobal = true;
 
     public void SetTenantScope(Guid? tenantId, bool isGlobal)
@@ -25,24 +24,18 @@ public class TenantDbContext : AuditableDbContext
     }
 
     public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
-
     public DbSet<Store> Stores => Set<Store>();
-
     public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
-        modelBuilder.ApplyConfigurationsFromAssembly(
-            typeof(TenantDbContext).Assembly);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
 
         modelBuilder.Entity<Store>()
-            .HasQueryFilter(x =>
-                _isGlobal || x.TenantId == _tenantId);
+            .HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
 
         modelBuilder.Entity<TenantLegalInfo>()
-            .HasQueryFilter(x =>
-                _isGlobal || x.TenantId == _tenantId);
+            .HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
     }
 }

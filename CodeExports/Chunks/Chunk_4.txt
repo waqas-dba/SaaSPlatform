@@ -1,5 +1,72 @@
 ﻿
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionCacheService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\JwtTokenService.cs =====
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+namespace CoreKit.IAM.Services;
+public class JwtTokenService : IJwtTokenService
+{
+private readonly JwtSettings _settings;
+public JwtTokenService(IOptions<JwtSettings> options)
+{
+_settings = options.Value;
+}
+public (string Token, DateTime ExpiresAt, string JwtId) GenerateAccessToken(
+User user,
+Guid? tenantId,
+IEnumerable<string> roles,
+IEnumerable<string>? permissions = null,
+IEnumerable<Guid>? storeIds = null)
+{
+var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
+var jwtId = Guid.NewGuid().ToString();
+var claims = new List<Claim>
+{
+new(ClaimConstants.UserId,              user.Id.ToString()),
+new(JwtRegisteredClaimNames.Sub,         user.Id.ToString()),
+new(JwtRegisteredClaimNames.Jti,         jwtId),
+new(ClaimConstants.Name,                 user.Name)
+};
+if (!string.IsNullOrWhiteSpace(user.Email))
+claims.Add(new Claim(ClaimConstants.Email, user.Email));
+if (tenantId.HasValue)
+claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
+foreach (var role in roles.Distinct())
+claims.Add(new Claim(ClaimConstants.Role, role));
+if (permissions != null)
+foreach (var permission in permissions.Distinct())
+claims.Add(new Claim(ClaimConstants.Permission, permission));
+if (storeIds != null)
+foreach (var storeId in storeIds.Distinct())
+claims.Add(new Claim(ClaimConstants.StoreId, storeId.ToString()));
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+var token = new JwtSecurityToken(
+issuer: _settings.Issuer,
+audience: _settings.Audience,
+claims: claims,
+expires: expiresAt,
+signingCredentials: creds);
+return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt, jwtId);
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PasswordHasher.cs =====
+using CoreKit.IAM.Interfaces;
+namespace CoreKit.IAM.Services;
+public class PasswordHasher : IPasswordHasher
+{
+public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
+public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionCacheService.cs =====
 using System.Collections.Concurrent;
 using CoreKit.IAM.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
@@ -62,7 +129,7 @@ private static string CacheKey(Guid userId, Guid? tenantId)
 => $"perm:{userId}:{tenantId?.ToString() ?? "global"}";
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionService.cs =====
 using CoreKit.IAM.Interfaces;
 namespace CoreKit.IAM.Services;
 public class PermissionService : IPermissionService
@@ -100,29 +167,34 @@ return fresh;
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RefreshTokenService.cs =====
-using System.Security.Cryptography;
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RefreshTokenService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
 namespace CoreKit.IAM.Services;
 public class RefreshTokenService : IRefreshTokenService
 {
 private readonly IRefreshTokenRepository _repo;
 private readonly IamDbContext _db;
 private readonly JwtSettings _settings;
+private readonly ILogger<RefreshTokenService> _logger;
 public RefreshTokenService(
 IRefreshTokenRepository repo,
 IamDbContext db,
-IOptions<JwtSettings> options)
+IOptions<JwtSettings> options,
+ILogger<RefreshTokenService> logger)
 {
 _repo = repo;
 _db = db;
 _settings = options.Value;
+_logger = logger;
 }
 public async Task<string> GenerateAsync(
 Guid userId,
@@ -162,10 +234,14 @@ if (stored == null) return;
 stored.IsRevoked = true;
 stored.RevokedAtUtc = DateTime.UtcNow;
 stored.RevokedByIp = revokedByIp;
+if (replacedByToken != null)
+stored.ReplacedByTokenHash = TokenHasher.Hash(replacedByToken);
 _repo.Update(stored);
 await _db.SaveChangesAsync();
 }
-public async Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token)
+public async Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
+string token,
+string newJwtId)
 {
 var hash = TokenHasher.Hash(token);
 await using var tx = await _db.Database.BeginTransactionAsync();
@@ -173,26 +249,45 @@ try
 {
 var existing = await _db.RefreshTokens
 .FromSqlRaw(
-"SELECT * FROM \"RefreshTokens\" WHERE \"TokenHash\" = {0} FOR UPDATE",
+"SELECT * FROM \"RefreshTokens\" " +
+"WHERE \"TokenHash\" = {0} FOR UPDATE",
 hash)
 .FirstOrDefaultAsync();
 if (existing == null)
-throw new UnauthorizedAccessException("Invalid refresh token.");
+{
+await tx.RollbackAsync();
+throw new UnauthorizedAccessException(
+"Invalid refresh token.");
+}
 if (existing.IsRevoked)
 {
+_logger.LogWarning(
+"Refresh token reuse detected. " +
+"UserId={UserId} FamilyId={FamilyId} " +
+"RevokedAt={RevokedAt} — revoking all family tokens.",
+existing.UserId,
+existing.FamilyId,
+existing.RevokedAtUtc);
 await _repo.RevokeFamilyAsync(existing.FamilyId);
 await _db.SaveChangesAsync();
 await tx.CommitAsync();
-return (string.Empty, true, Guid.Empty);
+throw new UnauthorizedAccessException(
+"Refresh token reuse detected. " +
+"All sessions have been revoked for security.");
 }
 if (existing.ExpiresAtUtc <= DateTime.UtcNow)
-throw new UnauthorizedAccessException("Refresh token expired.");
-var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+{
+await tx.RollbackAsync();
+throw new UnauthorizedAccessException(
+"Refresh token has expired. Please log in again.");
+}
+var newRaw = Convert.ToBase64String(
+RandomNumberGenerator.GetBytes(64));
 var newHash = TokenHasher.Hash(newRaw);
 var newEntity = new RefreshToken
 {
 UserId = existing.UserId,
-JwtId = existing.JwtId,
+JwtId = newJwtId,
 FamilyId = existing.FamilyId,
 TokenHash = newHash,
 ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays)
@@ -204,10 +299,18 @@ _repo.Update(existing);
 await _repo.AddAsync(newEntity);
 await _db.SaveChangesAsync();
 await tx.CommitAsync();
-return (newRaw, false, existing.UserId);
+return (newRaw, existing.UserId);
 }
-catch
+catch (UnauthorizedAccessException)
 {
+if (tx.GetDbTransaction().Connection != null)
+await tx.RollbackAsync();
+throw;
+}
+catch (Exception ex)
+{
+_logger.LogError(ex,
+"Unexpected error during token rotation for hash {Hash}", hash);
 await tx.RollbackAsync();
 throw;
 }
@@ -215,7 +318,7 @@ throw;
 public string ComputeHash(string token) => TokenHasher.Hash(token);
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
@@ -264,10 +367,11 @@ return await _db.RoleDocumentRequirements
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleManagementService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleManagementService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
+using CoreKit.SharedKernel.Exceptions;
 using Microsoft.EntityFrameworkCore;
 namespace CoreKit.IAM.Services;
 public class RoleManagementService : IRoleManagementService
@@ -322,11 +426,14 @@ var role = await _db.Roles
 .FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
 ?? throw new KeyNotFoundException("Role not found.");
 GuardSystemRole(role, "deleted");
-var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+var affectedUserIds = role.UserRoles
+.Select(ur => ur.UserId)
+.Distinct()
+.ToList();
 _db.Roles.Remove(role);
 await _db.SaveChangesAsync();
-foreach (var userId in affectedUserIds)
-await _permissionCache.InvalidateUserAsync(userId);
+await Task.WhenAll(
+affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
 }
 public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
 {
@@ -344,9 +451,12 @@ RoleId = roleId,
 PermissionId = permissionId
 });
 await _db.SaveChangesAsync();
-var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
-foreach (var userId in affectedUserIds)
-await _permissionCache.InvalidateUserAsync(userId);
+var affectedUserIds = role.UserRoles
+.Select(ur => ur.UserId)
+.Distinct()
+.ToList();
+await Task.WhenAll(
+affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
 }
 public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
 {
@@ -356,13 +466,17 @@ var role = await _db.Roles
 ?? throw new KeyNotFoundException("Role not found.");
 GuardSystemRole(role, "modified");
 var rp = await _db.RolePermissions
-.FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId);
+.FirstOrDefaultAsync(x =>
+x.RoleId == roleId && x.PermissionId == permissionId);
 if (rp == null) return;
 _db.RolePermissions.Remove(rp);
 await _db.SaveChangesAsync();
-var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
-foreach (var userId in affectedUserIds)
-await _permissionCache.InvalidateUserAsync(userId);
+var affectedUserIds = role.UserRoles
+.Select(ur => ur.UserId)
+.Distinct()
+.ToList();
+await Task.WhenAll(
+affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
 }
 public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
 => await _db.RolePermissions
@@ -372,12 +486,12 @@ public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
 private static void GuardSystemRole(Role role, string action)
 {
 if (role.IsSystem)
-throw new InvalidOperationException(
+throw new ForbiddenException(
 $"System role '{role.Name}' cannot be {action}.");
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserDocumentService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserDocumentService.cs =====
 using Microsoft.EntityFrameworkCore;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
@@ -426,7 +540,7 @@ await _db.SaveChangesAsync();
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserIdentityService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserIdentityService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
@@ -477,164 +591,6 @@ if (identity != null)
 _db.UserIdentities.Remove(identity);
 await _db.SaveChangesAsync();
 }
-}
-}
-
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Helpers;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Services;
-public class UserManagementService : IUserManagementService
-{
-private readonly IamDbContext _db;
-private readonly ICurrentUserService _currentUser;
-private readonly IPasswordHasher _passwordHasher;
-private readonly IamOptions _options;
-private readonly IPermissionCacheService _permissionCache;
-public UserManagementService(
-IamDbContext db,
-ICurrentUserService currentUser,
-IPasswordHasher passwordHasher,
-IamOptions options,
-IPermissionCacheService permissionCache)
-{
-_db = db;
-_currentUser = currentUser;
-_passwordHasher = passwordHasher;
-_options = options;
-_permissionCache = permissionCache;
-}
-public async Task<User> CreateUserAsync(
-string name, string phone, string? email,
-string password, Guid? tenantId)
-{
-phone = PhoneNormalizer.Normalize(phone);
-email = string.IsNullOrWhiteSpace(email)
-? null
-: email.Trim().ToLowerInvariant();
-if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
-throw new InvalidOperationException(
-"A user with this phone already exists in the tenant.");
-if (email != null &&
-await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
-throw new InvalidOperationException(
-"A user with this email already exists in the tenant.");
-if (password.Length < _options.MinPasswordLength)
-throw new ArgumentException(
-$"Password must be at least {_options.MinPasswordLength} characters.");
-var user = new User
-{
-Id = Guid.NewGuid(),
-TenantId = tenantId,
-Name = name,
-Phone = phone,
-Email = email,
-PasswordHash = _passwordHasher.Hash(password),
-IsActive = true
-};
-_db.Users.Add(user);
-await _db.SaveChangesAsync();
-return user;
-}
-public async Task UpdateUserAsync(
-Guid userId, string? name, string? email,
-string? phone, Guid? tenantId)
-{
-var user = await _db.Users
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
-?? throw new KeyNotFoundException("User not found.");
-if (name != null) user.Name = name;
-if (phone != null)
-{
-var normalizedPhone = PhoneNormalizer.Normalize(phone);
-var phoneInUse = await _db.Users.AnyAsync(u =>
-u.Phone == normalizedPhone &&
-u.TenantId == tenantId &&
-u.Id != userId);
-if (phoneInUse)
-throw new InvalidOperationException("Phone already in use.");
-user.Phone = normalizedPhone;
-}
-if (email != null)
-{
-var normalizedEmail = email.Trim().ToLowerInvariant();
-var emailInUse = await _db.Users.AnyAsync(u =>
-u.Email == normalizedEmail &&
-u.TenantId == tenantId &&
-u.Id != userId);
-if (emailInUse)
-throw new InvalidOperationException("Email already in use.");
-user.Email = normalizedEmail;
-}
-await _db.SaveChangesAsync();
-}
-public async Task<List<User>> GetUsersAsync(Guid? tenantId)
-=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
-public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
-=> await _db.Users
-.Include(u => u.Roles).ThenInclude(r => r.Role)
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
-public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
-{
-var user = await _db.Users
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
-?? throw new KeyNotFoundException("User not found.");
-user.IsDeleted = true;
-user.IsActive = false;
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
-{
-var user = await _db.Users
-.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
-?? throw new KeyNotFoundException("Role not found.");
-if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
-throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
-if (role.IsSystem && !_currentUser.IsSuperAdmin)
-throw new UnauthorizedAccessException("Cannot assign a system role.");
-if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
-throw new InvalidOperationException(
-"User already has this role in the specified scope.");
-user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
-{
-var user = await _db.Users
-.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-var userRole = user.Roles.FirstOrDefault(r =>
-r.RoleId == roleId && r.TenantId == tenantId)
-?? throw new KeyNotFoundException(
-"User does not have this role in the specified scope.");
-user.Roles.Remove(userRole);
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
-{
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-user.LockoutEnd = lockoutEnd;
-await _db.SaveChangesAsync();
-}
-public async Task UnlockUserAsync(Guid userId)
-{
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-user.LockoutEnd = null;
-user.FailedLoginAttempts = 0;
-await _db.SaveChangesAsync();
 }
 }
 

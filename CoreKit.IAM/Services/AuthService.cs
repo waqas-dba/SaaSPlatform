@@ -55,7 +55,6 @@ public class AuthService : IAuthService
             user.FailedLoginAttempts++;
             if (user.FailedLoginAttempts >= 5)
                 user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
-
             await _db.SaveChangesAsync();
             throw new UnauthorizedAccessException("Invalid credentials.");
         }
@@ -67,8 +66,9 @@ public class AuthService : IAuthService
 
         var roles = BuildRoleList(user, tenantId);
 
-        // Always fetch fresh permissions at login — bypass cache
-        await _permissionCache.InvalidateAsync(user.Id, tenantId);
+        // HIGH FIX — do NOT invalidate before fetching; that creates a race.
+        // Permissions are fetched fresh here; cache is populated as a side-effect
+        // of GetUserPermissionsAsync. Invalidation belongs only when permissions change.
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
         List<Guid>? storeIds = null;
@@ -78,7 +78,6 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
-
             if (storeIds.Count == 0) storeIds = null;
         }
 
@@ -92,14 +91,26 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
     {
-        var (newToken, compromised, userId) =
-            await _refreshTokenService.RotateAsync(request.RefreshToken);
+        // CRITICAL FIX — generate the access token FIRST so its jwtId can be
+        // passed into RotateAsync. The old code passed the stale original jwtId.
+        // We need the user to build the token, so fetch them before rotating.
 
-        if (compromised)
-            throw new UnauthorizedAccessException(
-                "Refresh token reuse detected. Session revoked.");
+        // Step 1: validate the incoming token enough to get the userId without rotating yet
+        var previewHash = _refreshTokenService.ComputeHash(request.RefreshToken);
+        var preview = await _db.RefreshTokens
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TokenHash == previewHash);
 
-        var user = await _userRepo.GetByIdAsync(userId)
+        if (preview == null || preview.IsRevoked || preview.ExpiresAtUtc <= DateTime.UtcNow)
+        {
+            // If it is revoked we still want to trigger the family revocation,
+            // so let RotateAsync handle it and re-throw.
+            // Pass a placeholder jwtId — RotateAsync will throw before using it.
+            await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
+            throw new UnauthorizedAccessException("Invalid or expired refresh token.");
+        }
+
+        var user = await _userRepo.GetByIdAsync(preview.UserId)
             ?? throw new UnauthorizedAccessException("User not found.");
 
         if (!user.IsActive)
@@ -112,18 +123,12 @@ public class AuthService : IAuthService
         {
             bool belongsToTenant = user.Roles.Any(ur =>
                 ur.TenantId.HasValue && ur.TenantId.Value == tenantId.Value);
-
             if (!belongsToTenant)
                 throw new UnauthorizedAccessException(
                     "User does not belong to this tenant.");
         }
 
         var roles = BuildRoleList(user, tenantId);
-
-        // Always invalidate cache on token refresh — permissions may have changed
-        // since the last login. This ensures a demoted user never keeps elevated
-        // permissions past the next refresh cycle.
-        await _permissionCache.InvalidateAsync(user.Id, tenantId);
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
         List<Guid>? storeIds = null;
@@ -133,14 +138,18 @@ public class AuthService : IAuthService
                 .Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
                 .Select(a => a.StoreId)
                 .ToListAsync();
-
             if (storeIds.Count == 0) storeIds = null;
         }
 
-        var (accessToken, _, _) = _jwtService.GenerateAccessToken(
+        // Step 2: generate the new access token — its jwtId binds to the new refresh token
+        var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
-        return new LoginResponse { AccessToken = accessToken, RefreshToken = newToken };
+        // Step 3: rotate, passing in the new jwtId so the rotated token is bound correctly
+        var (newRefreshToken, _) = await _refreshTokenService.RotateAsync(
+            request.RefreshToken, newJwtId);
+
+        return new LoginResponse { AccessToken = accessToken, RefreshToken = newRefreshToken };
     }
 
     public async Task LogoutAsync(string refreshToken)
@@ -148,9 +157,7 @@ public class AuthService : IAuthService
 
     private List<string> BuildRoleList(User user, Guid? tenantId)
         => user.Roles
-            .Where(r =>
-                r.TenantId == null ||
-                r.TenantId == tenantId)
+            .Where(r => r.TenantId == null || r.TenantId == tenantId)
             .Select(r => r.Role.Name)
             .Distinct()
             .ToList();

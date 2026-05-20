@@ -2,42 +2,43 @@
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
 
 namespace SaaSPlatform.Admin.Api.Controllers;
 
-[ApiController]
 [Route("api/admin/users")]
 [Authorize]
-public class UsersController : ControllerBase
+public class UsersController : ApiControllerBase
 {
     private readonly IUserManagementService _userService;
-    public UsersController(IUserManagementService userService) => _userService = userService;
+
+    public UsersController(IUserManagementService userService)
+        => _userService = userService;
 
     [HttpPost]
     [RequiresPermission(Permissions.Users.Create)]
-    public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
+    public async Task<IActionResult> Create(
+        [FromBody] SaaSPlatform.Admin.Api.Models.CreateUserRequest request)
     {
         var user = await _userService.CreateUserAsync(
-            request.Name, request.Phone, request.Email, request.Password, request.TenantId);
-        return Ok(new { user.Id, user.Name, user.Phone });
+            request.Name, request.Phone,
+            request.Email, request.Password,
+            request.TenantId);
+
+        return CreatedResponse(new { user.Id, user.Name, user.Phone });
     }
 
     [HttpPost("{userId}/roles")]
     [RequiresPermission(Permissions.Users.AssignRole)]
-    public async Task<IActionResult> AssignRole(Guid userId, [FromBody] AssignRoleWithTenantRequest request)
+    public async Task<IActionResult> AssignRole(
+        Guid userId, [FromBody] AssignRoleWithTenantRequest request)
     {
-        await _userService.AssignRoleAsync(userId, request.RoleId, request.TenantId);
-        return NoContent();
-    }
-}
+        await _userService.AssignRoleAsync(
+            userId, request.RoleId, request.TenantId);
 
-public class CreateUserRequest
-{
-    public string Name { get; set; } = default!;
-    public string Phone { get; set; } = default!;
-    public string? Email { get; set; }
-    public string Password { get; set; } = default!;
-    public Guid? TenantId { get; set; }
+        return UpdatedResponse("Role assigned successfully.");
+    }
 }

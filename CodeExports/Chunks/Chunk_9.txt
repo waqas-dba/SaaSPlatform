@@ -1,0 +1,145 @@
+﻿
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoresController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/stores")]
+[Authorize]
+public class StoresController : ApiControllerBase
+{
+private readonly IStoreService _storeService;
+private readonly ITenantContext _tenantContext;
+public StoresController(IStoreService storeService, ITenantContext tenantContext)
+{
+_storeService = storeService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Store.ViewAll)]
+public async Task<IActionResult> GetAll()
+{
+if (_tenantContext.TenantId == null)
+{
+var all = await _storeService.GetAllStoresAsync();
+return Ok(all);
+}
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Create(CreateStoreRequest request)
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized("Missing tenant context");
+var store = await _storeService.CreateAsync(request);
+return Ok(store);
+}
+[HttpPut("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Update(Guid storeId, UpdateStoreRequest request)
+{
+await _storeService.UpdateAsync(storeId, request);
+return NoContent();
+}
+[HttpDelete("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Delete(Guid storeId)
+{
+await _storeService.DeleteAsync(storeId);
+return NoContent();
+}
+[HttpPut("{storeId}/marketplace")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isListed)
+{
+await _storeService.SetMarketplaceListingAsync(storeId, isListed);
+return NoContent();
+}
+[HttpGet("my")]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetMine()
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized("Missing tenant context.");
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using System.Threading.RateLimiting;
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode =
+StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(
+MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] =
+retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. " +
+$"Please wait {retryAfter} seconds.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("login", cfg =>
+{
+cfg.PermitLimit = 5;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
+builder.Services.AddHttpContextAccessor();
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"),
+options =>
+{
+options.SuperAdminBypassPermissions = true;
+options.SuperAdminRoleName = "SuperAdmin";
+});
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddCoreKitControllers();
+builder.ValidateCoreKitConfiguration();
+var app = builder.Build();
+await app.PerformBootCheckAsync();
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();
+

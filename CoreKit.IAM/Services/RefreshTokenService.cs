@@ -1,11 +1,13 @@
-﻿using System.Security.Cryptography;
-using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
 
 namespace CoreKit.IAM.Services;
 
@@ -14,15 +16,18 @@ public class RefreshTokenService : IRefreshTokenService
     private readonly IRefreshTokenRepository _repo;
     private readonly IamDbContext _db;
     private readonly JwtSettings _settings;
+    private readonly ILogger<RefreshTokenService> _logger;
 
     public RefreshTokenService(
         IRefreshTokenRepository repo,
         IamDbContext db,
-        IOptions<JwtSettings> options)
+        IOptions<JwtSettings> options,
+        ILogger<RefreshTokenService> logger)
     {
         _repo = repo;
         _db = db;
         _settings = options.Value;
+        _logger = logger;
     }
 
     public async Task<string> GenerateAsync(
@@ -68,51 +73,81 @@ public class RefreshTokenService : IRefreshTokenService
         stored.IsRevoked = true;
         stored.RevokedAtUtc = DateTime.UtcNow;
         stored.RevokedByIp = revokedByIp;
+        if (replacedByToken != null)
+            stored.ReplacedByTokenHash = TokenHasher.Hash(replacedByToken);
+
         _repo.Update(stored);
         await _db.SaveChangesAsync();
     }
 
-    public async Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token)
+    /// <summary>
+    /// Rotates the refresh token.
+    ///
+    /// CRITICAL FIX 1 — the new token uses newJwtId (the freshly-minted
+    ///   access token's JWT ID), not the original expired jwtId.
+    ///
+    /// CRITICAL FIX 2 — a compromised (already-revoked) token revokes the
+    ///   whole family and throws immediately instead of returning a sentinel
+    ///   tuple that a caller might mishandle.
+    /// </summary>
+    public async Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
+    string token,
+    string newJwtId)
     {
         var hash = TokenHasher.Hash(token);
 
-        // Use a transaction with a pessimistic row-level lock to prevent the
-        // double-spend race condition where two concurrent requests both pass
-        // the IsRevoked check before either write commits.
         await using var tx = await _db.Database.BeginTransactionAsync();
-
         try
         {
-            // SELECT FOR UPDATE locks the row for the duration of the transaction.
-            // Any concurrent request on the same token will block here until we commit.
             var existing = await _db.RefreshTokens
                 .FromSqlRaw(
-                    "SELECT * FROM \"RefreshTokens\" WHERE \"TokenHash\" = {0} FOR UPDATE",
+                    "SELECT * FROM \"RefreshTokens\" " +
+                    "WHERE \"TokenHash\" = {0} FOR UPDATE",
                     hash)
                 .FirstOrDefaultAsync();
 
             if (existing == null)
-                throw new UnauthorizedAccessException("Invalid refresh token.");
+            {
+                await tx.RollbackAsync();
+                throw new UnauthorizedAccessException(
+                    "Invalid refresh token.");
+            }
 
-            // Token reuse detected — revoke entire family (security breach)
             if (existing.IsRevoked)
             {
+                // Security event: token reuse detected — revoke entire family
+                _logger.LogWarning(
+                    "Refresh token reuse detected. " +
+                    "UserId={UserId} FamilyId={FamilyId} " +
+                    "RevokedAt={RevokedAt} — revoking all family tokens.",
+                    existing.UserId,
+                    existing.FamilyId,
+                    existing.RevokedAtUtc);
+
                 await _repo.RevokeFamilyAsync(existing.FamilyId);
                 await _db.SaveChangesAsync();
                 await tx.CommitAsync();
-                return (string.Empty, true, Guid.Empty);
+
+                throw new UnauthorizedAccessException(
+                    "Refresh token reuse detected. " +
+                    "All sessions have been revoked for security.");
             }
 
             if (existing.ExpiresAtUtc <= DateTime.UtcNow)
-                throw new UnauthorizedAccessException("Refresh token expired.");
+            {
+                await tx.RollbackAsync();
+                throw new UnauthorizedAccessException(
+                    "Refresh token has expired. Please log in again.");
+            }
 
-            var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+            var newRaw = Convert.ToBase64String(
+                RandomNumberGenerator.GetBytes(64));
             var newHash = TokenHasher.Hash(newRaw);
 
             var newEntity = new RefreshToken
             {
                 UserId = existing.UserId,
-                JwtId = existing.JwtId,
+                JwtId = newJwtId,
                 FamilyId = existing.FamilyId,
                 TokenHash = newHash,
                 ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays)
@@ -127,10 +162,19 @@ public class RefreshTokenService : IRefreshTokenService
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
 
-            return (newRaw, false, existing.UserId);
+            return (newRaw, existing.UserId);
         }
-        catch
+        catch (UnauthorizedAccessException)
         {
+            // Already handled above — rollback only if tx still open
+            if (tx.GetDbTransaction().Connection != null)
+                await tx.RollbackAsync();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Unexpected error during token rotation for hash {Hash}", hash);
             await tx.RollbackAsync();
             throw;
         }

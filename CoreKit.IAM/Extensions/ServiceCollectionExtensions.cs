@@ -1,13 +1,15 @@
-﻿// CoreKit.IAM/Extensions/ServiceCollectionExtensions.cs
-using System.Text;
+﻿using System.Text;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Repositories;
 using CoreKit.IAM.Services;
+using CoreKit.IAM.Validators;
 using CoreKit.SharedKernel.Interfaces;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,15 +27,21 @@ public static class ServiceCollectionExtensions
     {
         var jwtSettings = jwtSection.Get<JwtSettings>()
             ?? throw new InvalidOperationException(
-                "JWT configuration is missing. Ensure appsettings.json contains a 'Jwt' section " +
-                "with Secret, Issuer, Audience, AccessTokenMinutes, and RefreshTokenDays.");
+                "JWT configuration is missing. Ensure appsettings.json " +
+                "contains a 'Jwt' section with Secret, Issuer, Audience, " +
+                "AccessTokenMinutes, and RefreshTokenDays.");
 
         if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
-            throw new InvalidOperationException("Jwt:Secret is missing from configuration.");
+            throw new InvalidOperationException(
+                "Jwt:Secret is missing from configuration.");
+
         if (string.IsNullOrWhiteSpace(jwtSettings.Issuer))
-            throw new InvalidOperationException("Jwt:Issuer is missing from configuration.");
+            throw new InvalidOperationException(
+                "Jwt:Issuer is missing from configuration.");
+
         if (string.IsNullOrWhiteSpace(jwtSettings.Audience))
-            throw new InvalidOperationException("Jwt:Audience is missing from configuration.");
+            throw new InvalidOperationException(
+                "Jwt:Audience is missing from configuration.");
 
         services.Configure<JwtSettings>(jwtSection);
 
@@ -48,17 +56,22 @@ public static class ServiceCollectionExtensions
 
         services.AddMemoryCache();
 
+        // ── Repositories ──────────────────────────────────────────────────────
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IUserStoreAssignmentRepository,
+            UserStoreAssignmentRepository>();
 
+        // ── Current user ──────────────────────────────────────────────────────
         services.AddScoped<CurrentUserService>();
         services.AddScoped<ICurrentUserService>(sp =>
             sp.GetRequiredService<CurrentUserService>());
         services.AddScoped<ICurrentUser>(sp =>
             sp.GetRequiredService<CurrentUserService>());
 
+        // ── Services ──────────────────────────────────────────────────────────
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IPasswordHasher, PasswordHasher>();
@@ -68,6 +81,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
         services.AddScoped<IPermissionService, PermissionService>();
 
+        // ── Optional features ─────────────────────────────────────────────────
         if (iamOptions.EnableUserDocuments)
             services.AddScoped<IUserDocumentService, UserDocumentService>();
 
@@ -75,8 +89,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IUserIdentityService, UserIdentityService>();
 
         if (iamOptions.EnableRoleDocumentRequirements)
-            services.AddScoped<IRoleDocumentRequirementService, RoleDocumentRequirementService>();
+            services.AddScoped<IRoleDocumentRequirementService,
+                RoleDocumentRequirementService>();
 
+        // ── Encryption ────────────────────────────────────────────────────────
         services.AddSingleton<IEncryptionService>(sp =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
@@ -89,6 +105,37 @@ public static class ServiceCollectionExtensions
             return new EncryptionService(key);
         });
 
+        // ── Fluent Validation ─────────────────────────────────────────────────
+        services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
+
+        services.Configure<ApiBehaviorOptions>(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                var errors = context.ModelState
+                    .Where(e => e.Value?.Errors.Count > 0)
+                    .SelectMany(e => e.Value!.Errors
+                        .Select(x => new
+                        {
+                            field = e.Key,
+                            message = x.ErrorMessage
+                        }))
+                    .ToList();
+
+                return new ObjectResult(new
+                {
+                    success = false,
+                    errorCode = "VALIDATION_ERROR",
+                    message = "One or more validation errors occurred.",
+                    errors
+                })
+                {
+                    StatusCode = StatusCodes.Status422UnprocessableEntity
+                };
+            };
+        });
+
+        // ── JWT Bearer ────────────────────────────────────────────────────────
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(o =>
@@ -113,12 +160,15 @@ public static class ServiceCollectionExtensions
                         ctx.HandleResponse();
                         if (ctx.Response.HasStarted) return;
 
-                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.StatusCode =
+                            StatusCodes.Status401Unauthorized;
                         ctx.Response.ContentType = "application/json";
+
                         await ctx.Response.WriteAsync(
                             "{\"success\":false," +
                             "\"errorCode\":\"UNAUTHORIZED\"," +
-                            "\"message\":\"You are not logged in or your session has expired. " +
+                            "\"message\":\"You are not logged in or your " +
+                            "session has expired. " +
                             "Please log in and try again.\"}");
                     },
 
@@ -126,29 +176,38 @@ public static class ServiceCollectionExtensions
                     {
                         if (ctx.Response.HasStarted) return;
 
-                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.StatusCode =
+                            StatusCodes.Status403Forbidden;
                         ctx.Response.ContentType = "application/json";
+
                         await ctx.Response.WriteAsync(
                             "{\"success\":false," +
                             "\"errorCode\":\"FORBIDDEN\"," +
-                            "\"message\":\"You do not have permission to perform this action. " +
-                            "Contact your administrator if you believe this is incorrect.\"}");
+                            "\"message\":\"You do not have permission to " +
+                            "perform this action. Contact your administrator " +
+                            "if you believe this is incorrect.\"}");
                     },
 
                     OnAuthenticationFailed = async ctx =>
                     {
                         if (ctx.Response.HasStarted) return;
 
-                        var (code, msg) = ctx.Exception is SecurityTokenExpiredException
-                            ? ("TOKEN_EXPIRED",
-                               "Your session has expired. Please log in again to continue.")
-                            : ("TOKEN_INVALID",
-                               "Your authentication token is invalid. Please log in again.");
+                        var (code, msg) =
+                            ctx.Exception is SecurityTokenExpiredException
+                                ? ("TOKEN_EXPIRED",
+                                   "Your session has expired. " +
+                                   "Please log in again to continue.")
+                                : ("TOKEN_INVALID",
+                                   "Your authentication token is invalid. " +
+                                   "Please log in again.");
 
-                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.StatusCode =
+                            StatusCodes.Status401Unauthorized;
                         ctx.Response.ContentType = "application/json";
+
                         await ctx.Response.WriteAsync(
-                            $"{{\"success\":false,\"errorCode\":\"{code}\"," +
+                            $"{{\"success\":false," +
+                            $"\"errorCode\":\"{code}\"," +
                             $"\"message\":\"{msg}\"}}");
                     }
                 };

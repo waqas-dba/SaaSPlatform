@@ -1,6 +1,7 @@
 ﻿using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Persistence;
+using CoreKit.SharedKernel.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.IAM.Services;
@@ -40,7 +41,6 @@ public class RoleManagementService : IRoleManagementService
             Description = description,
             TenantId = tenantId
         };
-
         _db.Roles.Add(role);
         await _db.SaveChangesAsync();
         return role;
@@ -57,7 +57,6 @@ public class RoleManagementService : IRoleManagementService
 
         if (!string.IsNullOrWhiteSpace(newName)) role.Name = newName;
         if (newDescription != null) role.Description = newDescription;
-
         await _db.SaveChangesAsync();
     }
 
@@ -70,15 +69,17 @@ public class RoleManagementService : IRoleManagementService
 
         GuardSystemRole(role, "deleted");
 
-        // Invalidate cache for every user who had this role
-        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
+        var affectedUserIds = role.UserRoles
+            .Select(ur => ur.UserId)
+            .Distinct()
+            .ToList();
 
         _db.Roles.Remove(role);
         await _db.SaveChangesAsync();
 
-        // Invalidate after save so stale data is never served
-        foreach (var userId in affectedUserIds)
-            await _permissionCache.InvalidateUserAsync(userId);
+        // MEDIUM FIX — invalidate in parallel, not sequentially
+        await Task.WhenAll(
+            affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
     }
 
     public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
@@ -99,13 +100,16 @@ public class RoleManagementService : IRoleManagementService
             RoleId = roleId,
             PermissionId = permissionId
         });
-
         await _db.SaveChangesAsync();
 
-        // Invalidate cache for every user who has this role
-        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
-        foreach (var userId in affectedUserIds)
-            await _permissionCache.InvalidateUserAsync(userId);
+        var affectedUserIds = role.UserRoles
+            .Select(ur => ur.UserId)
+            .Distinct()
+            .ToList();
+
+        // MEDIUM FIX — parallel invalidation
+        await Task.WhenAll(
+            affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
     }
 
     public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
@@ -118,17 +122,20 @@ public class RoleManagementService : IRoleManagementService
         GuardSystemRole(role, "modified");
 
         var rp = await _db.RolePermissions
-            .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId);
-
+            .FirstOrDefaultAsync(x =>
+                x.RoleId == roleId && x.PermissionId == permissionId);
         if (rp == null) return;
 
         _db.RolePermissions.Remove(rp);
         await _db.SaveChangesAsync();
 
-        // Invalidate cache for every user who has this role
-        var affectedUserIds = role.UserRoles.Select(ur => ur.UserId).Distinct().ToList();
-        foreach (var userId in affectedUserIds)
-            await _permissionCache.InvalidateUserAsync(userId);
+        var affectedUserIds = role.UserRoles
+            .Select(ur => ur.UserId)
+            .Distinct()
+            .ToList();
+
+        await Task.WhenAll(
+            affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
     }
 
     public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
@@ -140,7 +147,7 @@ public class RoleManagementService : IRoleManagementService
     private static void GuardSystemRole(Role role, string action)
     {
         if (role.IsSystem)
-            throw new InvalidOperationException(
+            throw new ForbiddenException(
                 $"System role '{role.Name}' cannot be {action}.");
     }
 }

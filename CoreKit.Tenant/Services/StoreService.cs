@@ -1,6 +1,7 @@
 ﻿using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Helpers;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
@@ -76,21 +77,21 @@ public class StoreService : IStoreService
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            // Use the lower 8 bytes of the tenant GUID as the advisory lock key.
-            // GetHashCode() is only 32-bit and can collide across tenants.
-            // BitConverter gives a stable unique 64-bit key per tenant GUID.
             var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
             await _db.Database.ExecuteSqlRawAsync(
                 "SELECT pg_advisory_xact_lock({0})", lockKey);
 
             await EnforceStoreLimitAsync(tenantId);
 
+            // HIGH FIX — generate a unique slug; append a numeric suffix on collision
+            var slug = await GenerateUniqueSlugAsync(request.Name, tenantId);
+
             var store = new Store
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 Name = request.Name,
-                Slug = GenerateSlug(request.Name),
+                Slug = slug,
                 Type = request.Type ?? StoreType.Other,
                 AddressLine1 = request.AddressLine1,
                 AddressLine2 = request.AddressLine2,
@@ -111,7 +112,6 @@ public class StoreService : IStoreService
             _db.Stores.Add(store);
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
-
             return Map(store);
         }
         catch
@@ -134,7 +134,7 @@ public class StoreService : IStoreService
         if (request.Name != null)
         {
             store.Name = request.Name;
-            store.Slug = GenerateSlug(request.Name);
+            store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, storeId);
         }
 
         if (request.Type.HasValue) store.Type = request.Type.Value;
@@ -182,6 +182,10 @@ public class StoreService : IStoreService
         await _db.SaveChangesAsync();
     }
 
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
     private async Task<StoreScope> ResolveStoreScopeAsync()
     {
         if (_currentUser.IsSuperAdmin ||
@@ -211,6 +215,35 @@ public class StoreService : IStoreService
                 $"Store limit of {maxStores.Value} reached.");
     }
 
+    /// <summary>
+    /// HIGH FIX — generates a slug and appends a numeric suffix if it
+    /// already exists for this tenant, ensuring DB uniqueness constraint
+    /// is never violated by duplicate names.
+    /// excludeStoreId is passed on update so the store doesn't conflict with itself.
+    /// </summary>
+    private async Task<string> GenerateUniqueSlugAsync(
+        string name, Guid tenantId, Guid? excludeStoreId = null)
+    {
+        var baseSlug = SlugHelper.Generate(name);
+        var candidate = baseSlug;
+        var counter = 1;
+
+        while (true)
+        {
+            var query = _db.Stores.Where(s =>
+                s.TenantId == tenantId &&
+                s.Slug == candidate);
+
+            if (excludeStoreId.HasValue)
+                query = query.Where(s => s.Id != excludeStoreId.Value);
+
+            if (!await query.AnyAsync())
+                return candidate;
+
+            candidate = $"{baseSlug}-{++counter}";
+        }
+    }
+
     private static StoreDto Map(Store store) => new()
     {
         Id = store.Id,
@@ -221,12 +254,4 @@ public class StoreService : IStoreService
         IsActive = store.IsActive,
         IsListedOnMarketplace = store.IsListedOnMarketplace
     };
-
-    private static string GenerateSlug(string name)
-    {
-        var slug = name.Trim().ToLowerInvariant();
-        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9\s-]", "");
-        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"\s+", "-");
-        return slug.Trim('-');
-    }
 }

@@ -1,6 +1,6 @@
-﻿// CoreKit.IAM/Persistence/Seeders/IamBootstrap.cs
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using CoreKit.IAM.Models;
 
 namespace CoreKit.IAM.Persistence.Seeders;
 
@@ -12,6 +12,7 @@ public sealed class IamBootstrap
     private readonly UserSeeder _userSeeder;
     private readonly RolePermissionSeeder _rolePermissionSeeder;
     private readonly UserRoleSeeder _userRoleSeeder;
+    private readonly IamOptions _options;
     private readonly ILogger<IamBootstrap> _logger;
 
     public IamBootstrap(
@@ -21,6 +22,7 @@ public sealed class IamBootstrap
         UserSeeder userSeeder,
         RolePermissionSeeder rolePermissionSeeder,
         UserRoleSeeder userRoleSeeder,
+        IamOptions options,
         ILogger<IamBootstrap> logger)
     {
         _db = db;
@@ -29,6 +31,7 @@ public sealed class IamBootstrap
         _userSeeder = userSeeder;
         _rolePermissionSeeder = rolePermissionSeeder;
         _userRoleSeeder = userRoleSeeder;
+        _options = options;
         _logger = logger;
     }
 
@@ -40,19 +43,27 @@ public sealed class IamBootstrap
             throw new InvalidOperationException("Database connection failed.");
         }
 
-        // FIX: Use pending migrations instead of table existence check.
-        // The old approach skipped MigrateAsync if any permissions existed,
-        // meaning pending migrations were silently ignored.
-        var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
-        if (pendingMigrations.Any())
+        // MEDIUM FIX — respect the RunMigrationsOnBootstrap option;
+        // previously this always ran migrations regardless of the setting.
+        if (_options.RunMigrationsOnBootstrap)
         {
-            _logger.LogInformation("Applying {Count} pending EF Core migration(s)...",
-                pendingMigrations.Count());
-            await _db.Database.MigrateAsync();
+            var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
+            if (pendingMigrations.Any())
+            {
+                _logger.LogInformation(
+                    "Applying {Count} pending migration(s)...",
+                    pendingMigrations.Count());
+                await _db.Database.MigrateAsync();
+            }
+            else
+            {
+                _logger.LogInformation("No pending migrations.");
+            }
         }
         else
         {
-            _logger.LogInformation("No pending migrations — skipping MigrateAsync.");
+            _logger.LogInformation(
+                "RunMigrationsOnBootstrap is disabled — skipping migration check.");
         }
 
         _logger.LogInformation("Starting IAM bootstrap...");

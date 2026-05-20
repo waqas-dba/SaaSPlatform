@@ -1,5 +1,4 @@
-﻿// CoreKit.SharedKernel/Common/AuditableDbContext.cs
-using CoreKit.SharedKernel.Interfaces;
+﻿using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.SharedKernel.Common;
@@ -16,8 +15,6 @@ public abstract class AuditableDbContext : DbContext
         _currentUser = currentUser;
     }
 
-    // Fix #1: Override sync SaveChanges to route through the async audit path.
-    // Without this, calling SaveChanges() bypasses audit field stamping entirely.
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         StampAuditFields();
@@ -31,9 +28,11 @@ public abstract class AuditableDbContext : DbContext
         return await base.SaveChangesAsync(cancellationToken);
     }
 
-    // Extracted so both sync and async paths share the same logic.
     private void StampAuditFields()
     {
+        // Early exit — avoids iterating the change tracker on every save
+        if (!ChangeTracker.HasChanges()) return;
+
         foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
         {
             switch (entry.State)

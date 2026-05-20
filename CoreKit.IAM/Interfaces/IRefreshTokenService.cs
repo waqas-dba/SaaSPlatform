@@ -1,16 +1,29 @@
 ﻿namespace CoreKit.IAM.Interfaces;
 
-/// <summary>
-/// Service for generating, validating, and rotating refresh tokens.
-/// </summary>
 public interface IRefreshTokenService
 {
-    Task<string> GenerateAsync(Guid userId, string jwtId, string? ipAddress = null, string? userAgent = null);
+    Task<string> GenerateAsync(
+        Guid userId,
+        string jwtId,
+        string? ipAddress = null,
+        string? userAgent = null);
+
     Task<bool> ValidateAsync(string token);
-    Task RevokeAsync(string token, string? replacedByToken = null, string? revokedByIp = null);
+
+    Task RevokeAsync(
+        string token,
+        string? replacedByToken = null,
+        string? revokedByIp = null);
+
     /// <summary>
-    /// Rotates a refresh token. Returns the new token, whether the family was compromised, and the associated UserId.
+    /// Rotates the given refresh token. Accepts the jwtId from the
+    /// freshly-generated access token so the new refresh token binds
+    /// to the correct JWT — not the original expired one.
+    /// Throws UnauthorizedAccessException on compromise or expiry.
     /// </summary>
-    Task<(string Token, bool Compromised, Guid UserId)> RotateAsync(string token);
+    Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
+        string token,
+        string newJwtId);
+
     string ComputeHash(string token);
 }

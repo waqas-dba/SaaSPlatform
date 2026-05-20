@@ -1,4 +1,5 @@
 ﻿using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Helpers;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
@@ -36,8 +37,8 @@ public class TenantService : ITenantService
             ? TenantStatus.Active
             : TenantStatus.Pending;
 
-        // Use the same safe slug generator used in StoreService — strips special chars
-        var slug = GenerateSlug(request.Name);
+        // LOW FIX — uses shared SlugHelper instead of duplicated inline regex
+        var slug = SlugHelper.Generate(request.Name);
 
         var tenant = new TenantEntity
         {
@@ -98,7 +99,7 @@ public class TenantService : ITenantService
         if (name != null)
         {
             tenant.Name = name;
-            tenant.Slug = GenerateSlug(name);
+            tenant.Slug = SlugHelper.Generate(name);
         }
 
         if (metadataJson != null)
@@ -117,15 +118,5 @@ public class TenantService : ITenantService
         tenant.Status = TenantStatus.Archived;
         _tenantRepo.Update(tenant);
         await _db.SaveChangesAsync();
-    }
-
-    // Strips special characters so slugs are safe for URLs and routing.
-    // "A&B Corp" → "ab-corp", "Héllo Wörld" → "hllo-wrld" (safe fallback)
-    private static string GenerateSlug(string name)
-    {
-        var slug = name.Trim().ToLowerInvariant();
-        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9\s-]", "");
-        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"\s+", "-");
-        return slug.Trim('-');
     }
 }

@@ -4,6 +4,8 @@ using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
 using CoreKit.Tenant.Repositories;
 using CoreKit.Tenant.Services;
+using CoreKit.Tenant.Validators;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -26,22 +28,27 @@ public static class TenantKitServiceCollectionExtensions
             opt.UseNpgsql(connectionString);
         });
 
+        // ── Repositories ──────────────────────────────────────────────────────
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<IStoreRepository, StoreRepository>();
         services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+
+        // ── Services ──────────────────────────────────────────────────────────
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
 
+        // ── Tenant context ────────────────────────────────────────────────────
         services.AddScoped<TenantContext>();
         services.AddScoped<ITenantContext>(sp =>
             sp.GetRequiredService<TenantContext>());
         services.AddScoped<IMutableTenantContext>(sp =>
             sp.GetRequiredService<TenantContext>());
 
-        // Required: IMiddleware implementations must be registered in DI
-        // Without this line UseMiddleware<TenantResolutionMiddleware>() stalls silently
         services.AddScoped<TenantResolutionMiddleware>();
+
+        // ── Validators ────────────────────────────────────────────────────────
+        services.AddValidatorsFromAssemblyContaining<CreateStoreRequestValidator>();
 
         return services;
     }

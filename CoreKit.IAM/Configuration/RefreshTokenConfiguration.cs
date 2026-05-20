@@ -30,11 +30,16 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.Property(x => x.IsRevoked)
             .HasDefaultValue(false);
 
+        builder.Property(x => x.UserAgent)
+            .HasMaxLength(512);
+
         builder.HasIndex(x => x.TokenHash).IsUnique();
-        builder.HasIndex(x => x.FamilyId);
         builder.HasIndex(x => x.UserId);
 
-        // ✅ FIXED RELATIONSHIP
+        // MEDIUM FIX — composite index covers RevokeFamilyAsync which filters
+        // by FamilyId and may also filter on IsRevoked to skip already-revoked tokens.
+        builder.HasIndex(x => new { x.FamilyId, x.IsRevoked });
+
         builder.HasOne<User>()
             .WithMany(u => u.RefreshTokens)
             .HasForeignKey(x => x.UserId)

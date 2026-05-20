@@ -1,6 +1,7 @@
 ﻿// SaaSPlatform.Admin.Api/Controllers/TenantsController.cs
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -11,7 +12,7 @@ namespace SaaSPlatform.Admin.Api.Controllers;
 
 [ApiController]
 [Route("api/admin/tenants")]
-public class TenantsController : ControllerBase
+public class TenantsController : ApiControllerBase
 {
     private readonly ITenantService _tenantService;
 

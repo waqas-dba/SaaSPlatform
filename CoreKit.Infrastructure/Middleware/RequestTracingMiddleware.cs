@@ -3,8 +3,6 @@ using Microsoft.Extensions.Logging;
 
 namespace CoreKit.Infrastructure.Middleware;
 
-// Convention-based (NOT IMiddleware) — no DI registration needed
-// ASP.NET Core instantiates this directly from the constructor
 public class RequestTracingMiddleware
 {
     private readonly RequestDelegate _next;
@@ -16,10 +14,6 @@ public class RequestTracingMiddleware
     {
         _next = next;
         _logger = logger;
-
-        Console.ForegroundColor = ConsoleColor.Magenta;
-        Console.WriteLine("[BOOT] RequestTracingMiddleware instantiated OK");
-        Console.ResetColor();
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -29,48 +23,32 @@ public class RequestTracingMiddleware
 
         var method = context.Request.Method;
         var path = context.Request.Path;
+        var hasTenant = context.Request.Headers.ContainsKey("x-tenant-id");
+        var hasAuth = context.Request.Headers.ContainsKey("Authorization");
 
-        var hasTenant = context.Request.Headers
-            .TryGetValue("x-tenant-id", out var tenantHeader);
-        var hasAuth = context.Request.Headers
-            .ContainsKey("Authorization");
+        using var scope = _logger.BeginScope(
+            new Dictionary<string, object> { ["TraceId"] = traceId });
 
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"\n[{traceId}] ======= NEW REQUEST =======");
-        Console.WriteLine($"[{traceId}] {method} {path}");
-        Console.WriteLine($"[{traceId}] x-tenant-id : {(hasTenant ? tenantHeader.ToString() : "NOT PROVIDED")}");
-        Console.WriteLine($"[{traceId}] Authorization: {(hasAuth ? "PROVIDED" : "NOT PROVIDED")}");
-        Console.ResetColor();
-
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"[{traceId}] >>> PASSING TO ExceptionMiddleware");
-        Console.ResetColor();
+        _logger.LogInformation(
+            "Incoming {Method} {Path} | tenant={HasTenant} auth={HasAuth}",
+            method, path, hasTenant, hasAuth);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-
         try
         {
             await _next(context);
             sw.Stop();
 
-            var color = context.Response.StatusCode switch
-            {
-                >= 500 => ConsoleColor.Red,
-                >= 400 => ConsoleColor.Yellow,
-                _ => ConsoleColor.Green
-            };
-
-            Console.ForegroundColor = color;
-            Console.WriteLine($"[{traceId}] <<< FINAL STATUS {context.Response.StatusCode} — {sw.ElapsedMilliseconds}ms");
-            Console.ResetColor();
+            _logger.LogInformation(
+                "Completed {Method} {Path} → {Status} in {ElapsedMs}ms",
+                method, path, context.Response.StatusCode, sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[{traceId}] <<< UNHANDLED EXCEPTION after {sw.ElapsedMilliseconds}ms");
-            Console.WriteLine($"[{traceId}]     {ex.GetType().Name}: {ex.Message}");
-            Console.ResetColor();
+            _logger.LogError(ex,
+                "Unhandled exception in {Method} {Path} after {ElapsedMs}ms",
+                method, path, sw.ElapsedMilliseconds);
             throw;
         }
     }

@@ -1,10 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Services;
-using CoreKit.IAM.Authorization;
-using CoreKit.IAM.Constants;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
@@ -14,7 +15,7 @@ namespace SaaSPlatform.Tenant.Api.Controllers;
 [ApiController]
 [Route("api/stores")]
 [Authorize]
-public class StoresController : ControllerBase
+public class StoresController : ApiControllerBase
 {
     private readonly IStoreService _storeService;
     private readonly ITenantContext _tenantContext;

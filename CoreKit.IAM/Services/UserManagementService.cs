@@ -3,6 +3,7 @@ using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
+using CoreKit.SharedKernel.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.IAM.Services;
@@ -38,6 +39,8 @@ public class UserManagementService : IUserManagementService
             ? null
             : email.Trim().ToLowerInvariant();
 
+        // Existence checks are still useful for a friendly error message, but
+        // the DB unique constraint is the definitive guard against concurrent inserts.
         if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
             throw new InvalidOperationException(
                 "A user with this phone already exists in the tenant.");
@@ -63,7 +66,19 @@ public class UserManagementService : IUserManagementService
         };
 
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+            when (ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            // Catches the race condition between the check above and the insert
+            throw new InvalidOperationException(
+                "A user with this phone or email already exists. Please use different credentials.");
+        }
+
         return user;
     }
 
@@ -84,10 +99,8 @@ public class UserManagementService : IUserManagementService
                 u.Phone == normalizedPhone &&
                 u.TenantId == tenantId &&
                 u.Id != userId);
-
             if (phoneInUse)
                 throw new InvalidOperationException("Phone already in use.");
-
             user.Phone = normalizedPhone;
         }
 
@@ -98,10 +111,8 @@ public class UserManagementService : IUserManagementService
                 u.Email == normalizedEmail &&
                 u.TenantId == tenantId &&
                 u.Id != userId);
-
             if (emailInUse)
                 throw new InvalidOperationException("Email already in use.");
-
             user.Email = normalizedEmail;
         }
 
@@ -122,15 +133,9 @@ public class UserManagementService : IUserManagementService
             .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
             ?? throw new KeyNotFoundException("User not found.");
 
-        // Soft delete — preserves audit trail, refresh tokens, and role history.
-        // The ISoftDelete query filter in AuditableDbContext will exclude this user
-        // from all future queries automatically.
         user.IsDeleted = true;
         user.IsActive = false;
-
         await _db.SaveChangesAsync();
-
-        // Invalidate permission cache so deleted user cannot keep acting on cached grants
         await _permissionCache.InvalidateUserAsync(userId);
     }
 
@@ -144,11 +149,12 @@ public class UserManagementService : IUserManagementService
         var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
             ?? throw new KeyNotFoundException("Role not found.");
 
+        // HIGH FIX — use ForbiddenException (403) not UnauthorizedAccessException (401)
         if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
-            throw new UnauthorizedAccessException("Only a SuperAdmin can assign this role.");
+            throw new ForbiddenException("Only a SuperAdmin can assign this role.");
 
         if (role.IsSystem && !_currentUser.IsSuperAdmin)
-            throw new UnauthorizedAccessException("Cannot assign a system role.");
+            throw new ForbiddenException("Cannot assign a system role.");
 
         if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
             throw new InvalidOperationException(
@@ -156,8 +162,6 @@ public class UserManagementService : IUserManagementService
 
         user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
         await _db.SaveChangesAsync();
-
-        // Invalidate cache so new permissions take effect immediately
         await _permissionCache.InvalidateUserAsync(userId);
     }
 
@@ -175,8 +179,6 @@ public class UserManagementService : IUserManagementService
 
         user.Roles.Remove(userRole);
         await _db.SaveChangesAsync();
-
-        // Invalidate cache so removed permissions take effect immediately
         await _permissionCache.InvalidateUserAsync(userId);
     }
 
@@ -184,7 +186,6 @@ public class UserManagementService : IUserManagementService
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
             ?? throw new KeyNotFoundException("User not found.");
-
         user.LockoutEnd = lockoutEnd;
         await _db.SaveChangesAsync();
     }
@@ -193,7 +194,6 @@ public class UserManagementService : IUserManagementService
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
             ?? throw new KeyNotFoundException("User not found.");
-
         user.LockoutEnd = null;
         user.FailedLoginAttempts = 0;
         await _db.SaveChangesAsync();

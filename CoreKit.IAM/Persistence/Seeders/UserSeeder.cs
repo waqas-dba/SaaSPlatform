@@ -37,23 +37,22 @@ public sealed class UserSeeder
 
         if (string.IsNullOrWhiteSpace(seedPassword))
         {
-            // Generate a secure random password but NEVER log it.
-            // The operator must retrieve it from the database or reset it via a
-            // secure out-of-band mechanism before going to production.
+            // CRITICAL FIX — never write credentials to any output stream.
+            // In production set Seeder:AdminPassword via an environment variable
+            // or a secrets manager (e.g. AWS Secrets Manager, Azure Key Vault,
+            // dotnet user-secrets for development).
             seedPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16] + "A1!";
 
             _logger.LogWarning(
-                "Seeder:AdminPassword is not configured. A random password was generated " +
-                "for the admin account. Set 'Seeder:AdminPassword' in your configuration " +
-                "before running in production. The password has NOT been logged.");
+                "Seeder:AdminPassword is not configured. " +
+                "A random password was generated for the admin account. " +
+                "Set 'Seeder:AdminPassword' in your secrets store before running in production. " +
+                "The password has NOT been logged or written to any output stream. " +
+                "Rotate it immediately after first login.");
 
-            // Write only to stdout (not to the structured logger / log aggregator)
-            // so it appears in the local console during development but is not
-            // shipped to any log sink.
-            Console.WriteLine(
-                $"[SEEDER] Temporary admin password (not logged): {seedPassword}");
-            Console.WriteLine(
-                "[SEEDER] Store this safely and rotate it before going to production.");
+            // Intentionally NOT printing the password anywhere.
+            // Retrieve it by connecting to the DB directly after first boot,
+            // then rotate it through the admin UI or a password-reset flow.
         }
 
         var adminUser = new User

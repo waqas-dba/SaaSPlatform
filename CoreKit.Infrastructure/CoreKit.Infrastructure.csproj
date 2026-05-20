@@ -8,23 +8,23 @@
 
   <ItemGroup>
     <Compile Remove="Persistence\**" />
+    <Compile Remove="Security\**" />
     <EmbeddedResource Remove="Persistence\**" />
+    <EmbeddedResource Remove="Security\**" />
     <None Remove="Persistence\**" />
+    <None Remove="Security\**" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CoreKit.IAM\CoreKit.IAM.csproj" />
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\CoreKit.SharedKernel.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Security\" />
   </ItemGroup>
 
 </Project>

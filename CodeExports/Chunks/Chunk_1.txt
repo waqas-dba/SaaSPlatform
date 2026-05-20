@@ -1,5 +1,5 @@
 ﻿
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Authorization\RequiresPermissionAttribute.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Authorization\RequiresPermissionAttribute.cs =====
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
@@ -58,7 +58,7 @@ context.Result = new ForbidResult();
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\PermissionConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\PermissionConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -81,7 +81,7 @@ builder.HasOne(x => x.Module)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\PermissionModuleConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\PermissionModuleConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -103,7 +103,7 @@ builder.HasIndex(x => x.Code)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RefreshTokenConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RefreshTokenConfiguration.cs =====
 using CoreKit.IAM.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -127,9 +127,11 @@ builder.Property(x => x.UserId)
 .IsRequired();
 builder.Property(x => x.IsRevoked)
 .HasDefaultValue(false);
+builder.Property(x => x.UserAgent)
+.HasMaxLength(512);
 builder.HasIndex(x => x.TokenHash).IsUnique();
-builder.HasIndex(x => x.FamilyId);
 builder.HasIndex(x => x.UserId);
+builder.HasIndex(x => new { x.FamilyId, x.IsRevoked });
 builder.HasOne<User>()
 .WithMany(u => u.RefreshTokens)
 .HasForeignKey(x => x.UserId)
@@ -137,7 +139,7 @@ builder.HasOne<User>()
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RoleConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RoleConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -152,7 +154,7 @@ builder.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RoleDocumentRequirementConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RoleDocumentRequirementConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -173,22 +175,18 @@ builder.HasQueryFilter(rdr => !rdr.Role.IsDeleted);
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RolePermissionConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\RolePermissionConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Configuration;
-public class RolePermissionConfiguration
-: IEntityTypeConfiguration<RolePermission>
+public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermission>
 {
 public void Configure(EntityTypeBuilder<RolePermission> builder)
 {
 builder.ToTable("IAM_RolePermissions");
-builder.HasKey(x => new
-{
-x.RoleId,
-x.PermissionId
-});
+builder.HasKey(x => new { x.RoleId, x.PermissionId });
+builder.HasIndex(x => x.PermissionId);
 builder.HasOne(rp => rp.Role)
 .WithMany(r => r.RolePermissions)
 .HasForeignKey(rp => rp.RoleId)
@@ -200,7 +198,7 @@ builder.HasOne(rp => rp.Permission)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserConfiguration.cs =====
 using CoreKit.IAM.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -240,7 +238,7 @@ builder.HasIndex(x => x.Email)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserDocumentConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserDocumentConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -262,7 +260,7 @@ builder.HasQueryFilter(ud => !ud.User.IsDeleted);
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserIdentityConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserIdentityConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -286,7 +284,7 @@ builder.HasOne(x => x.User)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserRoleConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserRoleConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
@@ -316,7 +314,7 @@ builder.HasOne(ur => ur.Role)
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserStoreAssignmentConfiguration.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserStoreAssignmentConfiguration.cs =====
 using CoreKit.IAM.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -336,7 +334,7 @@ builder.HasQueryFilter(x => !x.User.IsDeleted);
 }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\ClaimConstants.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\ClaimConstants.cs =====
 using System.Security.Claims;
 namespace CoreKit.IAM.Constants;
 public static class ClaimConstants
@@ -351,7 +349,7 @@ public const string Name = ClaimTypes.Name;
 public const string JwtId = "jti";
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\Permissions.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\Permissions.cs =====
 using System.Reflection;
 namespace CoreKit.IAM.Constants;
 public static class Permissions
@@ -433,7 +431,7 @@ BindingFlags.FlattenHierarchy))
 .AsReadOnly();
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Permission.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Permission.cs =====
 using CoreKit.SharedKernel.Common;
 namespace CoreKit.IAM.Entities;
 public class Permission : AuditableEntity
@@ -444,7 +442,7 @@ public PermissionModule Module { get; set; } = default!;
 public ICollection<RolePermission>? RolePermissions { get; set; }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\PermissionModule.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\PermissionModule.cs =====
 using CoreKit.SharedKernel.Common;
 namespace CoreKit.IAM.Entities;
 public class PermissionModule : AuditableEntity
@@ -454,7 +452,7 @@ public string Code { get; set; } = default!;
 public ICollection<Permission>? Permissions { get; set; }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RefreshToken.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RefreshToken.cs =====
 namespace CoreKit.IAM.Entities;
 public class RefreshToken
 {
@@ -474,7 +472,7 @@ public string? UserAgent { get; set; }
 public bool IsActive => !IsRevoked && DateTime.UtcNow < ExpiresAtUtc;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Role.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Role.cs =====
 using CoreKit.SharedKernel.Common;
 namespace CoreKit.IAM.Entities;
 public class Role : AuditableEntity
@@ -487,7 +485,7 @@ public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
 public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RoleDocumentRequirement.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RoleDocumentRequirement.cs =====
 namespace CoreKit.IAM.Entities;
 public class RoleDocumentRequirement
 {
@@ -497,7 +495,7 @@ public string DocumentType { get; set; } = default!;
 public Role Role { get; set; } = default!;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RolePermission.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RolePermission.cs =====
 namespace CoreKit.IAM.Entities;
 public class RolePermission
 {
@@ -507,7 +505,7 @@ public Guid PermissionId { get; set; }
 public Permission Permission { get; set; } = default!;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\User.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\User.cs =====
 using CoreKit.SharedKernel.Common;
 namespace CoreKit.IAM.Entities;
 public class User : AuditableEntity
@@ -526,7 +524,7 @@ public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshT
 public ICollection<UserStoreAssignment> StoreAssignments { get; set; } = new List<UserStoreAssignment>();
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserDocument.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserDocument.cs =====
 namespace CoreKit.IAM.Entities;
 public class UserDocument
 {
@@ -538,7 +536,7 @@ public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 public User User { get; set; } = default!;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserIdentity.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserIdentity.cs =====
 namespace CoreKit.IAM.Entities;
 public class UserIdentity
 {
@@ -549,7 +547,7 @@ public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 public User User { get; set; } = default!;
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserRole.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserRole.cs =====
 namespace CoreKit.IAM.Entities;
 public class UserRole
 {
@@ -560,7 +558,7 @@ public Role Role { get; set; } = default!;
 public Guid? TenantId { get; set; }
 }
 
-===== CoreKit.IAM | F:\Waqas-dba\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====
 namespace CoreKit.IAM.Entities;
 public class UserStoreAssignment
 {
