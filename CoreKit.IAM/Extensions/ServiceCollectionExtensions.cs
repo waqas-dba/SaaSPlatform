@@ -68,8 +68,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CurrentUserService>();
         services.AddScoped<ICurrentUserService>(sp =>
             sp.GetRequiredService<CurrentUserService>());
-        services.AddScoped<ICurrentUser>(sp =>
-            sp.GetRequiredService<CurrentUserService>());
+        //services.AddScoped<ICurrentUser>(sp =>
+        //    sp.GetRequiredService<CurrentUserService>());
 
         // ── Services ──────────────────────────────────────────────────────────
         services.AddScoped<IAuthService, AuthService>();
