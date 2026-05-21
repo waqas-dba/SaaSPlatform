@@ -1,4 +1,82 @@
 ﻿
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+using System.IO;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
+{
+public TenantDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new TenantDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class StoreRepository : IStoreRepository
+{
+private readonly TenantDbContext _db;
+public StoreRepository(TenantDbContext db) => _db = db;
+public async Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
+=> await _db.Stores.FirstOrDefaultAsync(s => s.Id == storeId, ct);
+public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
+=> await _db.Stores.Where(s => s.TenantId == tenantId).ToListAsync(ct);
+public void Add(Store store) => _db.Stores.Add(store);
+public void Update(Store store) => _db.Stores.Update(store);
+public void Delete(Store store) => _db.Stores.Remove(store);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class TenantLegalInfoRepository : ITenantLegalInfoRepository
+{
+private readonly TenantDbContext _db;
+public TenantLegalInfoRepository(TenantDbContext db) => _db = db;
+public async Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
+=> await (_db.TenantLegalInfos ?? throw new InvalidOperationException("TenantLegalInfos not configured"))
+.FirstOrDefaultAsync(i => i.TenantId == tenantId, ct);
+public async Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default)
+{
+if (_db.TenantLegalInfos == null)
+throw new InvalidOperationException("TenantLegalInfos not configured");
+var existing = await _db.TenantLegalInfos
+.FirstOrDefaultAsync(i => i.TenantId == info.TenantId, ct);
+if (existing != null)
+{
+existing.BusinessLicenseNumber = info.BusinessLicenseNumber;
+existing.TaxId = info.TaxId;
+existing.AdditionalJson = info.AdditionalJson;
+}
+else
+{
+await _db.TenantLegalInfos.AddAsync(info, ct);
+}
+try
+{
+await _db.SaveChangesAsync(ct);
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+}
+}
+
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantRepository.cs =====
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
@@ -32,7 +110,6 @@ using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
@@ -59,51 +136,116 @@ _options = options.Value;
 _currentUser = currentUser;
 _storeLimitService = storeLimitService;
 }
-public async Task<StoreDto?> GetByIdAsync(Guid storeId)
+public async Task<StoreDto?> GetByIdAsync(
+Guid storeId,
+CancellationToken cancellationToken = default)
 {
 var storeScope = await ResolveStoreScopeAsync();
-var query = _currentUser.IsSuperAdmin
-? _db.Stores.Where(x => x.Id == storeId)
-: _db.Stores.Where(x =>
-x.Id == storeId &&
-x.TenantId == _tenantContext.TenantId);
-if (!storeScope.IsAllStores)
-query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
-var store = await query.FirstOrDefaultAsync();
-return store == null ? null : Map(store);
+IQueryable<Store> query;
+if (_currentUser.IsSuperAdmin)
+{
+query = _db.Stores;
 }
-public async Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId)
+else
+{
+var tenantId = _tenantContext.TenantId;
+query = _db.Stores.Where(x =>
+x.TenantId == tenantId);
+}
+if (!storeScope.IsAllStores)
+{
+query = query.Where(x =>
+storeScope.StoreIds.Contains(x.Id));
+}
+var store = await query
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x =>
+x.Id == storeId,
+cancellationToken);
+return store == null
+? null
+: Map(store);
+}
+public async Task<List<StoreDto>> GetAllByTenantAsync(
+Guid tenantId,
+CancellationToken cancellationToken = default)
 {
 var storeScope = await ResolveStoreScopeAsync();
-var query = _db.Stores.Where(s => s.TenantId == tenantId);
+IQueryable<Store> query = _db.Stores
+.Include(x => x.StoreType)
+.Where(x => x.TenantId == tenantId);
 if (!storeScope.IsAllStores)
-query = query.Where(s => storeScope.StoreIds.Contains(s.Id));
-return (await query.ToListAsync()).Select(Map).ToList();
+{
+query = query.Where(x =>
+storeScope.StoreIds.Contains(x.Id));
 }
-public async Task<List<StoreDto>> GetAllStoresAsync()
-=> (await _db.Stores.ToListAsync()).Select(Map).ToList();
-public async Task<StoreDto> CreateAsync(CreateStoreRequest request)
+var stores = await query
+.OrderBy(x => x.Name)
+.ToListAsync(cancellationToken);
+return stores
+.Select(Map)
+.ToList();
+}
+public async Task<List<StoreDto>> GetAllStoresAsync(
+CancellationToken cancellationToken = default)
+{
+var stores = await _db.Stores
+.Include(x => x.StoreType)
+.OrderBy(x => x.Name)
+.ToListAsync(cancellationToken);
+return stores
+.Select(Map)
+.ToList();
+}
+public async Task<StoreDto> CreateAsync(
+CreateStoreRequest request,
+CancellationToken cancellationToken = default)
 {
 if (string.IsNullOrWhiteSpace(request.Name))
-throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
+{
+throw new ArgumentNullException(
+nameof(request.Name),
+"Store name is required.");
+}
 var tenantId = _tenantContext.TenantId
 ?? throw new UnauthorizedAccessException(
-"Provide x-tenant-id header to specify which tenant to create the store under.");
-await using var tx = await _db.Database.BeginTransactionAsync();
+"Tenant context missing.");
+await using var transaction =
+await _db.Database.BeginTransactionAsync(
+cancellationToken);
 try
 {
-var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
+var lockKey = BitConverter.ToInt64(
+tenantId.ToByteArray(),
+0);
 await _db.Database.ExecuteSqlRawAsync(
-"SELECT pg_advisory_xact_lock({0})", lockKey);
-await EnforceStoreLimitAsync(tenantId);
-var slug = await GenerateUniqueSlugAsync(request.Name, tenantId);
+"SELECT pg_advisory_xact_lock({0})",
+lockKey);
+await EnforceStoreLimitAsync(
+tenantId,
+cancellationToken);
+var storeType = await _db.StoreTypes
+.AsNoTracking()
+.FirstOrDefaultAsync(x =>
+x.Id == request.StoreTypeId &&
+x.IsActive,
+cancellationToken);
+if (storeType == null)
+{
+throw new InvalidOperationException(
+"Invalid store type.");
+}
+var slug = await GenerateUniqueSlugAsync(
+request.Name,
+tenantId,
+cancellationToken);
 var store = new Store
 {
 Id = Guid.NewGuid(),
 TenantId = tenantId,
-Name = request.Name,
+Name = request.Name.Trim(),
 Slug = slug,
-Type = request.Type ?? StoreType.Other,
+StoreTypeId = request.StoreTypeId,
 AddressLine1 = request.AddressLine1,
 AddressLine2 = request.AddressLine2,
 City = request.City,
@@ -120,120 +262,251 @@ IsPrimary = false,
 IsListedOnMarketplace = false
 };
 _db.Stores.Add(store);
-await _db.SaveChangesAsync();
-await tx.CommitAsync();
+await _db.SaveChangesAsync(
+cancellationToken);
+await transaction.CommitAsync(
+cancellationToken);
+store.StoreType = storeType;
 return Map(store);
 }
 catch
 {
-await tx.RollbackAsync();
+await transaction.RollbackAsync(
+cancellationToken);
 throw;
 }
 }
-public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
+public async Task UpdateAsync(
+Guid storeId,
+UpdateStoreRequest request,
+CancellationToken cancellationToken = default)
 {
-var store = _currentUser.IsSuperAdmin
-? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-?? throw new KeyNotFoundException("Store not found.")
-: await _db.Stores.FirstOrDefaultAsync(x =>
-x.Id == storeId &&
-x.TenantId == _tenantContext.TenantId)
-?? throw new KeyNotFoundException("Store not found.");
-if (request.Name != null)
+Store store;
+if (_currentUser.IsSuperAdmin)
 {
-store.Name = request.Name;
-store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, storeId);
+store = await _db.Stores
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x =>
+x.Id == storeId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
 }
-if (request.Type.HasValue) store.Type = request.Type.Value;
-if (request.AddressLine1 != null) store.AddressLine1 = request.AddressLine1;
-if (request.AddressLine2 != null) store.AddressLine2 = request.AddressLine2;
-if (request.City != null) store.City = request.City;
-if (request.State != null) store.State = request.State;
-if (request.PostalCode != null) store.PostalCode = request.PostalCode;
-if (request.CountryCode != null) store.CountryCode = request.CountryCode;
-if (request.Latitude.HasValue) store.Latitude = request.Latitude.Value;
-if (request.Longitude.HasValue) store.Longitude = request.Longitude.Value;
-if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
-if (request.CoverImageUrl != null) store.CoverImageUrl = request.CoverImageUrl;
-if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
-if (request.MetadataJson != null) store.MetadataJson = request.MetadataJson;
-await _db.SaveChangesAsync();
-}
-public async Task DeleteAsync(Guid storeId)
+else
 {
-var store = _currentUser.IsSuperAdmin
-? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-?? throw new KeyNotFoundException("Store not found.")
-: await _db.Stores.FirstOrDefaultAsync(x =>
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x =>
 x.Id == storeId &&
-x.TenantId == _tenantContext.TenantId)
-?? throw new KeyNotFoundException("Store not found.");
+x.TenantId == tenantId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
+}
+if (!string.IsNullOrWhiteSpace(request.Name))
+{
+store.Name = request.Name.Trim();
+store.Slug = await GenerateUniqueSlugAsync(
+request.Name,
+store.TenantId,
+cancellationToken,
+store.Id);
+}
+if (request.StoreTypeId.HasValue)
+{
+var storeType = await _db.StoreTypes
+.FirstOrDefaultAsync(x =>
+x.Id == request.StoreTypeId.Value &&
+x.IsActive,
+cancellationToken);
+if (storeType == null)
+{
+throw new InvalidOperationException(
+"Invalid store type.");
+}
+store.StoreTypeId =
+request.StoreTypeId.Value;
+store.StoreType = storeType;
+}
+if (request.AddressLine1 != null)
+store.AddressLine1 = request.AddressLine1;
+if (request.AddressLine2 != null)
+store.AddressLine2 = request.AddressLine2;
+if (request.City != null)
+store.City = request.City;
+if (request.State != null)
+store.State = request.State;
+if (request.PostalCode != null)
+store.PostalCode = request.PostalCode;
+if (request.CountryCode != null)
+store.CountryCode = request.CountryCode;
+if (request.Latitude.HasValue)
+store.Latitude = request.Latitude;
+if (request.Longitude.HasValue)
+store.Longitude = request.Longitude;
+if (request.LogoUrl != null)
+store.LogoUrl = request.LogoUrl;
+if (request.CoverImageUrl != null)
+store.CoverImageUrl = request.CoverImageUrl;
+if (request.MetadataJson != null)
+store.MetadataJson = request.MetadataJson;
+if (request.IsActive.HasValue)
+store.IsActive = request.IsActive.Value;
+await _db.SaveChangesAsync(
+cancellationToken);
+}
+public async Task DeleteAsync(
+Guid storeId,
+CancellationToken cancellationToken = default)
+{
+Store store;
+if (_currentUser.IsSuperAdmin)
+{
+store = await _db.Stores
+.FirstOrDefaultAsync(x =>
+x.Id == storeId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.FirstOrDefaultAsync(x =>
+x.Id == storeId &&
+x.TenantId == tenantId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
+}
 _db.Stores.Remove(store);
-await _db.SaveChangesAsync();
+await _db.SaveChangesAsync(
+cancellationToken);
 }
-public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
+public async Task SetMarketplaceListingAsync(
+Guid storeId,
+bool isListed,
+CancellationToken cancellationToken = default)
 {
-var store = _currentUser.IsSuperAdmin
-? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-?? throw new KeyNotFoundException("Store not found.")
-: await _db.Stores.FirstOrDefaultAsync(x =>
+Store store;
+if (_currentUser.IsSuperAdmin)
+{
+store = await _db.Stores
+.FirstOrDefaultAsync(x =>
+x.Id == storeId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.FirstOrDefaultAsync(x =>
 x.Id == storeId &&
-x.TenantId == _tenantContext.TenantId)
-?? throw new KeyNotFoundException("Store not found.");
+x.TenantId == tenantId,
+cancellationToken)
+?? throw new KeyNotFoundException(
+"Store not found.");
+}
 store.IsListedOnMarketplace = isListed;
-await _db.SaveChangesAsync();
+await _db.SaveChangesAsync(
+cancellationToken);
+}
+private async Task EnforceStoreLimitAsync(
+Guid tenantId,
+CancellationToken cancellationToken = default)
+{
+if (!_options.AllowMultipleStores)
+{
+var exists = await _db.Stores
+.AnyAsync(x =>
+x.TenantId == tenantId,
+cancellationToken);
+if (exists)
+{
+throw new InvalidOperationException(
+"This tenant is limited to one store.");
+}
+return;
+}
+if (_storeLimitService == null)
+return;
+var maxStores =
+await _storeLimitService
+.GetMaxStoresAsync(tenantId);
+if (!maxStores.HasValue)
+return;
+var count = await _db.Stores
+.CountAsync(x =>
+x.TenantId == tenantId,
+cancellationToken);
+if (count >= maxStores.Value)
+{
+throw new InvalidOperationException(
+$"Store limit of {maxStores.Value} reached.");
+}
 }
 private async Task<StoreScope> ResolveStoreScopeAsync()
 {
 if (_currentUser.IsSuperAdmin ||
-_currentUser.HasPermission(Permissions.Store.ViewAll))
+_currentUser.HasPermission(
+Permissions.Store.ViewAll))
+{
 return StoreScope.All;
-return await _currentUser.GetStoreScopeAsync();
 }
-private async Task EnforceStoreLimitAsync(Guid tenantId)
-{
-if (!_options.AllowMultipleStores)
-{
-if (await _db.Stores.AnyAsync(s => s.TenantId == tenantId))
-throw new InvalidOperationException("This tenant is limited to one store.");
-return;
-}
-if (_storeLimitService == null) return;
-var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
-if (!maxStores.HasValue) return;
-var count = await _db.Stores.CountAsync(s => s.TenantId == tenantId);
-if (count >= maxStores.Value)
-throw new InvalidOperationException(
-$"Store limit of {maxStores.Value} reached.");
+return await _currentUser
+.GetStoreScopeAsync();
 }
 private async Task<string> GenerateUniqueSlugAsync(
-string name, Guid tenantId, Guid? excludeStoreId = null)
+string name,
+Guid tenantId,
+CancellationToken cancellationToken = default,
+Guid? excludeStoreId = null)
 {
 var baseSlug = SlugHelper.Generate(name);
-var candidate = baseSlug;
+var slug = baseSlug;
 var counter = 1;
 while (true)
 {
-var query = _db.Stores.Where(s =>
-s.TenantId == tenantId &&
-s.Slug == candidate);
+IQueryable<Store> query =
+_db.Stores.Where(x =>
+x.TenantId == tenantId &&
+x.Slug == slug);
 if (excludeStoreId.HasValue)
-query = query.Where(s => s.Id != excludeStoreId.Value);
-if (!await query.AnyAsync())
-return candidate;
-candidate = $"{baseSlug}-{++counter}";
+{
+query = query.Where(x =>
+x.Id != excludeStoreId.Value);
+}
+var exists = await query.AnyAsync(
+cancellationToken);
+if (!exists)
+{
+return slug;
+}
+slug = $"{baseSlug}-{counter++}";
 }
 }
-private static StoreDto Map(Store store) => new()
+private static StoreDto Map(Store store)
+{
+return new StoreDto
 {
 Id = store.Id,
 TenantId = store.TenantId,
 Name = store.Name,
 Slug = store.Slug,
-Type = store.Type,
+StoreTypeId = store.StoreTypeId,
+StoreTypeName =
+store.StoreType?.Name ?? string.Empty,
+StoreCategory =
+store.StoreType?.Category ?? string.Empty,
 IsActive = store.IsActive,
-IsListedOnMarketplace = store.IsListedOnMarketplace
+IsListedOnMarketplace =
+store.IsListedOnMarketplace
 };
+}
 }
 
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs =====
@@ -278,6 +551,7 @@ using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 namespace CoreKit.Tenant.Services;
 public class TenantService : ITenantService
@@ -315,7 +589,15 @@ MetadataJson = request.MetadataJson,
 OwnerUserId = _currentUser?.UserId
 };
 _tenantRepo.Add(tenant);
+try
+{
 await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
 return new TenantRegistrationResponse
 {
 TenantId = tenant.Id,
@@ -336,7 +618,15 @@ if (tenant.Status == TenantStatus.Active)
 throw new InvalidOperationException("Tenant is already active.");
 tenant.Status = TenantStatus.Active;
 _tenantRepo.Update(tenant);
+try
+{
 await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
 }
 public async Task RejectAsync(Guid tenantId)
 {
@@ -344,7 +634,15 @@ var tenant = await _tenantRepo.GetByIdAsync(tenantId)
 ?? throw new KeyNotFoundException("Tenant not found.");
 tenant.Status = TenantStatus.Rejected;
 _tenantRepo.Update(tenant);
+try
+{
 await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
 }
 public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
 {
@@ -358,7 +656,15 @@ tenant.Slug = SlugHelper.Generate(name);
 if (metadataJson != null)
 tenant.MetadataJson = metadataJson;
 _tenantRepo.Update(tenant);
+try
+{
 await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
 }
 public async Task DeleteAsync(Guid tenantId)
 {
@@ -367,7 +673,15 @@ var tenant = await _tenantRepo.GetByIdAsync(tenantId)
 tenant.IsDeleted = true;
 tenant.Status = TenantStatus.Archived;
 _tenantRepo.Update(tenant);
+try
+{
 await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
 }
 }
 
@@ -417,197 +731,6 @@ RuleFor(x => x.Name)
 .WithMessage(
 "Tenant name can only contain letters, numbers, " +
 "spaces, hyphens, and underscores.");
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\UpdateStoreRequestValidator.cs =====
-using CoreKit.Tenant.Models;
-using FluentValidation;
-namespace CoreKit.Tenant.Validators;
-public class UpdateStoreRequestValidator : AbstractValidator<UpdateStoreRequest>
-{
-public UpdateStoreRequestValidator()
-{
-RuleFor(x => x.Name)
-.NotEmpty()
-.WithMessage("Store name must not be empty when provided.")
-.MaximumLength(200)
-.WithMessage("Store name must not exceed 200 characters.")
-.When(x => x.Name is not null);
-RuleFor(x => x.CountryCode)
-.Length(2)
-.WithMessage("Country code must be 2 characters (ISO 3166-1).")
-.When(x => !string.IsNullOrWhiteSpace(x.CountryCode));
-RuleFor(x => x.Latitude)
-.InclusiveBetween(-90, 90)
-.WithMessage("Latitude must be between -90 and 90.")
-.When(x => x.Latitude.HasValue);
-RuleFor(x => x.Longitude)
-.InclusiveBetween(-180, 180)
-.WithMessage("Longitude must be between -180 and 180.")
-.When(x => x.Longitude.HasValue);
-RuleFor(x => x.PostalCode)
-.MaximumLength(20)
-.WithMessage("Postal code must not exceed 20 characters.")
-.When(x => !string.IsNullOrWhiteSpace(x.PostalCode));
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\ValidationFilter.cs =====
-using FluentValidation;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
-namespace CoreKit.IAM.Validators;
-public class ValidationFilter : IAsyncActionFilter
-{
-private readonly IServiceProvider _serviceProvider;
-public ValidationFilter(IServiceProvider serviceProvider)
-=> _serviceProvider = serviceProvider;
-public async Task OnActionExecutionAsync(
-ActionExecutingContext context,
-ActionExecutionDelegate next)
-{
-foreach (var (_, value) in context.ActionArguments)
-{
-if (value is null) continue;
-var validatorType = typeof(IValidator<>)
-.MakeGenericType(value.GetType());
-if (_serviceProvider.GetService(validatorType)
-is not IValidator validator)
-continue;
-var validationContext = new ValidationContext<object>(value);
-var result = await validator.ValidateAsync(
-validationContext, context.HttpContext.RequestAborted);
-if (result.IsValid) continue;
-var errors = result.Errors
-.Select(e => new
-{
-field = e.PropertyName,
-message = e.ErrorMessage
-})
-.ToList();
-context.Result = new ObjectResult(new
-{
-success = false,
-errorCode = "VALIDATION_ERROR",
-message = "One or more validation errors occurred.",
-errors
-})
-{
-StatusCode = 422
-};
-return;
-}
-await next();
-}
-}
-
-===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PermissionsController.cs =====
-using CoreKit.IAM.Authorization;
-using CoreKit.IAM.Constants;
-using CoreKit.IAM.Interfaces;
-using CoreKit.Infrastructure.Controllers;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-namespace SaaSPlatform.Admin.Api.Controllers;
-[ApiController]
-[Route("api/admin/permissions")]
-[Authorize]
-public class PermissionsController : ApiControllerBase
-{
-private readonly IRoleRepository _roleRepo;
-public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;
-[HttpGet]
-[RequiresPermission(Permissions.PermissionsManagement.View)]
-public async Task<IActionResult> GetAll()
-{
-var perms = await _roleRepo.GetAllPermissionsAsync();
-return Ok(perms.Select(p => new { p.Id, p.Name, p.PermissionModuleId }));
-}
-}
-
-===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs =====
-using CoreKit.IAM.Authorization;
-using CoreKit.IAM.Constants;
-using CoreKit.IAM.Interfaces;
-using CoreKit.Infrastructure.Controllers;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using SaaSPlatform.Admin.Api.Models;
-namespace SaaSPlatform.Admin.Api.Controllers;
-[Route("api/admin/roles")]
-[Authorize]
-public class RolesController : ApiControllerBase
-{
-private readonly IRoleManagementService _roleService;
-public RolesController(IRoleManagementService roleService)
-=> _roleService = roleService;
-[HttpPost]
-[RequiresPermission(Permissions.Roles.Create)]
-public async Task<IActionResult> Create(
-[FromBody] CreateRoleRequest request)
-{
-var role = await _roleService.CreateRoleAsync(
-request.Name, request.TenantId, request.Description);
-return CreatedResponse(new { role.Id, role.Name });
-}
-[HttpPost("{roleId}/permissions")]
-[RequiresPermission(Permissions.Roles.AssignPermission)]
-public async Task<IActionResult> AssignPermission(
-Guid roleId, [FromBody] AssignPermissionRequest request)
-{
-await _roleService.AssignPermissionAsync(
-roleId, request.PermissionId);
-return UpdatedResponse("Permission assigned successfully.");
-}
-}
-
-===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs =====
-using CoreKit.IAM.Authorization;
-using CoreKit.IAM.Constants;
-using CoreKit.Infrastructure.Controllers;
-using CoreKit.Tenant.Interfaces;
-using CoreKit.Tenant.Models;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
-namespace SaaSPlatform.Admin.Api.Controllers;
-[ApiController]
-[Route("api/admin/tenants")]
-public class TenantsController : ApiControllerBase
-{
-private readonly ITenantService _tenantService;
-public TenantsController(ITenantService tenantService)
-=> _tenantService = tenantService;
-[HttpPost("register")]
-[AllowAnonymous]
-public async Task<IActionResult> Register(TenantRegistrationRequest request)
-{
-if (string.IsNullOrWhiteSpace(request.Name))
-return BadRequest("Tenant name is required.");
-var result = await _tenantService.RegisterAsync(request);
-return Ok(result);
-}
-[HttpPost("{tenantId}/approve")]
-[Authorize]
-[RequiresPermission(Permissions.Tenants.Approve)]
-public async Task<IActionResult> Approve(Guid tenantId)
-{
-await _tenantService.ApproveAsync(tenantId);
-return Ok(new
-{
-tenantId,
-status = "Approved",
-message = "Tenant approved successfully"
-});
-}
-[HttpGet]
-[Authorize]
-[RequiresPermission(Permissions.Tenants.View)]
-public async Task<IActionResult> GetAll()
-{
-var tenants = await _tenantService.GetAllAsync();
-return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
 }
 }
 

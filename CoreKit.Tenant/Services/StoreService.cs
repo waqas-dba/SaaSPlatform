@@ -1,9 +1,12 @@
-﻿using CoreKit.IAM.Constants;
+﻿// ============================================================
+// FILE: CoreKit.Tenant/Services/StoreService.cs
+// ============================================================
+
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
@@ -15,9 +18,13 @@ namespace CoreKit.Tenant.Services;
 public class StoreService : IStoreService
 {
     private readonly TenantDbContext _db;
+
     private readonly ITenantContext _tenantContext;
+
     private readonly TenantKitOptions _options;
+
     private readonly ICurrentUserService _currentUser;
+
     private readonly IStoreLimitService? _storeLimitService;
 
     public StoreService(
@@ -34,268 +41,525 @@ public class StoreService : IStoreService
         _storeLimitService = storeLimitService;
     }
 
-    public async Task<StoreDto?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
+    // ============================================================
+    // GET BY ID
+    // ============================================================
+
+    public async Task<StoreDto?> GetByIdAsync(
+        Guid storeId,
+        CancellationToken cancellationToken = default)
     {
         var storeScope = await ResolveStoreScopeAsync();
 
-        var query = _currentUser.IsSuperAdmin
-            ? _db.Stores.Where(x => x.Id == storeId)
-            : _db.Stores.Where(x =>
-                x.Id == storeId &&
-                x.TenantId == _tenantContext.TenantId);
+        IQueryable<Store> query;
+
+        if (_currentUser.IsSuperAdmin)
+        {
+            query = _db.Stores;
+        }
+        else
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            query = _db.Stores.Where(x =>
+                x.TenantId == tenantId);
+        }
 
         if (!storeScope.IsAllStores)
-            query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
+        {
+            query = query.Where(x =>
+                storeScope.StoreIds.Contains(x.Id));
+        }
 
-        var store = await query.FirstOrDefaultAsync();
-        return store == null ? null : Map(store);
+        var store = await query
+            .Include(x => x.StoreType)
+            .FirstOrDefaultAsync(x =>
+                x.Id == storeId,
+                cancellationToken);
+
+        return store == null
+            ? null
+            : Map(store);
     }
 
-    public async Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId)
+    // ============================================================
+    // GET ALL BY TENANT
+    // ============================================================
+
+    public async Task<List<StoreDto>> GetAllByTenantAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
     {
         var storeScope = await ResolveStoreScopeAsync();
-        var query = _db.Stores.Where(s => s.TenantId == tenantId);
+
+        IQueryable<Store> query = _db.Stores
+            .Include(x => x.StoreType)
+            .Where(x => x.TenantId == tenantId);
 
         if (!storeScope.IsAllStores)
-            query = query.Where(s => storeScope.StoreIds.Contains(s.Id));
+        {
+            query = query.Where(x =>
+                storeScope.StoreIds.Contains(x.Id));
+        }
 
-        return (await query.ToListAsync()).Select(Map).ToList();
+        var stores = await query
+            .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return stores
+            .Select(Map)
+            .ToList();
     }
 
-    public async Task<List<StoreDto>> GetAllStoresAsync()
+    // ============================================================
+    // GET ALL STORES
+    // ============================================================
+
+    public async Task<List<StoreDto>> GetAllStoresAsync(
+        CancellationToken cancellationToken = default)
     {
-        if (!_currentUser.IsSuperAdmin)
-            throw new UnauthorizedAccessException(
-                "Only super admins can access all stores.");
+        var stores = await _db.Stores
+            .Include(x => x.StoreType)
+            .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
 
-        return await _db.Stores
-            .Select(x => new StoreDto
-            {
-                Id = x.Id,
-                TenantId = x.TenantId,
-                Name = x.Name,
-                Slug = x.Slug,
-                Type = x.Type,
-                IsActive = x.IsActive,
-                IsListedOnMarketplace = x.IsListedOnMarketplace
-            })
-            .ToListAsync();
+        return stores
+            .Select(Map)
+            .ToList();
     }
 
-    public async Task<StoreDto> CreateAsync(CreateStoreRequest request)
+    // ============================================================
+    // CREATE
+    // ============================================================
+
+    public async Task<StoreDto> CreateAsync(
+        CreateStoreRequest request,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
-            throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
+        {
+            throw new ArgumentNullException(
+                nameof(request.Name),
+                "Store name is required.");
+        }
 
         var tenantId = _tenantContext.TenantId
             ?? throw new UnauthorizedAccessException(
-                "Provide x-tenant-id header to specify which tenant to create the store under.");
+                "Tenant context missing.");
 
-        await using var tx = await _db.Database.BeginTransactionAsync();
+        await using var transaction =
+            await _db.Database.BeginTransactionAsync(
+                cancellationToken);
+
         try
         {
-            var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
+            var lockKey = BitConverter.ToInt64(
+                tenantId.ToByteArray(),
+                0);
+
             await _db.Database.ExecuteSqlRawAsync(
-                "SELECT pg_advisory_xact_lock({0})", lockKey);
+                "SELECT pg_advisory_xact_lock({0})",
+                lockKey);
 
-            await EnforceStoreLimitAsync(tenantId);
+            await EnforceStoreLimitAsync(
+                tenantId,
+                cancellationToken);
 
-            // HIGH FIX — generate a unique slug; append a numeric suffix on collision
-            var slug = await GenerateUniqueSlugAsync(request.Name, tenantId);
+            var storeType = await _db.StoreTypes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.Id == request.StoreTypeId &&
+                    x.IsActive,
+                    cancellationToken);
+
+            if (storeType == null)
+            {
+                throw new InvalidOperationException(
+                    "Invalid store type.");
+            }
+
+            var slug = await GenerateUniqueSlugAsync(
+                request.Name,
+                tenantId,
+                cancellationToken);
 
             var store = new Store
             {
                 Id = Guid.NewGuid(),
+
                 TenantId = tenantId,
-                Name = request.Name,
+
+                Name = request.Name.Trim(),
+
                 Slug = slug,
-                Type = request.Type ?? StoreType.Other,
+
+                StoreTypeId = request.StoreTypeId,
+
                 AddressLine1 = request.AddressLine1,
+
                 AddressLine2 = request.AddressLine2,
+
                 City = request.City,
+
                 State = request.State,
+
                 PostalCode = request.PostalCode,
+
                 CountryCode = request.CountryCode,
+
                 Latitude = request.Latitude,
+
                 Longitude = request.Longitude,
+
                 LogoUrl = request.LogoUrl,
+
                 CoverImageUrl = request.CoverImageUrl,
+
                 MetadataJson = request.MetadataJson,
+
                 IsActive = request.IsActive ?? true,
+
                 IsPrimary = false,
+
                 IsListedOnMarketplace = false
             };
 
             _db.Stores.Add(store);
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
+
+            await _db.SaveChangesAsync(
+                cancellationToken);
+
+            await transaction.CommitAsync(
+                cancellationToken);
+
+            store.StoreType = storeType;
+
             return Map(store);
         }
         catch
         {
-            await tx.RollbackAsync();
+            await transaction.RollbackAsync(
+                cancellationToken);
+
             throw;
         }
     }
 
-    public async Task UpdateAsync(Guid storeId, UpdateStoreRequest request)
+    // ============================================================
+    // UPDATE
+    // ============================================================
+
+    public async Task UpdateAsync(
+        Guid storeId,
+        UpdateStoreRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var store = _currentUser.IsSuperAdmin
-            ? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-                ?? throw new KeyNotFoundException("Store not found.")
-            : await _db.Stores.FirstOrDefaultAsync(x =>
-                x.Id == storeId &&
-                x.TenantId == _tenantContext.TenantId)
-                ?? throw new KeyNotFoundException("Store not found.");
+        Store store;
+
+        if (_currentUser.IsSuperAdmin)
+        {
+            store = await _db.Stores
+                .Include(x => x.StoreType)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
+        }
+        else
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            store = await _db.Stores
+                .Include(x => x.StoreType)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId &&
+                    x.TenantId == tenantId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Name))
         {
-            store.Name = request.Name;
-            store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, storeId);
+            store.Name = request.Name.Trim();
+
+            store.Slug = await GenerateUniqueSlugAsync(
+                request.Name,
+                store.TenantId,
+                cancellationToken,
+                store.Id);
         }
 
-        if (request.Type.HasValue) store.Type = request.Type.Value;
-        if (request.AddressLine1 != null) store.AddressLine1 = request.AddressLine1;
-        if (request.AddressLine2 != null) store.AddressLine2 = request.AddressLine2;
-        if (request.City != null) store.City = request.City;
-        if (request.State != null) store.State = request.State;
-        if (request.PostalCode != null) store.PostalCode = request.PostalCode;
-        if (request.CountryCode != null) store.CountryCode = request.CountryCode;
-        if (request.Latitude.HasValue) store.Latitude = request.Latitude.Value;
-        if (request.Longitude.HasValue) store.Longitude = request.Longitude.Value;
-        if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
-        if (request.CoverImageUrl != null) store.CoverImageUrl = request.CoverImageUrl;
-        if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
-        if (request.MetadataJson != null) store.MetadataJson = request.MetadataJson;
+        if (request.StoreTypeId.HasValue)
+        {
+            var storeType = await _db.StoreTypes
+                .FirstOrDefaultAsync(x =>
+                    x.Id == request.StoreTypeId.Value &&
+                    x.IsActive,
+                    cancellationToken);
 
-        try
-        {
-            await _db.SaveChangesAsync();
+            if (storeType == null)
+            {
+                throw new InvalidOperationException(
+                    "Invalid store type.");
+            }
+
+            store.StoreTypeId =
+                request.StoreTypeId.Value;
+
+            store.StoreType = storeType;
         }
-        catch (DbUpdateConcurrencyException)
-        {
-            throw new InvalidOperationException(
-                "This record was modified by another user. Please refresh and try again.");
-        }
+
+        if (request.AddressLine1 != null)
+            store.AddressLine1 = request.AddressLine1;
+
+        if (request.AddressLine2 != null)
+            store.AddressLine2 = request.AddressLine2;
+
+        if (request.City != null)
+            store.City = request.City;
+
+        if (request.State != null)
+            store.State = request.State;
+
+        if (request.PostalCode != null)
+            store.PostalCode = request.PostalCode;
+
+        if (request.CountryCode != null)
+            store.CountryCode = request.CountryCode;
+
+        if (request.Latitude.HasValue)
+            store.Latitude = request.Latitude;
+
+        if (request.Longitude.HasValue)
+            store.Longitude = request.Longitude;
+
+        if (request.LogoUrl != null)
+            store.LogoUrl = request.LogoUrl;
+
+        if (request.CoverImageUrl != null)
+            store.CoverImageUrl = request.CoverImageUrl;
+
+        if (request.MetadataJson != null)
+            store.MetadataJson = request.MetadataJson;
+
+        if (request.IsActive.HasValue)
+            store.IsActive = request.IsActive.Value;
+
+        await _db.SaveChangesAsync(
+            cancellationToken);
     }
 
-    public async Task DeleteAsync(Guid storeId)
-    {
-        var store = _currentUser.IsSuperAdmin
-            ? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-                ?? throw new KeyNotFoundException("Store not found.")
-            : await _db.Stores.FirstOrDefaultAsync(x =>
-                x.Id == storeId &&
-                x.TenantId == _tenantContext.TenantId)
-                ?? throw new KeyNotFoundException("Store not found.");
+    // ============================================================
+    // DELETE
+    // ============================================================
 
-        store.IsDeleted = true;
-        try
+    public async Task DeleteAsync(
+        Guid storeId,
+        CancellationToken cancellationToken = default)
+    {
+        Store store;
+
+        if (_currentUser.IsSuperAdmin)
         {
-            await _db.SaveChangesAsync();
+            store = await _db.Stores
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
         }
-        catch (DbUpdateConcurrencyException)
+        else
         {
-            throw new InvalidOperationException(
-                "This record was modified by another user. Please refresh and try again.");
+            var tenantId = _tenantContext.TenantId;
+
+            store = await _db.Stores
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId &&
+                    x.TenantId == tenantId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
         }
+
+        _db.Stores.Remove(store);
+
+        await _db.SaveChangesAsync(
+            cancellationToken);
     }
 
-    public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
+    // ============================================================
+    // MARKETPLACE
+    // ============================================================
+
+    public async Task SetMarketplaceListingAsync(
+        Guid storeId,
+        bool isListed,
+        CancellationToken cancellationToken = default)
     {
-        var store = _currentUser.IsSuperAdmin
-            ? await _db.Stores.FirstOrDefaultAsync(x => x.Id == storeId)
-                ?? throw new KeyNotFoundException("Store not found.")
-            : await _db.Stores.FirstOrDefaultAsync(x =>
-                x.Id == storeId &&
-                x.TenantId == _tenantContext.TenantId)
-                ?? throw new KeyNotFoundException("Store not found.");
+        Store store;
+
+        if (_currentUser.IsSuperAdmin)
+        {
+            store = await _db.Stores
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
+        }
+        else
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            store = await _db.Stores
+                .FirstOrDefaultAsync(x =>
+                    x.Id == storeId &&
+                    x.TenantId == tenantId,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    "Store not found.");
+        }
 
         store.IsListedOnMarketplace = isListed;
-        try
+
+        await _db.SaveChangesAsync(
+            cancellationToken);
+    }
+
+    // ============================================================
+    // STORE LIMITS
+    // ============================================================
+
+    private async Task EnforceStoreLimitAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_options.AllowMultipleStores)
         {
-            await _db.SaveChangesAsync();
+            var exists = await _db.Stores
+                .AnyAsync(x =>
+                    x.TenantId == tenantId,
+                    cancellationToken);
+
+            if (exists)
+            {
+                throw new InvalidOperationException(
+                    "This tenant is limited to one store.");
+            }
+
+            return;
         }
-        catch (DbUpdateConcurrencyException)
+
+        if (_storeLimitService == null)
+            return;
+
+        var maxStores =
+            await _storeLimitService
+                .GetMaxStoresAsync(tenantId);
+
+        if (!maxStores.HasValue)
+            return;
+
+        var count = await _db.Stores
+            .CountAsync(x =>
+                x.TenantId == tenantId,
+                cancellationToken);
+
+        if (count >= maxStores.Value)
         {
             throw new InvalidOperationException(
-                "This record was modified by another user. Please refresh and try again.");
+                $"Store limit of {maxStores.Value} reached.");
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    // ============================================================
+    // STORE SCOPE
+    // ============================================================
 
     private async Task<StoreScope> ResolveStoreScopeAsync()
     {
         if (_currentUser.IsSuperAdmin ||
-            _currentUser.HasPermission(Permissions.Store.ViewAll))
-            return StoreScope.All;
-
-        return await _currentUser.GetStoreScopeAsync();
-    }
-
-    private async Task EnforceStoreLimitAsync(Guid tenantId)
-    {
-        if (!_options.AllowMultipleStores)
+            _currentUser.HasPermission(
+                Permissions.Store.ViewAll))
         {
-            if (await _db.Stores.AnyAsync(s => s.TenantId == tenantId))
-                throw new InvalidOperationException("This tenant is limited to one store.");
-            return;
+            return StoreScope.All;
         }
 
-        if (_storeLimitService == null) return;
-
-        var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
-        if (!maxStores.HasValue) return;
-
-        var count = await _db.Stores.CountAsync(s => s.TenantId == tenantId);
-        if (count >= maxStores.Value)
-            throw new InvalidOperationException(
-                $"Store limit of {maxStores.Value} reached.");
+        return await _currentUser
+            .GetStoreScopeAsync();
     }
 
-    /// <summary>
-    /// HIGH FIX — generates a slug and appends a numeric suffix if it
-    /// already exists for this tenant, ensuring DB uniqueness constraint
-    /// is never violated by duplicate names.
-    /// excludeStoreId is passed on update so the store doesn't conflict with itself.
-    /// </summary>
+    // ============================================================
+    // SLUG
+    // ============================================================
+
     private async Task<string> GenerateUniqueSlugAsync(
-    string name,
-    Guid tenantId,
-    Guid? excludeStoreId = null)
+        string name,
+        Guid tenantId,
+        CancellationToken cancellationToken = default,
+        Guid? excludeStoreId = null)
     {
         var baseSlug = SlugHelper.Generate(name);
 
-        for (var i = 0; i < 50; i++)
-        {
-            var candidate = i == 0
-                ? baseSlug
-                : $"{baseSlug}-{i}";
+        var slug = baseSlug;
 
-            var exists = await _db.Stores.AnyAsync(x =>
-                x.TenantId == tenantId &&
-                x.Slug == candidate &&
-                (!excludeStoreId.HasValue || x.Id != excludeStoreId.Value));
+        var counter = 1;
+
+        while (true)
+        {
+            IQueryable<Store> query =
+                _db.Stores.Where(x =>
+                    x.TenantId == tenantId &&
+                    x.Slug == slug);
+
+            if (excludeStoreId.HasValue)
+            {
+                query = query.Where(x =>
+                    x.Id != excludeStoreId.Value);
+            }
+
+            var exists = await query.AnyAsync(
+                cancellationToken);
 
             if (!exists)
-                return candidate;
-        }
+            {
+                return slug;
+            }
 
-        throw new InvalidOperationException(
-            "Unable to generate unique slug.");
+            slug = $"{baseSlug}-{counter++}";
+        }
     }
 
-    private static StoreDto Map(Store store) => new()
+    // ============================================================
+    // DTO MAPPER
+    // ============================================================
+
+    private static StoreDto Map(Store store)
     {
-        Id = store.Id,
-        TenantId = store.TenantId,
-        Name = store.Name,
-        Slug = store.Slug,
-        Type = store.Type,
-        IsActive = store.IsActive,
-        IsListedOnMarketplace = store.IsListedOnMarketplace
-    };
+        return new StoreDto
+        {
+            Id = store.Id,
+
+            TenantId = store.TenantId,
+
+            Name = store.Name,
+
+            Slug = store.Slug,
+
+            StoreTypeId = store.StoreTypeId,
+
+            StoreTypeName =
+                store.StoreType?.Name ?? string.Empty,
+
+            StoreCategory =
+                store.StoreType?.Category ?? string.Empty,
+
+            IsActive = store.IsActive,
+
+            IsListedOnMarketplace =
+                store.IsListedOnMarketplace
+        };
+    }
 }

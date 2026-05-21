@@ -1,5 +1,4 @@
 ﻿using CoreKit.SharedKernel.Common;
-using CoreKit.Tenant.Enums;
 
 namespace CoreKit.Tenant.Entities;
 
@@ -13,8 +12,10 @@ public class Store : AuditableEntity, ITenantScoped
 
     public string Slug { get; set; } = default!;
 
-    // FIXED
-    public StoreType Type { get; set; } = StoreType.Other;
+    // NEW RELATION
+    public Guid StoreTypeId { get; set; }
+
+    public StoreType StoreType { get; set; } = default!;
 
     public string? Description { get; set; }
 

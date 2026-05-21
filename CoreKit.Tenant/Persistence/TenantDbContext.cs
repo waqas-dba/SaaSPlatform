@@ -27,6 +27,8 @@ public class TenantDbContext : AuditableDbContext
     public DbSet<Store> Stores => Set<Store>();
     public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
 
+    public DbSet<StoreType> StoreTypes => Set<StoreType>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

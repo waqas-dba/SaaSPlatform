@@ -1,11 +1,18 @@
 ﻿using CoreKit.IAM.Models;
 
-namespace CoreKit.IAM.Interfaces
+namespace CoreKit.IAM.Interfaces;
+
+public interface IAuthService
 {
-    public interface IAuthService
-    {
-        Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId);
-        Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId);
-        Task LogoutAsync(string refreshToken);
-    }
+    Task<LoginResponse> LoginAsync(
+        LoginRequest request,
+        Guid? tenantId,
+        CancellationToken ct = default);
+
+    Task<LoginResponse> RefreshAsync(
+        RefreshTokenRequest request,
+        Guid? tenantId,
+        CancellationToken ct = default);
+
+    Task LogoutAsync(string refreshToken);
 }

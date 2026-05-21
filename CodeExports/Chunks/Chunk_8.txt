@@ -1,4 +1,200 @@
 ﻿
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\UpdateStoreRequestValidator.cs =====
+using CoreKit.Tenant.Models;
+using FluentValidation;
+namespace CoreKit.Tenant.Validators;
+public class UpdateStoreRequestValidator : AbstractValidator<UpdateStoreRequest>
+{
+public UpdateStoreRequestValidator()
+{
+RuleFor(x => x.Name)
+.NotEmpty()
+.WithMessage("Store name must not be empty when provided.")
+.MaximumLength(200)
+.WithMessage("Store name must not exceed 200 characters.")
+.When(x => x.Name is not null);
+RuleFor(x => x.CountryCode)
+.Length(2)
+.WithMessage("Country code must be 2 characters (ISO 3166-1).")
+.When(x => !string.IsNullOrWhiteSpace(x.CountryCode));
+RuleFor(x => x.Latitude)
+.InclusiveBetween(-90, 90)
+.WithMessage("Latitude must be between -90 and 90.")
+.When(x => x.Latitude.HasValue);
+RuleFor(x => x.Longitude)
+.InclusiveBetween(-180, 180)
+.WithMessage("Longitude must be between -180 and 180.")
+.When(x => x.Longitude.HasValue);
+RuleFor(x => x.PostalCode)
+.MaximumLength(20)
+.WithMessage("Postal code must not exceed 20 characters.")
+.When(x => !string.IsNullOrWhiteSpace(x.PostalCode));
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\ValidationFilter.cs =====
+using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+namespace CoreKit.IAM.Validators;
+public class ValidationFilter : IAsyncActionFilter
+{
+private readonly IServiceProvider _serviceProvider;
+public ValidationFilter(IServiceProvider serviceProvider)
+=> _serviceProvider = serviceProvider;
+public async Task OnActionExecutionAsync(
+ActionExecutingContext context,
+ActionExecutionDelegate next)
+{
+foreach (var (_, value) in context.ActionArguments)
+{
+if (value is null) continue;
+var validatorType = typeof(IValidator<>)
+.MakeGenericType(value.GetType());
+if (_serviceProvider.GetService(validatorType)
+is not IValidator validator)
+continue;
+var validationContext = new ValidationContext<object>(value);
+var result = await validator.ValidateAsync(
+validationContext, context.HttpContext.RequestAborted);
+if (result.IsValid) continue;
+var errors = result.Errors
+.Select(e => new
+{
+field = e.PropertyName,
+message = e.ErrorMessage
+})
+.ToList();
+context.Result = new ObjectResult(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "One or more validation errors occurred.",
+errors
+})
+{
+StatusCode = 422
+};
+return;
+}
+await next();
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PermissionsController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/permissions")]
+[Authorize]
+public class PermissionsController : ApiControllerBase
+{
+private readonly IRoleRepository _roleRepo;
+public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;
+[HttpGet]
+[RequiresPermission(Permissions.PermissionsManagement.View)]
+public async Task<IActionResult> GetAll()
+{
+var perms = await _roleRepo.GetAllPermissionsAsync();
+return Ok(perms.Select(p => new { p.Id, p.Name, p.PermissionModuleId }));
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[Route("api/admin/roles")]
+[Authorize]
+public class RolesController : ApiControllerBase
+{
+private readonly IRoleManagementService _roleService;
+public RolesController(IRoleManagementService roleService)
+=> _roleService = roleService;
+[HttpPost]
+[RequiresPermission(Permissions.Roles.Create)]
+public async Task<IActionResult> Create(
+[FromBody] CreateRoleRequest request)
+{
+var role = await _roleService.CreateRoleAsync(
+request.Name, request.TenantId, request.Description);
+return CreatedResponse(new { role.Id, role.Name });
+}
+[HttpPost("{roleId}/permissions")]
+[RequiresPermission(Permissions.Roles.AssignPermission)]
+public async Task<IActionResult> AssignPermission(
+Guid roleId, [FromBody] AssignPermissionRequest request)
+{
+await _roleService.AssignPermissionAsync(
+roleId, request.PermissionId);
+return UpdatedResponse("Permission assigned successfully.");
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/tenants")]
+public class TenantsController : ApiControllerBase
+{
+private readonly ITenantService _tenantService;
+public TenantsController(ITenantService tenantService)
+=> _tenantService = tenantService;
+[HttpPost("register")]
+[AllowAnonymous]
+public async Task<IActionResult> Register(TenantRegistrationRequest request)
+{
+if (string.IsNullOrWhiteSpace(request.Name))
+return BadRequest(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "Tenant name is required."
+});
+var result = await _tenantService.RegisterAsync(request);
+return Ok(result);
+}
+[HttpPost("{tenantId}/approve")]
+[Authorize]
+[RequiresPermission(Permissions.Tenants.Approve)]
+public async Task<IActionResult> Approve(Guid tenantId)
+{
+await _tenantService.ApproveAsync(tenantId);
+return Ok(new
+{
+tenantId,
+status = "Approved",
+message = "Tenant approved successfully"
+});
+}
+[HttpGet]
+[Authorize]
+[RequiresPermission(Permissions.Tenants.View)]
+public async Task<IActionResult> GetAll()
+{
+var tenants = await _tenantService.GetAllAsync();
+return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
+}
+}
+
 ===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\UsersController.cs =====
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
@@ -145,7 +341,19 @@ options.EnableLegalInfo = true;
 });
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] = "DENY";
+context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+await next();
+});
 await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
@@ -262,7 +470,19 @@ options.EnableLegalInfo = true;
 });
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] = "DENY";
+context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+await next();
+});
 await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
@@ -356,277 +576,5 @@ catch (Exception ex)
 logger.LogCritical(ex, "Database bootstrap failed");
 Console.WriteLine(ex.ToString());
 throw;
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs =====
-using CoreKit.SharedKernel.Interfaces;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.SharedKernel.Common;
-public abstract class AuditableDbContext : DbContext
-{
-private readonly ICurrentUser? _currentUser;
-protected AuditableDbContext(
-DbContextOptions options,
-ICurrentUser? currentUser = null)
-: base(options)
-{
-_currentUser = currentUser;
-}
-public override int SaveChanges(bool acceptAllChangesOnSuccess)
-{
-StampAuditFields();
-return base.SaveChanges(acceptAllChangesOnSuccess);
-}
-public override async Task<int> SaveChangesAsync(
-CancellationToken cancellationToken = default)
-{
-StampAuditFields();
-return await base.SaveChangesAsync(cancellationToken);
-}
-private void StampAuditFields()
-{
-if (!ChangeTracker.HasChanges()) return;
-foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
-{
-switch (entry.State)
-{
-case EntityState.Added:
-entry.Entity.CreatedAt = DateTime.UtcNow;
-entry.Entity.CreatedBy = _currentUser?.UserId;
-break;
-case EntityState.Modified:
-entry.Entity.UpdatedAt = DateTime.UtcNow;
-entry.Entity.UpdatedBy = _currentUser?.UserId;
-if (entry.Entity is ISoftDelete deletable &&
-entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
-deletable.IsDeleted)
-{
-deletable.DeletedAtUtc = DateTime.UtcNow;
-deletable.DeletedBy = _currentUser?.UserId;
-}
-break;
-}
-}
-}
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-base.OnModelCreating(modelBuilder);
-foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-{
-if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
-modelBuilder.Entity(entityType.ClrType)
-.HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
-if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
-modelBuilder.Entity(entityType.ClrType)
-.Property<uint>("RowVersion")
-.IsRowVersion()
-.HasColumnName("xmin")
-.HasColumnType("xid")
-.ValueGeneratedOnAddOrUpdate();
-}
-}
-private static System.Linq.Expressions.LambdaExpression
-BuildSoftDeleteFilter(Type entityType)
-{
-var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
-var property = System.Linq.Expressions.Expression.Property(
-param, nameof(ISoftDelete.IsDeleted));
-var condition = System.Linq.Expressions.Expression.Equal(
-property,
-System.Linq.Expressions.Expression.Constant(false));
-return System.Linq.Expressions.Expression.Lambda(condition, param);
-}
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class AuditableEntity : BaseEntity, ISoftDelete
-{
-public DateTime CreatedAt { get; set; }
-public Guid? CreatedBy { get; set; }
-public DateTime? UpdatedAt { get; set; }
-public Guid? UpdatedBy { get; set; }
-public bool IsDeleted { get; set; }
-public DateTime? DeletedAtUtc { get; set; }
-public Guid? DeletedBy { get; set; }
-public uint RowVersion { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class BaseEntity
-{
-public Guid Id { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
-namespace CoreKit.SharedKernel.Common;
-public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs =====
-namespace CoreKit.SharedKernel.Common;
-public interface ISoftDelete
-{
-bool IsDeleted { get; set; }
-DateTime? DeletedAtUtc { get; set; }
-Guid? DeletedBy { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\IStoreScoped.cs =====
-namespace CoreKit.SharedKernel.Common;
-public interface IStoreScoped
-{
-Guid StoreId { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs =====
-namespace CoreKit.SharedKernel.Common;
-public interface ITenantScoped
-{
-Guid TenantId { get; set; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\StoreScope.cs =====
-namespace CoreKit.SharedKernel.Common;
-public sealed class StoreScope
-{
-public IReadOnlyList<Guid> StoreIds { get; }
-public bool IsAllStores { get; }
-private StoreScope(IReadOnlyList<Guid> storeIds, bool isAllStores)
-{
-StoreIds = storeIds;
-IsAllStores = isAllStores;
-}
-public static StoreScope All => new(Array.Empty<Guid>(), true);
-public static StoreScope For(IEnumerable<Guid> storeIds)
-{
-var ids = storeIds.Distinct().ToList();
-if (ids.Count == 0)
-throw new ArgumentException("StoreScope.For requires at least one storeId.");
-return new(ids, false);
-}
-public IQueryable<T> Apply<T>(IQueryable<T> query) where T : class, IStoreScoped
-{
-if (IsAllStores) return query;
-return query.Where(e => StoreIds.Contains(e.StoreId));
-}
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\TenantScope.cs =====
-namespace CoreKit.SharedKernel.Common;
-public sealed class TenantScope
-{
-public Guid TenantId { get; }
-public bool IsGlobal { get; }
-private TenantScope(Guid tenantId, bool isGlobal)
-{
-TenantId = tenantId;
-IsGlobal = isGlobal;
-}
-public static TenantScope Global => new(Guid.Empty, true);
-public static TenantScope For(Guid tenantId)
-{
-if (tenantId == Guid.Empty)
-throw new ArgumentException("tenantId cannot be Guid.Empty.", nameof(tenantId));
-return new(tenantId, false);
-}
-public IQueryable<T> Apply<T>(IQueryable<T> query) where T : class, ITenantScoped
-{
-if (IsGlobal) return query;
-return query.Where(e => e.TenantId == TenantId);
-}
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Exceptions\ForbiddenException.cs =====
-namespace CoreKit.SharedKernel.Exceptions;
-public class ForbiddenException : Exception
-{
-public ForbiddenException(string message) : base(message) { }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Helper\SlugHelper.cs =====
-using System.Text.RegularExpressions;
-namespace CoreKit.SharedKernel.Helpers;
-public static class SlugHelper
-{
-public static string Generate(string input)
-{
-if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-var slug = input.Trim().ToLowerInvariant();
-slug = Regex.Replace(slug, @"[^a-z0-9\s-]", "");
-slug = Regex.Replace(slug, @"\s+", "-");
-return slug.Trim('-');
-}
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
-namespace CoreKit.SharedKernel.Interfaces
-{
-public interface IAggregateRoot
-{
-}
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface ICurrentUser
-{
-Guid? UserId { get; }
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface ISlugGenerator
-{
-string Generate(string input);
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
-namespace CoreKit.SharedKernel.Interfaces;
-public interface IUnitOfWork : IDisposable
-{
-Task BeginTransactionAsync(CancellationToken cancellationToken = default);
-Task CommitAsync(CancellationToken cancellationToken = default);
-Task RollbackAsync(CancellationToken cancellationToken = default);
-Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
-namespace CoreKit.SharedKernel.Results;
-public class Result
-{
-public bool Succeeded { get; init; }
-public string Message { get; init; } = string.Empty;
-public List<string> Errors { get; init; } = new();
-public static Result Success(string message = "")
-=> new() { Succeeded = true, Message = message };
-public static Result Failure(string message, List<string>? errors = null)
-=> new()
-{
-Succeeded = false,
-Message = message,
-Errors = errors ?? new()
-};
-}
-public class Result<T> : Result
-{
-public T? Data { get; init; }
-public static Result<T> Success(T data, string message = "")
-=> new()
-{
-Succeeded = true,
-Data = data,
-Message = message
-};
-public new static Result<T> Failure(string message, List<string>? errors = null)
-=> new()
-{
-Succeeded = false,
-Message = message,
-Errors = errors ?? new()
-};
 }
 

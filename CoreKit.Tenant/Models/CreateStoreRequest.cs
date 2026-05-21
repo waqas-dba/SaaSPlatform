@@ -1,4 +1,6 @@
-﻿using CoreKit.Tenant.Enums;
+﻿// ============================================================
+// FILE: CoreKit.Tenant/Models/CreateStoreRequest.cs
+// ============================================================
 
 namespace CoreKit.Tenant.Models;
 
@@ -6,8 +8,7 @@ public class CreateStoreRequest
 {
     public string? Name { get; set; }
 
-    // FIXED
-    public StoreType? Type { get; set; }
+    public Guid StoreTypeId { get; set; }
 
     public string? AddressLine1 { get; set; }
 

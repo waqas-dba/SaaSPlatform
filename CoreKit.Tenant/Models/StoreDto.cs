@@ -1,11 +1,11 @@
-﻿using CoreKit.Tenant.Enums;
+﻿// ============================================================
+// FILE: CoreKit.Tenant/Models/StoreDto.cs
+// ============================================================
 
 namespace CoreKit.Tenant.Models;
 
 public class StoreDto
 {
-    public StoreDto() { }
-
     public Guid Id { get; set; }
 
     public Guid TenantId { get; set; }
@@ -14,8 +14,11 @@ public class StoreDto
 
     public string Slug { get; set; } = default!;
 
-    // FIXED
-    public StoreType Type { get; set; }
+    public Guid StoreTypeId { get; set; }
+
+    public string StoreTypeName { get; set; } = default!;
+
+    public string StoreCategory { get; set; } = default!;
 
     public bool IsActive { get; set; }
 

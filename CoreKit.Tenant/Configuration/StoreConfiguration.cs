@@ -23,8 +23,7 @@ public class StoreConfiguration : IEntityTypeConfiguration<Store>
         builder.HasIndex(x => new { x.TenantId, x.Slug })
             .IsUnique();
 
-        builder.Property(x => x.Type)
-          .HasConversion<int?>();
+        builder.Property(x => x.StoreTypeId).IsRequired();
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.Stores)

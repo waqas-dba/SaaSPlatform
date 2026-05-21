@@ -2,16 +2,34 @@
 
 namespace CoreKit.Tenant.Interfaces;
 
-/// <summary>
-/// Store management service.
-/// </summary>
 public interface IStoreService
 {
-    Task<StoreDto?> GetByIdAsync(Guid storeId, CancellationToken ct = default);
-    Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
-    Task<List<StoreDto>> GetAllStoresAsync();   // ← new: SuperAdmin global list
-    Task<StoreDto> CreateAsync(CreateStoreRequest request);
-    Task UpdateAsync(Guid storeId, UpdateStoreRequest request);
-    Task DeleteAsync(Guid storeId);
-    Task SetMarketplaceListingAsync(Guid storeId, bool isListed);
+    Task<StoreDto?> GetByIdAsync(
+        Guid storeId,
+        CancellationToken cancellationToken = default);
+
+    Task<List<StoreDto>> GetAllByTenantAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default);
+
+    Task<List<StoreDto>> GetAllStoresAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<StoreDto> CreateAsync(
+        CreateStoreRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task UpdateAsync(
+        Guid storeId,
+        UpdateStoreRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(
+        Guid storeId,
+        CancellationToken cancellationToken = default);
+
+    Task SetMarketplaceListingAsync(
+        Guid storeId,
+        bool isListed,
+        CancellationToken cancellationToken = default);
 }

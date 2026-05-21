@@ -1,13 +1,10 @@
-﻿using CoreKit.Tenant.Enums;
-
-namespace CoreKit.Tenant.Models;
+﻿namespace CoreKit.Tenant.Models;
 
 public class UpdateStoreRequest
 {
     public string? Name { get; set; }
 
-    // FIXED
-    public StoreType? Type { get; set; }
+    public Guid? StoreTypeId { get; set; }
 
     public string? AddressLine1 { get; set; }
 
