@@ -1,7 +1,7 @@
 ﻿using CoreKit.IAM.Models;
 using FluentValidation;
 
-namespace SaaSPlatform.Admin.Api.Validators;
+namespace CoreKit.IAM.Validators;
 
 public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
 {

@@ -9,12 +9,7 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
     public void Configure(EntityTypeBuilder<RolePermission> builder)
     {
         builder.ToTable("IAM_RolePermissions");
-
         builder.HasKey(x => new { x.RoleId, x.PermissionId });
-
-        // HIGH FIX — add explicit index on PermissionId so lookups by
-        // permission (e.g. HasPermissionAsync) don't scan the whole table.
-        // The composite PK already covers leading-column RoleId lookups.
         builder.HasIndex(x => x.PermissionId);
 
         builder.HasOne(rp => rp.Role)
@@ -26,5 +21,8 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
             .WithMany(p => p.RolePermissions)
             .HasForeignKey(rp => rp.PermissionId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Match the soft-delete filters on both Role and Permission
+        builder.HasQueryFilter(rp => !rp.Role.IsDeleted && !rp.Permission.IsDeleted);
     }
 }

@@ -24,7 +24,6 @@ public class TenantResolutionMiddleware : IMiddleware
     // future endpoints like /api/auth/login-otp from being silently bypassed
     private static readonly HashSet<string> BypassPaths = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/api/auth/login",
         "/api/auth/refresh",
         "/api/auth/logout"
     };

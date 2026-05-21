@@ -50,7 +50,12 @@ public class StoresController : ApiControllerBase
     public async Task<IActionResult> Create(CreateStoreRequest request)
     {
         if (_tenantContext.TenantId == null)
-            return Unauthorized("Missing tenant context");
+            return Unauthorized(new
+            {
+                success = false,
+                errorCode = "UNAUTHORIZED",
+                message = "Missing tenant context."
+            });
 
         var store = await _storeService.CreateAsync(request);
         return Ok(store);

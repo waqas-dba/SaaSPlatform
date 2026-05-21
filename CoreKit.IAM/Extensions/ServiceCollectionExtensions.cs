@@ -68,8 +68,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CurrentUserService>();
         services.AddScoped<ICurrentUserService>(sp =>
             sp.GetRequiredService<CurrentUserService>());
-        //services.AddScoped<ICurrentUser>(sp =>
-        //    sp.GetRequiredService<CurrentUserService>());
+        // In ServiceCollectionExtensions.cs, replace the commented line with:
+       
+        services.AddScoped<ICurrentUser>(sp =>
+        {
+            var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+            return new HttpContextCurrentUser(accessor);
+        });
 
         // ── Services ──────────────────────────────────────────────────────────
         services.AddScoped<IAuthService, AuthService>();
@@ -110,6 +115,8 @@ public static class ServiceCollectionExtensions
 
         services.Configure<ApiBehaviorOptions>(options =>
         {
+            options.SuppressModelStateInvalidFilter = true;
+
             options.InvalidModelStateResponseFactory = context =>
             {
                 var errors = context.ModelState

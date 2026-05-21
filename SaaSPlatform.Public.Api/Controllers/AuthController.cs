@@ -10,7 +10,7 @@ namespace SaaSPlatform.Public.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-[EnableRateLimiting("login")]
+//[EnableRateLimiting("login")]
 public class AuthController : ApiControllerBase
 {
     private readonly IAuthService _authService;

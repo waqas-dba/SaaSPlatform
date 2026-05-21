@@ -1,11 +1,13 @@
-using System.Threading.RateLimiting;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
+using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Validators;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +43,8 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
+
 builder.Services.AddHttpContextAccessor();
 
 var connStr = builder.Configuration.GetConnectionString("Postgres")
@@ -69,7 +73,7 @@ builder.ValidateCoreKitConfiguration();
 
 var app = builder.Build();
 
-//await app.PerformBootCheckAsync();
+await app.PerformBootCheckAsync();
 
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();

@@ -544,18 +544,20 @@ modelBuilder.Entity<TenantLegalInfo>()
 }
 
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-namespace CoreKit.IAM.Persistence;
-public class IamDbContextFactory : IDesignTimeDbContextFactory<IamDbContext>
+using Microsoft.Extensions.Configuration;
+using System.IO;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
 {
-public IamDbContext CreateDbContext(string[] args)
+public TenantDbContext CreateDbContext(string[] args)
 {
-var connStr = Environment.GetEnvironmentVariable("POSTGRES_CONNECTION")
-?? "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;";
-var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
-optionsBuilder.UseNpgsql(connStr);
-return new IamDbContext(optionsBuilder.Options);
+var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new TenantDbContext(optionsBuilder.Options);
 }
 }
 

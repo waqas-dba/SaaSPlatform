@@ -625,8 +625,6 @@ UserStoreAssignmentRepository>();
 services.AddScoped<CurrentUserService>();
 services.AddScoped<ICurrentUserService>(sp =>
 sp.GetRequiredService<CurrentUserService>());
-services.AddScoped<ICurrentUser>(sp =>
-sp.GetRequiredService<CurrentUserService>());
 services.AddScoped<IAuthService, AuthService>();
 services.AddScoped<IJwtTokenService, JwtTokenService>();
 services.AddScoped<IPasswordHasher, PasswordHasher>();
@@ -3916,18 +3914,20 @@ modelBuilder.Entity<TenantLegalInfo>()
 }
 
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-namespace CoreKit.IAM.Persistence;
-public class IamDbContextFactory : IDesignTimeDbContextFactory<IamDbContext>
+using Microsoft.Extensions.Configuration;
+using System.IO;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
 {
-public IamDbContext CreateDbContext(string[] args)
+public TenantDbContext CreateDbContext(string[] args)
 {
-var connStr = Environment.GetEnvironmentVariable("POSTGRES_CONNECTION")
-?? "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;";
-var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
-optionsBuilder.UseNpgsql(connStr);
-return new IamDbContext(optionsBuilder.Options);
+var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new TenantDbContext(optionsBuilder.Options);
 }
 }
 
@@ -4721,7 +4721,6 @@ options.EnableLegalInfo = true;
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 var app = builder.Build();
-await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
@@ -4729,6 +4728,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
 app.MapControllers();
 app.Run();
 
@@ -4838,7 +4838,6 @@ options.EnableLegalInfo = true;
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 var app = builder.Build();
-await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
@@ -4846,6 +4845,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
 app.MapControllers();
 app.Run();
 
@@ -5337,7 +5337,6 @@ options.EnableLegalInfo = true;
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 var app = builder.Build();
-await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
@@ -5345,6 +5344,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
 app.MapControllers();
 app.Run();
 

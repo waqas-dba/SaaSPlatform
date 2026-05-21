@@ -5,13 +5,11 @@ using CoreKit.IAM.Entities;
 
 namespace CoreKit.IAM.Configuration;
 
-public class UserIdentityConfiguration
-    : IEntityTypeConfiguration<UserIdentity>
+public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 {
     public void Configure(EntityTypeBuilder<UserIdentity> builder)
     {
         builder.ToTable("IAM_UserIdentities");
-
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.EncryptedCnic)
@@ -25,5 +23,8 @@ public class UserIdentityConfiguration
             .WithOne()
             .HasForeignKey<UserIdentity>(x => x.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Match the soft-delete filter on User
+        builder.HasQueryFilter(ui => !ui.User.IsDeleted);
     }
 }

@@ -36,7 +36,8 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddFixedWindowLimiter("login", cfg =>
     {
-        cfg.PermitLimit = 5;
+        // Relax limits in Development so automated tests don't get throttled
+        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 5;
         cfg.Window = TimeSpan.FromMinutes(1);
     });
 });
@@ -69,7 +70,7 @@ builder.ValidateCoreKitConfiguration();
 
 var app = builder.Build();
 
-//await app.PerformBootCheckAsync();
+await app.PerformBootCheckAsync();
 
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();

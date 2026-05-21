@@ -69,7 +69,7 @@ builder.ValidateCoreKitConfiguration();
 
 var app = builder.Build();
 
-//await app.PerformBootCheckAsync();
+await app.PerformBootCheckAsync();
 
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
