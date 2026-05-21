@@ -34,7 +34,7 @@ public class StoreService : IStoreService
         _storeLimitService = storeLimitService;
     }
 
-    public async Task<StoreDto?> GetByIdAsync(Guid storeId)
+    public async Task<StoreDto?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
     {
         var storeScope = await ResolveStoreScopeAsync();
 
@@ -63,7 +63,24 @@ public class StoreService : IStoreService
     }
 
     public async Task<List<StoreDto>> GetAllStoresAsync()
-        => (await _db.Stores.ToListAsync()).Select(Map).ToList();
+    {
+        if (!_currentUser.IsSuperAdmin)
+            throw new UnauthorizedAccessException(
+                "Only super admins can access all stores.");
+
+        return await _db.Stores
+            .Select(x => new StoreDto
+            {
+                Id = x.Id,
+                TenantId = x.TenantId,
+                Name = x.Name,
+                Slug = x.Slug,
+                Type = x.Type,
+                IsActive = x.IsActive,
+                IsListedOnMarketplace = x.IsListedOnMarketplace
+            })
+            .ToListAsync();
+    }
 
     public async Task<StoreDto> CreateAsync(CreateStoreRequest request)
     {
@@ -131,7 +148,7 @@ public class StoreService : IStoreService
                 x.TenantId == _tenantContext.TenantId)
                 ?? throw new KeyNotFoundException("Store not found.");
 
-        if (request.Name != null)
+        if (!string.IsNullOrWhiteSpace(request.Name))
         {
             store.Name = request.Name;
             store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, storeId);
@@ -151,7 +168,15 @@ public class StoreService : IStoreService
         if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
         if (request.MetadataJson != null) store.MetadataJson = request.MetadataJson;
 
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     public async Task DeleteAsync(Guid storeId)
@@ -164,8 +189,16 @@ public class StoreService : IStoreService
                 x.TenantId == _tenantContext.TenantId)
                 ?? throw new KeyNotFoundException("Store not found.");
 
-        _db.Stores.Remove(store);
-        await _db.SaveChangesAsync();
+        store.IsDeleted = true;
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     public async Task SetMarketplaceListingAsync(Guid storeId, bool isListed)
@@ -179,7 +212,15 @@ public class StoreService : IStoreService
                 ?? throw new KeyNotFoundException("Store not found.");
 
         store.IsListedOnMarketplace = isListed;
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -222,26 +263,29 @@ public class StoreService : IStoreService
     /// excludeStoreId is passed on update so the store doesn't conflict with itself.
     /// </summary>
     private async Task<string> GenerateUniqueSlugAsync(
-        string name, Guid tenantId, Guid? excludeStoreId = null)
+    string name,
+    Guid tenantId,
+    Guid? excludeStoreId = null)
     {
         var baseSlug = SlugHelper.Generate(name);
-        var candidate = baseSlug;
-        var counter = 1;
 
-        while (true)
+        for (var i = 0; i < 50; i++)
         {
-            var query = _db.Stores.Where(s =>
-                s.TenantId == tenantId &&
-                s.Slug == candidate);
+            var candidate = i == 0
+                ? baseSlug
+                : $"{baseSlug}-{i}";
 
-            if (excludeStoreId.HasValue)
-                query = query.Where(s => s.Id != excludeStoreId.Value);
+            var exists = await _db.Stores.AnyAsync(x =>
+                x.TenantId == tenantId &&
+                x.Slug == candidate &&
+                (!excludeStoreId.HasValue || x.Id != excludeStoreId.Value));
 
-            if (!await query.AnyAsync())
+            if (!exists)
                 return candidate;
-
-            candidate = $"{baseSlug}-{++counter}";
         }
+
+        throw new InvalidOperationException(
+            "Unable to generate unique slug.");
     }
 
     private static StoreDto Map(Store store) => new()

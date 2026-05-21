@@ -227,7 +227,6 @@ private static readonly JsonSerializerOptions JsonOptions =
 new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 private static readonly HashSet<string> BypassPaths = new(StringComparer.OrdinalIgnoreCase)
 {
-"/api/auth/login",
 "/api/auth/refresh",
 "/api/auth/logout"
 };

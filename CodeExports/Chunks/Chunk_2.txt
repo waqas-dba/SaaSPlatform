@@ -56,6 +56,11 @@ UserStoreAssignmentRepository>();
 services.AddScoped<CurrentUserService>();
 services.AddScoped<ICurrentUserService>(sp =>
 sp.GetRequiredService<CurrentUserService>());
+services.AddScoped<ICurrentUser>(sp =>
+{
+var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+return new HttpContextCurrentUser(accessor);
+});
 services.AddScoped<IAuthService, AuthService>();
 services.AddScoped<IJwtTokenService, JwtTokenService>();
 services.AddScoped<IPasswordHasher, PasswordHasher>();
@@ -85,6 +90,7 @@ return new EncryptionService(key);
 services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 services.Configure<ApiBehaviorOptions>(options =>
 {
+options.SuppressModelStateInvalidFilter = true;
 options.InvalidModelStateResponseFactory = context =>
 {
 var errors = context.ModelState

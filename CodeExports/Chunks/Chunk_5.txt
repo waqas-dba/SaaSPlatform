@@ -170,7 +170,7 @@ await _db.SaveChangesAsync();
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\CreateUserRequestValidator.cs =====
 using CoreKit.IAM.Models;
 using FluentValidation;
-namespace SaaSPlatform.Admin.Api.Validators;
+namespace CoreKit.IAM.Validators;
 public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
 {
 public CreateUserRequestValidator()

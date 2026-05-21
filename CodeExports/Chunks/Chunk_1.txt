@@ -195,6 +195,7 @@ builder.HasOne(rp => rp.Permission)
 .WithMany(p => p.RolePermissions)
 .HasForeignKey(rp => rp.PermissionId)
 .OnDelete(DeleteBehavior.Cascade);
+builder.HasQueryFilter(rp => !rp.Role.IsDeleted && !rp.Permission.IsDeleted);
 }
 }
 
@@ -265,8 +266,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CoreKit.IAM.Entities;
 namespace CoreKit.IAM.Configuration;
-public class UserIdentityConfiguration
-: IEntityTypeConfiguration<UserIdentity>
+public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
 {
 public void Configure(EntityTypeBuilder<UserIdentity> builder)
 {
@@ -281,6 +281,7 @@ builder.HasOne(x => x.User)
 .WithOne()
 .HasForeignKey<UserIdentity>(x => x.UserId)
 .OnDelete(DeleteBehavior.Cascade);
+builder.HasQueryFilter(ui => !ui.User.IsDeleted);
 }
 }
 
@@ -311,6 +312,7 @@ builder.HasOne(ur => ur.Role)
 .WithMany(r => r.UserRoles)
 .HasForeignKey(ur => ur.RoleId)
 .OnDelete(DeleteBehavior.Cascade);
+builder.HasQueryFilter(ur => !ur.User.IsDeleted && !ur.Role.IsDeleted);
 }
 }
 

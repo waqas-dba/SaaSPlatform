@@ -33,6 +33,15 @@ public class TenantLegalInfoRepository : ITenantLegalInfoRepository
         {
             await _db.TenantLegalInfos.AddAsync(info, ct);
         }
-        await _db.SaveChangesAsync(ct);
+    
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 }

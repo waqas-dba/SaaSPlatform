@@ -32,7 +32,12 @@ public class TenantsController : ApiControllerBase
     public async Task<IActionResult> Register(TenantRegistrationRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
-            return BadRequest("Tenant name is required.");
+            return BadRequest(new
+            {
+                success = false,
+                errorCode = "VALIDATION_ERROR",
+                message = "Tenant name is required."
+            });
 
         var result = await _tenantService.RegisterAsync(request);
         return Ok(result);

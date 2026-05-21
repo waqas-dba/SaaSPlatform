@@ -65,15 +65,37 @@ public string Password { get; set; } = default!;
 public Guid? TenantId { get; set; }
 }
 
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Validator\AdminCreateUserRequestValidator.cs =====
+using FluentValidation;
+using SaaSPlatform.Admin.Api.Models;
+namespace SaaSPlatform.Admin.Api.Validators;
+public class AdminCreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+{
+public AdminCreateUserRequestValidator()
+{
+RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+RuleFor(x => x.Phone).NotEmpty().Matches(@"^\+?[\d\s\-]{7,15}$");
+RuleFor(x => x.Password)
+.NotEmpty()
+.MinimumLength(8).WithMessage("Password must be at least 8 characters.")
+.Matches("[A-Z]").WithMessage("Must contain uppercase.")
+.Matches("[a-z]").WithMessage("Must contain lowercase.")
+.Matches("[0-9]").WithMessage("Must contain a digit.")
+.Matches("[^a-zA-Z0-9]").WithMessage("Must contain a special character.");
+}
+}
+
 ===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs =====
-using System.Threading.RateLimiting;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
+using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Validators;
+using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
 {
@@ -102,6 +124,7 @@ cfg.PermitLimit = 5;
 cfg.Window = TimeSpan.FromMinutes(1);
 });
 });
+builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
 builder.Services.AddHttpContextAccessor();
 var connStr = builder.Configuration.GetConnectionString("Postgres")
 ?? throw new InvalidOperationException(
@@ -123,6 +146,7 @@ options.EnableLegalInfo = true;
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 var app = builder.Build();
+await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
@@ -145,7 +169,6 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace SaaSPlatform.Public.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
-[EnableRateLimiting("login")]
 public class AuthController : ApiControllerBase
 {
 private readonly IAuthService _authService;
@@ -215,7 +238,7 @@ token);
 };
 options.AddFixedWindowLimiter("login", cfg =>
 {
-cfg.PermitLimit = 5;
+cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 5;
 cfg.Window = TimeSpan.FromMinutes(1);
 });
 });
@@ -240,6 +263,7 @@ options.EnableLegalInfo = true;
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 var app = builder.Build();
+await app.PerformBootCheckAsync();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();

@@ -33,24 +33,28 @@ public abstract class AuditableDbContext : DbContext
         // Early exit — avoids iterating the change tracker on every save
         if (!ChangeTracker.HasChanges()) return;
 
+        var utcNow = DateTime.UtcNow;
+
         foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
         {
+           
+           
             switch (entry.State)
             {
                 case EntityState.Added:
-                    entry.Entity.CreatedAt = DateTime.UtcNow;
+                    entry.Entity.CreatedAt = utcNow;
                     entry.Entity.CreatedBy = _currentUser?.UserId;
                     break;
 
                 case EntityState.Modified:
-                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                    entry.Entity.UpdatedAt = utcNow ;
                     entry.Entity.UpdatedBy = _currentUser?.UserId;
 
                     if (entry.Entity is ISoftDelete deletable &&
                         entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
                         deletable.IsDeleted)
                     {
-                        deletable.DeletedAtUtc = DateTime.UtcNow;
+                        deletable.DeletedAtUtc = utcNow;
                         deletable.DeletedBy = _currentUser?.UserId;
                     }
                     break;

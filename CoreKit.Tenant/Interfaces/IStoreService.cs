@@ -7,7 +7,7 @@ namespace CoreKit.Tenant.Interfaces;
 /// </summary>
 public interface IStoreService
 {
-    Task<StoreDto?> GetByIdAsync(Guid storeId);
+    Task<StoreDto?> GetByIdAsync(Guid storeId, CancellationToken ct = default);
     Task<List<StoreDto>> GetAllByTenantAsync(Guid tenantId);
     Task<List<StoreDto>> GetAllStoresAsync();   // ← new: SuperAdmin global list
     Task<StoreDto> CreateAsync(CreateStoreRequest request);

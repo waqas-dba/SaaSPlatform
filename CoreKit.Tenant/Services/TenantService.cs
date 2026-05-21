@@ -5,6 +5,7 @@ using CoreKit.Tenant.Enums;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
 using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace CoreKit.Tenant.Services;
@@ -51,7 +52,15 @@ public class TenantService : ITenantService
         };
 
         _tenantRepo.Add(tenant);
-        await _db.SaveChangesAsync();
+       try
+{
+    await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+    throw new InvalidOperationException(
+        "This record was modified by another user. Please refresh and try again.");
+}
 
         return new TenantRegistrationResponse
         {
@@ -78,7 +87,15 @@ public class TenantService : ITenantService
 
         tenant.Status = TenantStatus.Active;
         _tenantRepo.Update(tenant);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     public async Task RejectAsync(Guid tenantId)
@@ -88,7 +105,15 @@ public class TenantService : ITenantService
 
         tenant.Status = TenantStatus.Rejected;
         _tenantRepo.Update(tenant);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
@@ -106,7 +131,15 @@ public class TenantService : ITenantService
             tenant.MetadataJson = metadataJson;
 
         _tenantRepo.Update(tenant);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 
     public async Task DeleteAsync(Guid tenantId)
@@ -117,6 +150,14 @@ public class TenantService : ITenantService
         tenant.IsDeleted = true;
         tenant.Status = TenantStatus.Archived;
         _tenantRepo.Update(tenant);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "This record was modified by another user. Please refresh and try again.");
+        }
     }
 }
