@@ -11,20 +11,21 @@ public sealed class RoleSeeder
 
     public async Task SeedAsync()
     {
-        var superAdmin = await _db.Roles
+        var platformAdmin = await _db.Roles
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
+            .FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
 
-        if (superAdmin == null)
+        if (platformAdmin == null)
         {
             _db.Roles.Add(new Role
             {
-                Id = Guid.NewGuid(),
-                Name = "SuperAdmin",
-                Description = "System Super Administrator",
+                Id = Guid.Parse("40000000-0000-0000-0000-000000000001"),
+                Name = "PlatformAdmin",
+                Description = "Platform administrator with full platform permissions",
                 TenantId = null,
                 IsSystem = true
             });
+
             await _db.SaveChangesAsync();
         }
     }

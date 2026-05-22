@@ -6,7 +6,7 @@ public interface ICurrentUserService
 {
     Guid? UserId { get; }
     bool IsAuthenticated { get; }
-    bool IsSuperAdmin { get; }
+    bool IsPlatformAdmin { get; }
     bool HasPermission(string permission);
     TenantScope GetTenantScope();
     Task<StoreScope> GetStoreScopeAsync();

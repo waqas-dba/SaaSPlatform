@@ -43,16 +43,12 @@ public sealed class IamBootstrap
             throw new InvalidOperationException("Database connection failed.");
         }
 
-        // MEDIUM FIX — respect the RunMigrationsOnBootstrap option;
-        // previously this always ran migrations regardless of the setting.
         if (_options.RunMigrationsOnBootstrap)
         {
             var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
             if (pendingMigrations.Any())
             {
-                _logger.LogInformation(
-                    "Applying {Count} pending migration(s)...",
-                    pendingMigrations.Count());
+                _logger.LogInformation("Applying {Count} pending migration(s)...", pendingMigrations.Count());
                 await _db.Database.MigrateAsync();
             }
             else
@@ -62,16 +58,17 @@ public sealed class IamBootstrap
         }
         else
         {
-            _logger.LogInformation(
-                "RunMigrationsOnBootstrap is disabled — skipping migration check.");
+            _logger.LogInformation("RunMigrationsOnBootstrap is disabled — skipping migration check.");
         }
 
         _logger.LogInformation("Starting IAM bootstrap...");
+
         await _permissionSeeder.SeedAsync();
         await _roleSeeder.SeedAsync();
         await _userSeeder.SeedAsync();
         await _rolePermissionSeeder.SeedAsync();
         await _userRoleSeeder.SeedAsync();
+
         _logger.LogInformation("IAM bootstrap completed successfully.");
     }
 }

@@ -97,6 +97,12 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IRoleDocumentRequirementService,
                 RoleDocumentRequirementService>();
 
+        // Add after other service registrations
+        if (iamOptions.EnableImpersonation)
+        {
+            services.AddScoped<IImpersonationService, ImpersonationService>();
+        }
+
         // ── Encryption ────────────────────────────────────────────────────────
         services.AddSingleton<IEncryptionService>(sp =>
         {

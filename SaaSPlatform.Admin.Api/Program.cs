@@ -11,6 +11,9 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ==========================================
+// RATE LIMITING
+// ==========================================
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -36,30 +39,40 @@ builder.Services.AddRateLimiter(options =>
             token);
     };
 
-    options.AddFixedWindowLimiter("login", cfg =>
+    options.AddFixedWindowLimiter("admin-operations", cfg =>
     {
-        cfg.PermitLimit = 5;
+        cfg.PermitLimit = 30;
         cfg.Window = TimeSpan.FromMinutes(1);
     });
 });
 
+// ==========================================
+// VALIDATION
+// ==========================================
 builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
 
+// ==========================================
+// HTTP CONTEXT
+// ==========================================
 builder.Services.AddHttpContextAccessor();
 
+// ==========================================
+// DATABASE CONNECTION
+// ==========================================
 var connStr = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "Connection string 'Postgres' is missing from configuration.");
 
+// ==========================================
+// IAM — NO BYPASS, PURE PERMISSION-BASED
+// ==========================================
 builder.Services.AddCoreKitIAM(
     connStr,
-    builder.Configuration.GetSection("Jwt"),
-    options =>
-    {
-        options.SuperAdminBypassPermissions = true;
-        options.SuperAdminRoleName = "SuperAdmin";
-    });
+    builder.Configuration.GetSection("Jwt"));
 
+// ==========================================
+// TENANT KIT
+// ==========================================
 builder.Services.AddTenantKit(connStr, options =>
 {
     options.AutoApproveTenants = false;
@@ -67,30 +80,53 @@ builder.Services.AddTenantKit(connStr, options =>
     options.EnableLegalInfo = true;
 });
 
+// ==========================================
+// CONTROLLERS
+// ==========================================
 builder.Services.AddCoreKitControllers();
 
+// ==========================================
+// STARTUP CONFIGURATION VALIDATION
+// ==========================================
 builder.ValidateCoreKitConfiguration();
 
+// ==========================================
+// KESTREL
+// ==========================================
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
 });
 
-
-
+// ==========================================
+// BUILD APP
+// ==========================================
 var app = builder.Build();
+
+// ==========================================
+// SECURITY HEADERS
+// ==========================================
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Frame-Options"] = "DENY";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    context.Response.Headers["X-XSS-Protection"] = "0"; // Deprecated, but some scanners still check
+    context.Response.Headers["Permissions-Policy"] =
+        "camera=(), microphone=(), geolocation=(), interest-cohort=()";
 
     await next();
 });
 
+// ==========================================
+// BOOT CHECK
+// ==========================================
 await app.PerformBootCheckAsync();
 
+// ==========================================
+// MIDDLEWARE PIPELINE
+// ==========================================
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
@@ -99,7 +135,13 @@ app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
+// ==========================================
+// ENDPOINTS
+// ==========================================
 app.MapGet("/ping", () => "pong");
 app.MapControllers();
 
+// ==========================================
+// RUN
+// ==========================================
 app.Run();

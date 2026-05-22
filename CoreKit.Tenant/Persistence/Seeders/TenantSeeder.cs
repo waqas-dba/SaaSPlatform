@@ -23,7 +23,9 @@ public sealed class TenantSeeder
         var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
 
-        // ---------- SYSTEM TENANT ----------
+        // ==========================================
+        // CREATE SYSTEM TENANT
+        // ==========================================
         if (!await _db.Tenants.AnyAsync(t => t.Id == systemTenantId))
         {
             _db.Tenants.Add(new TenantEntity
@@ -33,6 +35,7 @@ public sealed class TenantSeeder
                 Slug = "system",
                 Status = TenantStatus.Active
             });
+
             await _db.SaveChangesAsync();
             _logger.LogInformation("✔ System tenant created.");
         }
@@ -41,20 +44,35 @@ public sealed class TenantSeeder
             _logger.LogInformation("System tenant already exists.");
         }
 
-        // ---------- SYSTEM STORE ----------
+        // ==========================================
+        // CREATE SYSTEM STORE
+        // ==========================================
         if (!await _db.Stores.AnyAsync(s => s.Id == systemStoreId))
         {
+            // Get the first available StoreType (e.g., "Other" or first seeded)
+            var defaultStoreType = await _db.StoreTypes
+                .OrderBy(st => st.SortOrder)
+                .FirstOrDefaultAsync();
+
+            if (defaultStoreType == null)
+            {
+                _logger.LogWarning("No StoreTypes found. Run StoreTypeSeeder first.");
+                return;
+            }
+
             _db.Stores.Add(new Store
             {
                 Id = systemStoreId,
                 TenantId = systemTenantId,
                 Name = "System Store",
                 Slug = "system-store",
+                StoreTypeId = defaultStoreType.Id,  // ✅ Valid FK
                 IsActive = true,
                 IsPrimary = true
             });
+
             await _db.SaveChangesAsync();
-            _logger.LogInformation("✔ System store created.");
+            _logger.LogInformation("✔ System store created (StoreType: {StoreTypeName}).", defaultStoreType.Name);
         }
         else
         {

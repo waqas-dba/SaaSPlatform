@@ -14,9 +14,9 @@ namespace CoreKit.Tenant.Extensions;
 public static class TenantKitServiceCollectionExtensions
 {
     public static IServiceCollection AddTenantKit(
-        this IServiceCollection services,
-        string connectionString,
-        Action<TenantKitOptions>? configure = null)
+    this IServiceCollection services,
+    string connectionString,
+    Action<TenantKitOptions>? configure = null)
     {
         services.Configure<TenantKitOptions>(options =>
         {
@@ -28,26 +28,22 @@ public static class TenantKitServiceCollectionExtensions
             opt.UseNpgsql(connectionString);
         });
 
-        // ── Repositories ──────────────────────────────────────────────────────
+        // Repositories
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<IStoreRepository, StoreRepository>();
         services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+        services.AddScoped<IStoreTypeRepository, StoreTypeRepository>();        // ← ADD
 
-        // ── Services ──────────────────────────────────────────────────────────
+        // Services
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
+        services.AddScoped<IStoreTypeService, StoreTypeService>();              // ← ADD
 
-        // ── Tenant context ────────────────────────────────────────────────────
         services.AddScoped<TenantContext>();
-        services.AddScoped<ITenantContext>(sp =>
-            sp.GetRequiredService<TenantContext>());
-        services.AddScoped<IMutableTenantContext>(sp =>
-            sp.GetRequiredService<TenantContext>());
-
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
         services.AddScoped<TenantResolutionMiddleware>();
-
-        // ── Validators ────────────────────────────────────────────────────────
         services.AddValidatorsFromAssemblyContaining<CreateStoreRequestValidator>();
 
         return services;

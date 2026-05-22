@@ -9,9 +9,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
-/// <summary>
-/// Store management endpoints, scoped to the current tenant.
-/// </summary>
 [ApiController]
 [Route("api/stores")]
 [Authorize]
@@ -27,18 +24,17 @@ public class StoresController : ApiControllerBase
     }
 
     [HttpGet]
-    [RequiresPermission(Permissions.Store.ViewAll)]  // SA uses ViewAll; tenant users use View
+    [RequiresPermission(Permissions.Store.View)]
     public async Task<IActionResult> GetAll()
     {
-        // SuperAdmin with no x-tenant-id header → list ALL stores across all tenants.
-        // Tenant user must always provide x-tenant-id.
         if (_tenantContext.TenantId == null)
         {
-            // Only SuperAdmin reaches here because RequiresPermission(Store.ViewAll)
-            // blocks non-SA users without that permission, and tenant users always
-            // have a tenantId in context from TenantResolutionMiddleware.
-            var all = await _storeService.GetAllStoresAsync(); // see Gap 3 below
-            return Ok(all);
+            return Unauthorized(new
+            {
+                success = false,
+                errorCode = "UNAUTHORIZED",
+                message = "Missing tenant context."
+            });
         }
 
         var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
@@ -85,18 +81,19 @@ public class StoresController : ApiControllerBase
         return NoContent();
     }
 
-
-    // Add a scoped View endpoint for tenant users:
     [HttpGet("my")]
     [RequiresPermission(Permissions.Store.View)]
     public async Task<IActionResult> GetMine()
     {
         if (_tenantContext.TenantId == null)
-            return Unauthorized("Missing tenant context.");
+            return Unauthorized(new
+            {
+                success = false,
+                errorCode = "UNAUTHORIZED",
+                message = "Missing tenant context."
+            });
 
         var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
         return Ok(stores);
     }
-
-
 }

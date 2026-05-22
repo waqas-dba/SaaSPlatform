@@ -1,5 +1,4 @@
-﻿// CoreKit.IAM/Constants/Permissions.cs
-using System.Reflection;
+﻿using System.Reflection;
 
 namespace CoreKit.IAM.Constants;
 
@@ -64,7 +63,6 @@ public static class Permissions
 
     public static class System
     {
-        public const string SuperAdmin = "system.super_admin";
         public const string Settings = "system.settings";
         public const string AuditLogs = "system.audit_logs";
     }
@@ -76,8 +74,20 @@ public static class Permissions
         public const string Update = "store.update";
     }
 
-    // Fix #9: Reflection-driven — any new nested const string is picked up automatically.
-    // No more forgetting to add to a manual list.
+    public static class Platform
+    {
+        public const string ViewAllTenants = "platform.tenants.view";
+        public const string ManageTenants = "platform.tenants.manage";
+        public const string ViewAllStores = "platform.stores.view";
+        public const string ManageAnyStore = "platform.stores.manage";
+        public const string ViewAllUsers = "platform.users.view";
+        public const string ManageAnyUser = "platform.users.manage";
+        public const string ViewAuditLogs = "platform.audit.view";
+        public const string ManageSystemSettings = "platform.settings.manage";
+        public const string CreateImpersonation = "platform.impersonation.create";
+        public const string ManageBilling = "platform.billing.manage";
+    }
+
     public static IReadOnlyList<string> All { get; } =
         typeof(Permissions)
             .GetNestedTypes(BindingFlags.Public | BindingFlags.Static)

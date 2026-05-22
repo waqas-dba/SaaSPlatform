@@ -1,10 +1,8 @@
-﻿// CoreKit.IAM | CoreKit.IAM/Authorization/RequiresPermissionAttribute.cs
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
 
 namespace CoreKit.IAM.Authorization;
 
@@ -18,9 +16,6 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        // FIX 1: If a previous RequiresPermission filter already set a result
-        // (e.g. Forbid), do not overwrite it. This is critical when the attribute
-        // is stacked: [RequiresPermission("x")][RequiresPermission("y")]
         if (context.Result != null) return;
 
         var user = context.HttpContext.User;
@@ -31,19 +26,13 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
             return;
         }
 
-        var options = context.HttpContext.RequestServices
-            .GetRequiredService<IamOptions>();
-
-        if (options.SuperAdminBypassPermissions &&
-            user.IsInRole(options.SuperAdminRoleName))
-            return;
-
-        // Fast path: permission already embedded in JWT claims
+        // Check claim-based permissions (fast path from JWT)
         if (user.Claims.Any(c =>
-                c.Type == ClaimConstants.Permission &&
-                c.Value == _permission))
+            c.Type == ClaimConstants.Permission &&
+            c.Value == _permission))
             return;
 
+        // Full permission check via service
         var permissionService = context.HttpContext.RequestServices
             .GetRequiredService<IPermissionService>();
 

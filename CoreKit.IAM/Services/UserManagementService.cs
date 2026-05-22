@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -39,8 +40,6 @@ public class UserManagementService : IUserManagementService
             ? null
             : email.Trim().ToLowerInvariant();
 
-        // Existence checks are still useful for a friendly error message, but
-        // the DB unique constraint is the definitive guard against concurrent inserts.
         if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
             throw new InvalidOperationException(
                 "A user with this phone already exists in the tenant.");
@@ -74,7 +73,6 @@ public class UserManagementService : IUserManagementService
         catch (DbUpdateException ex)
             when (ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true)
         {
-            // Catches the race condition between the check above and the insert
             throw new InvalidOperationException(
                 "A user with this phone or email already exists. Please use different credentials.");
         }
@@ -99,8 +97,10 @@ public class UserManagementService : IUserManagementService
                 u.Phone == normalizedPhone &&
                 u.TenantId == tenantId &&
                 u.Id != userId);
+
             if (phoneInUse)
                 throw new InvalidOperationException("Phone already in use.");
+
             user.Phone = normalizedPhone;
         }
 
@@ -111,8 +111,10 @@ public class UserManagementService : IUserManagementService
                 u.Email == normalizedEmail &&
                 u.TenantId == tenantId &&
                 u.Id != userId);
+
             if (emailInUse)
                 throw new InvalidOperationException("Email already in use.");
+
             user.Email = normalizedEmail;
         }
 
@@ -135,6 +137,7 @@ public class UserManagementService : IUserManagementService
 
         user.IsDeleted = true;
         user.IsActive = false;
+
         await _db.SaveChangesAsync();
         await _permissionCache.InvalidateUserAsync(userId);
     }
@@ -149,11 +152,12 @@ public class UserManagementService : IUserManagementService
         var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
             ?? throw new KeyNotFoundException("Role not found.");
 
-        // HIGH FIX — use ForbiddenException (403) not UnauthorizedAccessException (401)
-        if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
-            throw new ForbiddenException("Only a SuperAdmin can assign this role.");
+        // Only platform admins with manage permission can assign platform roles
+        if (role.TenantId == null && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
+            throw new ForbiddenException("Only platform administrators can assign platform-level roles.");
 
-        if (role.IsSystem && !_currentUser.IsSuperAdmin)
+        // System roles require platform permission
+        if (role.IsSystem && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
             throw new ForbiddenException("Cannot assign a system role.");
 
         if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
@@ -161,6 +165,7 @@ public class UserManagementService : IUserManagementService
                 "User already has this role in the specified scope.");
 
         user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
+
         await _db.SaveChangesAsync();
         await _permissionCache.InvalidateUserAsync(userId);
     }
@@ -178,6 +183,7 @@ public class UserManagementService : IUserManagementService
                 "User does not have this role in the specified scope.");
 
         user.Roles.Remove(userRole);
+
         await _db.SaveChangesAsync();
         await _permissionCache.InvalidateUserAsync(userId);
     }
@@ -186,6 +192,7 @@ public class UserManagementService : IUserManagementService
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
             ?? throw new KeyNotFoundException("User not found.");
+
         user.LockoutEnd = lockoutEnd;
         await _db.SaveChangesAsync();
     }
@@ -194,6 +201,7 @@ public class UserManagementService : IUserManagementService
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
             ?? throw new KeyNotFoundException("User not found.");
+
         user.LockoutEnd = null;
         user.FailedLoginAttempts = 0;
         await _db.SaveChangesAsync();
