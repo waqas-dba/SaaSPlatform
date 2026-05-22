@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/src/Modules/">
     <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
+    <Project Path="CoreKit.Subscription/CoreKit.Subscription.csproj" Id="29c4d424-b996-47df-8028-fa63836a4cab" />
     <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />
   </Folder>
   <Folder Name="/src/seeders/">

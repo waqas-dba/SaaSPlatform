@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CoreKit.IAM\CoreKit.IAM.csproj" />
     <ProjectReference Include="..\CoreKit.Infrastructure\CoreKit.Infrastructure.csproj" />
+    <ProjectReference Include="..\CoreKit.Subscription\CoreKit.Subscription.csproj" />
     <ProjectReference Include="..\CoreKit.Tenant\CoreKit.Tenant.csproj" />
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\CoreKit.SharedKernel.csproj" />
   </ItemGroup>

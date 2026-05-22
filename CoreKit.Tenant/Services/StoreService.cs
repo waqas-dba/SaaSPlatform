@@ -2,6 +2,7 @@
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
@@ -17,20 +18,17 @@ public class StoreService : IStoreService
     private readonly ITenantContext _tenantContext;
     private readonly TenantKitOptions _options;
     private readonly ICurrentUserService _currentUser;
-    private readonly IStoreLimitService? _storeLimitService;
+    private readonly IPlanLimitProvider? _planLimit;
 
     public StoreService(
         TenantDbContext db,
         ITenantContext tenantContext,
         IOptions<TenantKitOptions> options,
         ICurrentUserService currentUser,
-        IStoreLimitService? storeLimitService = null)
+        IPlanLimitProvider? planLimit = null)  // ← changed
     {
-        _db = db;
-        _tenantContext = tenantContext;
-        _options = options.Value;
-        _currentUser = currentUser;
-        _storeLimitService = storeLimitService;
+        // ...
+        _planLimit = planLimit;
     }
 
     public async Task<StoreDto?> GetByIdAsync(
@@ -267,26 +265,17 @@ public class StoreService : IStoreService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task EnforceStoreLimitAsync(
-        Guid tenantId,
-        CancellationToken cancellationToken = default)
+    private async Task EnforceStoreLimitAsync(Guid tenantId, CancellationToken ct)
     {
-        if (!_options.AllowMultipleStores)
+        if (_planLimit == null) return;
+
+        var maxStores = await _planLimit.GetMaxStoresAsync(tenantId, ct);
+        if (maxStores.HasValue)
         {
-            var exists = await _db.Stores.AnyAsync(x => x.TenantId == tenantId, cancellationToken);
-            if (exists)
-                throw new InvalidOperationException("This tenant is limited to one store.");
-            return;
+            var count = await _db.Stores.CountAsync(x => x.TenantId == tenantId, ct);
+            if (count >= maxStores.Value)
+                throw new InvalidOperationException($"Store limit of {maxStores.Value} reached. Upgrade your plan.");
         }
-
-        if (_storeLimitService == null) return;
-
-        var maxStores = await _storeLimitService.GetMaxStoresAsync(tenantId);
-        if (!maxStores.HasValue) return;
-
-        var count = await _db.Stores.CountAsync(x => x.TenantId == tenantId, cancellationToken);
-        if (count >= maxStores.Value)
-            throw new InvalidOperationException($"Store limit of {maxStores.Value} reached.");
     }
 
     private async Task<StoreScope> ResolveStoreScopeAsync()

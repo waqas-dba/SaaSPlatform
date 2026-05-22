@@ -1,6 +1,7 @@
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
+using CoreKit.Subscription.Extensions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using FluentValidation;
@@ -81,6 +82,12 @@ builder.Services.AddTenantKit(connStr, options =>
 });
 
 // ==========================================
+// Subscription KIT
+// ==========================================
+
+builder.Services.AddSubscriptionModule(connStr);
+
+// ==========================================
 // CONTROLLERS
 // ==========================================
 builder.Services.AddCoreKitControllers();
@@ -97,6 +104,8 @@ builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
 });
+
+
 
 // ==========================================
 // BUILD APP

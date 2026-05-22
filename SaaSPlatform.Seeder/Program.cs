@@ -3,6 +3,8 @@ using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Services;
+using CoreKit.Subscription.Persistence;
+using CoreKit.Subscription.Persistence.Seeders;
 using CoreKit.Tenant.Persistence;
 using CoreKit.Tenant.Persistence.Seeders;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +48,9 @@ builder.Services.AddDbContext<IamDbContext>(options =>
 builder.Services.AddDbContext<TenantDbContext>(options =>
     options.UseNpgsql(connStr));
 
+builder.Services.AddDbContext<SubscriptionDbContext>(options =>
+    options.UseNpgsql(connStr));
+
 // ==========================================
 // IAM OPTIONS — NO BYPASS
 // ==========================================
@@ -73,6 +78,7 @@ builder.Services.AddScoped<RolePermissionSeeder>();
 builder.Services.AddScoped<UserRoleSeeder>();
 builder.Services.AddScoped<StoreTypeSeeder>();
 builder.Services.AddScoped<TenantSeeder>();
+builder.Services.AddScoped<SubscriptionSeeder>();
 builder.Services.AddScoped<IamBootstrap>();
 
 // ==========================================
@@ -96,6 +102,7 @@ try
 
     var iamDb = services.GetRequiredService<IamDbContext>();
     var tenantDb = services.GetRequiredService<TenantDbContext>();
+    var subDb = services.GetRequiredService<SubscriptionDbContext>();
 
     var canConnect = await iamDb.Database.CanConnectAsync();
     if (!canConnect)
@@ -125,9 +132,12 @@ try
     await tenantDb.Database.MigrateAsync();
     logger.LogInformation("Tenant migrations applied successfully.");
 
+    logger.LogInformation("Applying Subscription migrations...");
+    await subDb.Database.MigrateAsync();
+    logger.LogInformation("Subscription migrations applied successfully.");
+
     // ==========================================
     // STEP 3: SEED STORE TYPES FIRST
-    // (Tenants/Stores depend on StoreTypes)
     // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
@@ -151,7 +161,19 @@ try
     logger.LogInformation("Tenants seeded successfully.");
 
     // ==========================================
-    // STEP 5: IAM BOOTSTRAP
+    // STEP 5: SEED SUBSCRIPTION PLANS
+    // ==========================================
+    Console.WriteLine();
+    Console.WriteLine("==============================================");
+    Console.WriteLine("  SEEDING SUBSCRIPTION PLANS");
+    Console.WriteLine("==============================================");
+
+    var subscriptionSeeder = services.GetRequiredService<SubscriptionSeeder>();
+    await subscriptionSeeder.SeedAsync();
+    logger.LogInformation("Subscription plans seeded successfully.");
+
+    // ==========================================
+    // STEP 6: IAM BOOTSTRAP
     // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
@@ -194,6 +216,7 @@ try
     Console.WriteLine("Seeded items:");
     Console.WriteLine("  ✓ Store types (10 categories)");
     Console.WriteLine("  ✓ System tenant + system store");
+    Console.WriteLine("  ✓ Subscription plans (Free, Basic, Pro)");
     Console.WriteLine("  ✓ Permissions (including platform.*)");
     Console.WriteLine("  ✓ PlatformAdmin role (all permissions)");
     Console.WriteLine("  ✓ Default admin user (phone: 0000000000)");
@@ -206,6 +229,7 @@ try
     Console.WriteLine("Platform architecture:");
     Console.WriteLine("  - No SuperAdmin bypass");
     Console.WriteLine("  - Permission-based access control");
+    Console.WriteLine("  - Subscription plans ready");
     Console.WriteLine("  - Use /api/admin/impersonation for tenant access");
     Console.WriteLine();
 }
