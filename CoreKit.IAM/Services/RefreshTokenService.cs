@@ -51,6 +51,7 @@ public class RefreshTokenService : IRefreshTokenService
 
         await _repo.AddAsync(entity);
         await _db.SaveChangesAsync();
+
         return rawToken;
     }
 
@@ -73,6 +74,7 @@ public class RefreshTokenService : IRefreshTokenService
         stored.IsRevoked = true;
         stored.RevokedAtUtc = DateTime.UtcNow;
         stored.RevokedByIp = revokedByIp;
+
         if (replacedByToken != null)
             stored.ReplacedByTokenHash = TokenHasher.Hash(replacedByToken);
 
@@ -80,25 +82,17 @@ public class RefreshTokenService : IRefreshTokenService
         await _db.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// Rotates the refresh token.
-    ///
-    /// CRITICAL FIX 1 — the new token uses newJwtId (the freshly-minted
-    ///   access token's JWT ID), not the original expired jwtId.
-    ///
-    /// CRITICAL FIX 2 — a compromised (already-revoked) token revokes the
-    ///   whole family and throws immediately instead of returning a sentinel
-    ///   tuple that a caller might mishandle.
-    /// </summary>
     public async Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
-    string token,
-    string newJwtId)
+        string token,
+        string newJwtId)
     {
         var hash = TokenHasher.Hash(token);
 
         await using var tx = await _db.Database.BeginTransactionAsync();
+
         try
         {
+            // Lock the row for atomic read-modify-write
             var existing = await _db.RefreshTokens
                 .FromSqlRaw(
                     "SELECT * FROM \"RefreshTokens\" " +
@@ -106,20 +100,23 @@ public class RefreshTokenService : IRefreshTokenService
                     hash)
                 .FirstOrDefaultAsync();
 
+            // BUG FIX: token not found — rollback and throw. No commit should happen here.
             if (existing == null)
             {
                 await tx.RollbackAsync();
-                throw new UnauthorizedAccessException(
-                    "Invalid refresh token.");
+                throw new UnauthorizedAccessException("Invalid refresh token.");
             }
 
+            // BUG FIX: token reuse detected path.
+            // Previously this path committed and then re-threw, causing a double-commit
+            // attempt when the outer catch tried to rollback. Now we handle it cleanly:
+            // revoke the family, save, commit, then throw AFTER the transaction is closed.
             if (existing.IsRevoked)
             {
-                // Security event: token reuse detected — revoke entire family
                 _logger.LogWarning(
                     "Refresh token reuse detected. " +
-                    "UserId={UserId} FamilyId={FamilyId} " +
-                    "RevokedAt={RevokedAt} — revoking all family tokens.",
+                    "UserId={UserId} FamilyId={FamilyId} RevokedAt={RevokedAt} " +
+                    "— revoking all family tokens.",
                     existing.UserId,
                     existing.FamilyId,
                     existing.RevokedAtUtc);
@@ -128,11 +125,14 @@ public class RefreshTokenService : IRefreshTokenService
                 await _db.SaveChangesAsync();
                 await tx.CommitAsync();
 
+                // Throw AFTER the transaction is fully closed — no catch block can
+                // attempt a rollback on an already-committed transaction now.
                 throw new UnauthorizedAccessException(
                     "Refresh token reuse detected. " +
                     "All sessions have been revoked for security.");
             }
 
+            // BUG FIX: expired token — rollback and throw. No commit.
             if (existing.ExpiresAtUtc <= DateTime.UtcNow)
             {
                 await tx.RollbackAsync();
@@ -140,8 +140,8 @@ public class RefreshTokenService : IRefreshTokenService
                     "Refresh token has expired. Please log in again.");
             }
 
-            var newRaw = Convert.ToBase64String(
-                RandomNumberGenerator.GetBytes(64));
+            // Happy path: rotate the token
+            var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
             var newHash = TokenHasher.Hash(newRaw);
 
             var newEntity = new RefreshToken
@@ -166,16 +166,36 @@ public class RefreshTokenService : IRefreshTokenService
         }
         catch (UnauthorizedAccessException)
         {
-            // Already handled above — rollback only if tx still open
+            // BUG FIX: Only attempt rollback if the transaction is still open
+            // (i.e. not already committed). We check connection state as the
+            // reliable indicator — a committed transaction closes the connection object.
             if (tx.GetDbTransaction().Connection != null)
-                await tx.RollbackAsync();
+            {
+                try { await tx.RollbackAsync(); }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogWarning(rollbackEx,
+                        "Rollback failed (transaction may already be committed). " +
+                        "This is expected for the token-reuse path.");
+                }
+            }
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Unexpected error during token rotation for hash {Hash}", hash);
-            await tx.RollbackAsync();
+
+            if (tx.GetDbTransaction().Connection != null)
+            {
+                try { await tx.RollbackAsync(); }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogWarning(rollbackEx,
+                        "Rollback failed after unexpected error.");
+                }
+            }
+
             throw;
         }
     }

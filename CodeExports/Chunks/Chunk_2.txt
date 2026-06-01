@@ -76,6 +76,10 @@ services.AddScoped<IUserIdentityService, UserIdentityService>();
 if (iamOptions.EnableRoleDocumentRequirements)
 services.AddScoped<IRoleDocumentRequirementService,
 RoleDocumentRequirementService>();
+if (iamOptions.EnableImpersonation)
+{
+services.AddScoped<IImpersonationService, ImpersonationService>();
+}
 services.AddSingleton<IEncryptionService>(sp =>
 {
 var config = sp.GetRequiredService<IConfiguration>();
@@ -197,7 +201,6 @@ public static string Normalize(string phone)
 if (string.IsNullOrWhiteSpace(phone))
 return string.Empty;
 var trimmed = phone.Trim();
-var hasPlus = trimmed.StartsWith('+');
 var digitsOnly = StripNonDigits.Replace(trimmed, "");
 if (digitsOnly.Length < 7 || digitsOnly.Length > 15)
 throw new ArgumentException(
@@ -207,12 +210,19 @@ return digitsOnly;
 }
 public static string Normalize(string phone, string countryCode)
 {
+if (string.IsNullOrWhiteSpace(countryCode))
+throw new ArgumentException(
+"Country code must not be empty.", nameof(countryCode));
+var digitsOnlyCode = StripNonDigits.Replace(countryCode.Trim(), "");
+if (digitsOnlyCode.Length == 0)
+throw new ArgumentException(
+$"Country code '{countryCode}' contains no digits.", nameof(countryCode));
 var normalized = Normalize(phone);
+if (normalized.StartsWith(digitsOnlyCode))
+return normalized;
 if (normalized.StartsWith('0'))
 normalized = normalized[1..];
-if (!normalized.StartsWith(countryCode))
-normalized = countryCode + normalized;
-return normalized;
+return digitsOnlyCode + normalized;
 }
 }
 
@@ -232,14 +242,18 @@ return Convert.ToBase64String(bytes);
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IAuthService.cs =====
 using CoreKit.IAM.Models;
-namespace CoreKit.IAM.Interfaces
-{
+namespace CoreKit.IAM.Interfaces;
 public interface IAuthService
 {
-Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId);
-Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId);
+Task<LoginResponse> LoginAsync(
+LoginRequest request,
+Guid? tenantId,
+CancellationToken ct = default);
+Task<LoginResponse> RefreshAsync(
+RefreshTokenRequest request,
+Guid? tenantId,
+CancellationToken ct = default);
 Task LogoutAsync(string refreshToken);
-}
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\ICurrentUserService.cs =====
@@ -249,7 +263,7 @@ public interface ICurrentUserService
 {
 Guid? UserId { get; }
 bool IsAuthenticated { get; }
-bool IsSuperAdmin { get; }
+bool IsPlatformAdmin { get; }
 bool HasPermission(string permission);
 TenantScope GetTenantScope();
 Task<StoreScope> GetStoreScopeAsync();
@@ -494,14 +508,11 @@ public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
-using Microsoft.AspNetCore.Http;
 namespace CoreKit.IAM.Models;
 public class IamOptions
 {
 public string LoginIdentifier { get; set; } = "phone";
-public Func<HttpContext, Guid?>? TenantResolver { get; set; }
-public string SuperAdminRoleName { get; set; } = "SuperAdmin";
-public bool SuperAdminBypassPermissions { get; set; } = true;
+public Func<Microsoft.AspNetCore.Http.HttpContext, Guid?>? TenantResolver { get; set; }
 public int MinPasswordLength { get; set; } = 8;
 public bool EnableUserDocuments { get; set; } = false;
 public bool EnableUserIdentities { get; set; } = false;
@@ -509,6 +520,9 @@ public bool RequireCnic { get; set; } = true;
 public bool EnableRoleDocumentRequirements { get; set; } = false;
 public bool AllowDefaultAdminSeed { get; set; } = false;
 public bool RunMigrationsOnBootstrap { get; set; } = false;
+public string PlatformAdminRoleName { get; set; } = "PlatformAdmin";
+public bool EnableImpersonation { get; set; } = true;
+public bool RequireImpersonationForCrossTenant { get; set; } = true;
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
@@ -600,9 +614,7 @@ if (_options.RunMigrationsOnBootstrap)
 var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
 if (pendingMigrations.Any())
 {
-_logger.LogInformation(
-"Applying {Count} pending migration(s)...",
-pendingMigrations.Count());
+_logger.LogInformation("Applying {Count} pending migration(s)...", pendingMigrations.Count());
 await _db.Database.MigrateAsync();
 }
 else
@@ -612,8 +624,7 @@ _logger.LogInformation("No pending migrations.");
 }
 else
 {
-_logger.LogInformation(
-"RunMigrationsOnBootstrap is disabled — skipping migration check.");
+_logger.LogInformation("RunMigrationsOnBootstrap is disabled — skipping migration check.");
 }
 _logger.LogInformation("Starting IAM bootstrap...");
 await _permissionSeeder.SeedAsync();
@@ -677,19 +688,19 @@ private readonly IamDbContext _db;
 public RolePermissionSeeder(IamDbContext db) => _db = db;
 public async Task SeedAsync()
 {
-var superAdmin = await _db.Roles
+var platformAdmin = await _db.Roles
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
-if (superAdmin == null) return;
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null) return;
 var allPermissions = await _db.Permissions.ToListAsync();
 foreach (var permission in allPermissions)
 {
 var exists = await _db.RolePermissions
-.AnyAsync(rp => rp.RoleId == superAdmin.Id && rp.PermissionId == permission.Id);
+.AnyAsync(rp => rp.RoleId == platformAdmin.Id && rp.PermissionId == permission.Id);
 if (exists) continue;
 _db.RolePermissions.Add(new RolePermission
 {
-RoleId = superAdmin.Id,
+RoleId = platformAdmin.Id,
 PermissionId = permission.Id
 });
 }
@@ -707,16 +718,16 @@ private readonly IamDbContext _db;
 public RoleSeeder(IamDbContext db) => _db = db;
 public async Task SeedAsync()
 {
-var superAdmin = await _db.Roles
+var platformAdmin = await _db.Roles
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(r => r.Name == "SuperAdmin" && r.TenantId == null);
-if (superAdmin == null)
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null)
 {
 _db.Roles.Add(new Role
 {
-Id = Guid.NewGuid(),
-Name = "SuperAdmin",
-Description = "System Super Administrator",
+Id = Guid.Parse("40000000-0000-0000-0000-000000000001"),
+Name = "PlatformAdmin",
+Description = "Platform administrator with full platform permissions",
 TenantId = null,
 IsSystem = true
 });
@@ -739,20 +750,20 @@ var adminUser = await _db.Users
 .IgnoreQueryFilters()
 .FirstOrDefaultAsync(u =>
 u.Phone == "0000000000" || u.Email == "admin@system.com");
-var superAdmin = await _db.Roles
+var platformAdmin = await _db.Roles
 .IgnoreQueryFilters()
 .FirstOrDefaultAsync(r =>
-r.Name == "SuperAdmin" && r.TenantId == null);
-if (adminUser == null || superAdmin == null) return;
+r.Name == "PlatformAdmin" && r.TenantId == null);
+if (adminUser == null || platformAdmin == null) return;
 var alreadyAssigned = await _db.UserRoles
 .AnyAsync(ur =>
 ur.UserId == adminUser.Id &&
-ur.RoleId == superAdmin.Id);
+ur.RoleId == platformAdmin.Id);
 if (alreadyAssigned) return;
 _db.UserRoles.Add(new UserRole
 {
 UserId = adminUser.Id,
-RoleId = superAdmin.Id,
+RoleId = platformAdmin.Id,
 TenantId = null
 });
 await _db.SaveChangesAsync();

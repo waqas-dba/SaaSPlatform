@@ -1,4 +1,453 @@
 ﻿
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+using CoreKit.Subscription.Repositories;
+using CoreKit.Subscription.Services;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+namespace CoreKit.Subscription.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddSubscriptionModule(
+this IServiceCollection services,
+string connectionString)
+{
+services.AddDbContext<SubscriptionDbContext>((sp, options) =>
+{
+options.UseNpgsql(connectionString);
+});
+services.AddScoped<IPlanRepository, PlanRepository>();
+services.AddScoped<ITenantSubscriptionRepository, TenantSubscriptionRepository>();
+services.AddScoped<IPlanLimitProvider, PlanLimitProvider>();
+services.AddScoped<IPlanService, PlanService>();
+services.AddScoped<ISubscriptionManagementService, SubscriptionManagementService>();
+return services;
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\IPlanRepository.cs =====
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Interfaces;
+public interface IPlanRepository
+{
+Task<List<Plan>> GetAllAsync(CancellationToken ct = default);
+Task<Plan?> GetByIdAsync(Guid planId, CancellationToken ct = default);
+void Add(Plan plan);
+void Update(Plan plan);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\IPlanService.cs =====
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Interfaces;
+public interface IPlanService
+{
+Task<List<Plan>> GetAllAsync();
+Task<Plan> CreateAsync(string name, string code, string? description,
+decimal monthlyPrice, decimal yearlyPrice,
+int? maxStores, int? maxProducts, int? maxCategories,
+bool customDomain, bool themeCustomization, int sortOrder);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\ISubscriptionManagementService.cs =====
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Interfaces;
+public interface ISubscriptionManagementService
+{
+Task AssignSubscriptionAsync(Guid tenantId, Guid planId, DateTime? startDate = null, DateTime? endDate = null);
+Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\ITenantSubscriptionRepository.cs =====
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Interfaces;
+public interface ITenantSubscriptionRepository
+{
+Task<TenantSubscription?> GetActiveSubscriptionAsync(Guid tenantId, CancellationToken ct = default);
+void Add(TenantSubscription subscription);
+void Update(TenantSubscription subscription);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\Seeders\SubscriptionSeeder.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Persistence;
+namespace CoreKit.Subscription.Persistence.Seeders;
+public class SubscriptionSeeder
+{
+private readonly SubscriptionDbContext _db;
+public SubscriptionSeeder(SubscriptionDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+if (await _db.Plans.AnyAsync()) return;
+var plans = new List<Plan>
+{
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Free",
+Code = "free",
+Description = "Basic store with limited features",
+MonthlyPrice = 0,
+YearlyPrice = 0,
+MaxStores = 1,
+MaxProducts = 50,
+MaxCategories = 10,
+CustomDomainEnabled = false,
+ThemeCustomizationEnabled = false,
+IsActive = true,
+SortOrder = 1
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Basic",
+Code = "basic",
+Description = "For growing businesses",
+MonthlyPrice = 2999,
+YearlyPrice = 29990,
+MaxStores = 3,
+MaxProducts = 500,
+MaxCategories = 50,
+CustomDomainEnabled = false,
+ThemeCustomizationEnabled = true,
+IsActive = true,
+SortOrder = 2
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Pro",
+Code = "pro",
+Description = "For established businesses",
+MonthlyPrice = 7999,
+YearlyPrice = 79990,
+MaxStores = null,
+MaxProducts = null,
+MaxCategories = null,
+CustomDomainEnabled = true,
+ThemeCustomizationEnabled = true,
+IsActive = true,
+SortOrder = 3
+}
+};
+_db.Plans.AddRange(plans);
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\SubscriptionDbContext.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Configuration;
+namespace CoreKit.Subscription.Persistence;
+public class SubscriptionDbContext : AuditableDbContext
+{
+public SubscriptionDbContext(
+DbContextOptions<SubscriptionDbContext> options,
+ICurrentUser? currentUser = null)
+: base(options, currentUser)
+{
+}
+public DbSet<Plan> Plans => Set<Plan>();
+public DbSet<TenantSubscription> TenantSubscriptions => Set<TenantSubscription>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfiguration(new PlanConfiguration());
+modelBuilder.ApplyConfiguration(new TenantSubscriptionConfiguration());
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Repositories\PlanRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+namespace CoreKit.Subscription.Repositories;
+public class PlanRepository : IPlanRepository
+{
+private readonly SubscriptionDbContext _db;
+public PlanRepository(SubscriptionDbContext db) => _db = db;
+public async Task<List<Plan>> GetAllAsync(CancellationToken ct = default)
+=> await _db.Plans.AsNoTracking().OrderBy(p => p.SortOrder).ToListAsync(ct);
+public async Task<Plan?> GetByIdAsync(Guid planId, CancellationToken ct = default)
+=> await _db.Plans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+public void Add(Plan plan) => _db.Plans.Add(plan);
+public void Update(Plan plan) => _db.Plans.Update(plan);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Repositories\TenantSubscriptionRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+namespace CoreKit.Subscription.Repositories;
+public class TenantSubscriptionRepository : ITenantSubscriptionRepository
+{
+private readonly SubscriptionDbContext _db;
+public TenantSubscriptionRepository(SubscriptionDbContext db) => _db = db;
+public async Task<TenantSubscription?> GetActiveSubscriptionAsync(Guid tenantId, CancellationToken ct = default)
+=> await _db.TenantSubscriptions
+.Include(ts => ts.Plan)
+.FirstOrDefaultAsync(ts => ts.TenantId == tenantId
+&& ts.Status == SubscriptionStatus.Active
+&& ts.StartDate <= DateTime.UtcNow
+&& (ts.EndDate == null || ts.EndDate >= DateTime.UtcNow), ct);
+public void Add(TenantSubscription subscription) => _db.TenantSubscriptions.Add(subscription);
+public void Update(TenantSubscription subscription) => _db.TenantSubscriptions.Update(subscription);
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanLimitProvider.cs =====
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Subscription.Services;
+public class PlanLimitProvider : IPlanLimitProvider
+{
+private readonly SubscriptionDbContext _db;
+public PlanLimitProvider(SubscriptionDbContext db) => _db = db;
+public async Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxStores;
+}
+public async Task<int?> GetMaxProductsAsync(Guid tenantId, CancellationToken ct = default)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxProducts;
+}
+public async Task<int?> GetMaxCategoriesAsync(Guid tenantId, CancellationToken ct = default)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxCategories;
+}
+public async Task<bool> IsFeatureEnabledAsync(Guid tenantId, string featureCode, CancellationToken ct = default)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+if (plan == null) return false;
+return featureCode switch
+{
+"custom_domain" => plan.CustomDomainEnabled,
+"theme_customization" => plan.ThemeCustomizationEnabled,
+_ => false
+};
+}
+private async Task<Plan?> GetActivePlanAsync(Guid tenantId, CancellationToken ct)
+{
+return await _db.TenantSubscriptions
+.Where(ts => ts.TenantId == tenantId
+&& ts.Status == SubscriptionStatus.Active
+&& ts.StartDate <= DateTime.UtcNow
+&& (ts.EndDate == null || ts.EndDate >= DateTime.UtcNow))
+.Select(ts => ts.Plan)
+.FirstOrDefaultAsync(ct);
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanService.cs =====
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+namespace CoreKit.Subscription.Services;
+public class PlanService : IPlanService
+{
+private readonly SubscriptionDbContext _db;
+private readonly IPlanRepository _planRepo;
+public PlanService(SubscriptionDbContext db, IPlanRepository planRepo)
+{
+_db = db;
+_planRepo = planRepo;
+}
+public async Task<List<Plan>> GetAllAsync() => await _planRepo.GetAllAsync();
+public async Task<Plan> CreateAsync(string name, string code, string? description,
+decimal monthlyPrice, decimal yearlyPrice,
+int? maxStores, int? maxProducts, int? maxCategories,
+bool customDomain, bool themeCustomization, int sortOrder)
+{
+var plan = new Plan
+{
+Id = Guid.NewGuid(),
+Name = name,
+Code = code,
+Description = description,
+MonthlyPrice = monthlyPrice,
+YearlyPrice = yearlyPrice,
+MaxStores = maxStores,
+MaxProducts = maxProducts,
+MaxCategories = maxCategories,
+CustomDomainEnabled = customDomain,
+ThemeCustomizationEnabled = themeCustomization,
+SortOrder = sortOrder,
+IsActive = true
+};
+_planRepo.Add(plan);
+await _db.SaveChangesAsync();
+return plan;
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\SubscriptionManagementService.cs =====
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Subscription.Services;
+public class SubscriptionManagementService : ISubscriptionManagementService
+{
+private readonly SubscriptionDbContext _db;
+private readonly ITenantSubscriptionRepository _subscriptionRepo;
+public SubscriptionManagementService(
+SubscriptionDbContext db,
+ITenantSubscriptionRepository subscriptionRepo)
+{
+_db = db;
+_subscriptionRepo = subscriptionRepo;
+}
+public async Task AssignSubscriptionAsync(
+Guid tenantId,
+Guid planId,
+DateTime? startDate = null,
+DateTime? endDate = null)
+{
+var existingActive = await _db.TenantSubscriptions
+.Where(ts => ts.TenantId == tenantId && ts.Status == SubscriptionStatus.Active)
+.ToListAsync();
+foreach (var sub in existingActive)
+{
+sub.Status = SubscriptionStatus.Cancelled;
+sub.EndDate = DateTime.UtcNow;
+}
+var subscription = new TenantSubscription
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+PlanId = planId,
+StartDate = startDate ?? DateTime.UtcNow,
+EndDate = endDate,
+Status = SubscriptionStatus.Active
+};
+_subscriptionRepo.Add(subscription);
+await _db.SaveChangesAsync();
+}
+public async Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId)
+=> await _subscriptionRepo.GetActiveSubscriptionAsync(tenantId);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IMutableTenantContext.cs =====
+namespace CoreKit.Tenant.Services;
+public interface IMutableTenantContext : ITenantContext
+{
+void SetTenant(Guid tenantId);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IPlanLimitProvider.cs =====
+namespace CoreKit.Tenant.Abstractions;
+public interface IPlanLimitProvider
+{
+Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
+Task<int?> GetMaxProductsAsync(Guid tenantId, CancellationToken ct = default);
+Task<int?> GetMaxCategoriesAsync(Guid tenantId, CancellationToken ct = default);
+Task<bool> IsFeatureEnabledAsync(Guid tenantId, string featureCode, CancellationToken ct = default);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
+namespace CoreKit.Tenant.Services;
+public interface ITenantContext { Guid? TenantId { get; } }
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Tenant.Configuration;
+public class StoreConfiguration : IEntityTypeConfiguration<Store>
+{
+public void Configure(EntityTypeBuilder<Store> builder)
+{
+builder.ToTable("TNT_Stores");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Slug)
+.HasMaxLength(200)
+.IsRequired();
+builder.HasIndex(x => new { x.TenantId, x.Slug })
+.IsUnique();
+builder.Property(x => x.StoreTypeId).IsRequired();
+builder.HasOne(x => x.Tenant)
+.WithMany(x => x.Stores)
+.HasForeignKey(x => x.TenantId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreTypeConfiguration.cs =====
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Tenant.Persistence.Configurations;
+public class StoreTypeConfiguration
+: IEntityTypeConfiguration<StoreType>
+{
+public void Configure(EntityTypeBuilder<StoreType> builder)
+{
+builder.ToTable("StoreTypes");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.HasMaxLength(100)
+.IsRequired();
+builder.Property(x => x.Code)
+.HasMaxLength(50)
+.IsRequired();
+builder.Property(x => x.Category)
+.HasMaxLength(50)
+.IsRequired();
+builder.Property(x => x.Description)
+.HasMaxLength(1000);
+builder.Property(x => x.Icon)
+.HasMaxLength(200);
+builder.Property(x => x.Color)
+.HasMaxLength(20);
+builder.HasIndex(x => x.Code)
+.IsUnique();
+builder.HasMany(x => x.Stores)
+.WithOne(x => x.StoreType)
+.HasForeignKey(x => x.StoreTypeId)
+.OnDelete(DeleteBehavior.Restrict);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Tenant.Configuration;
+public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
+{
+public void Configure(EntityTypeBuilder<TenantEntity> builder)
+{
+builder.ToTable("TNT_Tenants");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Slug)
+.HasMaxLength(200)
+.IsRequired();
+builder.Property(x => x.Status)
+.HasConversion<int>()
+.IsRequired();
+builder.HasIndex(x => x.Name).IsUnique();
+builder.HasIndex(x => x.Slug).IsUnique();
+}
+}
+
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -145,504 +594,24 @@ services.Configure<TenantKitOptions>(options =>
 {
 configure?.Invoke(options);
 });
-services.AddDbContext<TenantDbContext>(opt =>
+services.AddDbContext<TenantDbContext>((sp, opt) =>
 {
 opt.UseNpgsql(connectionString);
 });
 services.AddScoped<ITenantRepository, TenantRepository>();
 services.AddScoped<IStoreRepository, StoreRepository>();
 services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
+services.AddScoped<IStoreTypeRepository, StoreTypeRepository>();
 services.AddScoped<ITenantService, TenantService>();
 services.AddScoped<IStoreService, StoreService>();
 services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
+services.AddScoped<IStoreTypeService, StoreTypeService>();
 services.AddScoped<TenantContext>();
-services.AddScoped<ITenantContext>(sp =>
-sp.GetRequiredService<TenantContext>());
-services.AddScoped<IMutableTenantContext>(sp =>
-sp.GetRequiredService<TenantContext>());
+services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
 services.AddScoped<TenantResolutionMiddleware>();
 services.AddValidatorsFromAssemblyContaining<CreateStoreRequestValidator>();
 return services;
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreRepository
-{
-Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default);
-Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default);
-void Add(Store store);
-void Update(Store store);
-void Delete(Store store);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs =====
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreService
-{
-Task<StoreDto?> GetByIdAsync(
-Guid storeId,
-CancellationToken cancellationToken = default);
-Task<List<StoreDto>> GetAllByTenantAsync(
-Guid tenantId,
-CancellationToken cancellationToken = default);
-Task<List<StoreDto>> GetAllStoresAsync(
-CancellationToken cancellationToken = default);
-Task<StoreDto> CreateAsync(
-CreateStoreRequest request,
-CancellationToken cancellationToken = default);
-Task UpdateAsync(
-Guid storeId,
-UpdateStoreRequest request,
-CancellationToken cancellationToken = default);
-Task DeleteAsync(
-Guid storeId,
-CancellationToken cancellationToken = default);
-Task SetMarketplaceListingAsync(
-Guid storeId,
-bool isListed,
-CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantLegalInfoRepository
-{
-Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
-Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantLegalInfoService
-{
-Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson);
-Task<TenantLegalInfo?> GetAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantRepository
-{
-Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
-Task<TenantEntity?> GetByIdIncludeDeletedAsync(Guid tenantId, CancellationToken ct = default);
-Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default);
-Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
-void Add(TenantEntity tenant);
-void Update(TenantEntity tenant);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs =====
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantService
-{
-Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request);
-Task<TenantEntity?> GetByIdAsync(Guid tenantId);
-Task<List<TenantEntity>> GetAllAsync();
-Task UpdateAsync(Guid tenantId, string? name, string? metadataJson);
-Task DeleteAsync(Guid tenantId);
-Task ApproveAsync(Guid tenantId);
-Task RejectAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
-using System.Text.Json;
-using CoreKit.IAM.Interfaces;
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Enums;
-using CoreKit.Tenant.Persistence;
-using CoreKit.Tenant.Services;
-using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Tenant.Middleware;
-public class TenantResolutionMiddleware : IMiddleware
-{
-private readonly TenantDbContext _db;
-private readonly IMutableTenantContext _tenantContext;
-private readonly ICurrentUserService _currentUser;
-private readonly ILogger<TenantResolutionMiddleware> _logger;
-private static readonly JsonSerializerOptions JsonOptions =
-new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-private static readonly HashSet<string> BypassPaths = new(StringComparer.OrdinalIgnoreCase)
-{
-"/api/auth/refresh",
-"/api/auth/logout"
-};
-public TenantResolutionMiddleware(
-TenantDbContext db,
-IMutableTenantContext tenantContext,
-ICurrentUserService currentUser,
-ILogger<TenantResolutionMiddleware> logger)
-{
-_db = db;
-_tenantContext = tenantContext;
-_currentUser = currentUser;
-_logger = logger;
-}
-public async Task InvokeAsync(HttpContext context, RequestDelegate next)
-{
-var traceId = context.Items.TryGetValue("TraceId", out var t)
-? t?.ToString() : "??";
-var path = context.Request.Path.Value ?? string.Empty;
-if (BypassPaths.Contains(path))
-{
-_logger.LogDebug("[{TraceId}] Tenant middleware bypassed for auth path {Path}",
-traceId, path);
-await next(context);
-return;
-}
-if (!context.Request.Headers.TryGetValue("x-tenant-id", out var tid))
-{
-_logger.LogDebug("[{TraceId}] No x-tenant-id header — passing through", traceId);
-await next(context);
-return;
-}
-if (!Guid.TryParse(tid, out var tenantId))
-{
-_logger.LogWarning("[{TraceId}] Invalid x-tenant-id value: {Value}", traceId, tid.ToString());
-await WriteAsync(context, 400, "BAD_REQUEST",
-"The x-tenant-id header value is not a valid identifier.");
-return;
-}
-TenantEntity? tenant;
-try
-{
-tenant = await _db.Tenants
-.IgnoreQueryFilters()
-.FirstOrDefaultAsync(x => x.Id == tenantId, context.RequestAborted);
-}
-catch (OperationCanceledException)
-{
-_logger.LogInformation("[{TraceId}] Request cancelled during tenant lookup", traceId);
-if (!context.Response.HasStarted)
-context.Response.StatusCode = 499;
-return;
-}
-catch (Exception ex)
-{
-_logger.LogError(ex,
-"[{TraceId}] Database error resolving tenant {TenantId}", traceId, tenantId);
-await WriteAsync(context, 500, "SERVER_ERROR",
-"Something went wrong on our end. Please try again in a moment.");
-return;
-}
-if (tenant == null)
-{
-_logger.LogWarning("[{TraceId}] Tenant {TenantId} not found", traceId, tenantId);
-await WriteAsync(context, 404, "TENANT_NOT_FOUND",
-"The tenant specified in x-tenant-id was not found.");
-return;
-}
-if (tenant.IsDeleted)
-{
-_logger.LogWarning("[{TraceId}] Tenant {TenantId} is deleted", traceId, tenantId);
-await WriteAsync(context, 410, "TENANT_DELETED",
-"This tenant account has been permanently removed and is no longer accessible.");
-return;
-}
-if (tenant.Status != TenantStatus.Active)
-{
-_logger.LogWarning(
-"[{TraceId}] Tenant {TenantId} is not active — status={Status}",
-traceId, tenantId, tenant.Status);
-var msg = tenant.Status switch
-{
-TenantStatus.Pending =>
-"This tenant account is pending approval and cannot be accessed yet.",
-TenantStatus.Suspended =>
-"This tenant account has been suspended. Please contact support.",
-TenantStatus.Rejected =>
-"This tenant account registration was not approved.",
-TenantStatus.Archived =>
-"This tenant account has been archived and is no longer active.",
-_ =>
-$"This tenant account is currently {tenant.Status} and cannot be accessed."
-};
-await WriteAsync(context, 403, "TENANT_INACTIVE", msg);
-return;
-}
-_tenantContext.SetTenant(tenantId);
-if (context.User.Identity?.IsAuthenticated == true)
-{
-try
-{
-if (!_currentUser.IsSuperAdmin && _currentUser.UserId != null)
-{
-var scope = _currentUser.GetTenantScope();
-if (!scope.IsGlobal && scope.TenantId != tenantId)
-{
-_logger.LogWarning(
-"[{TraceId}] Cross-tenant attempt by user {UserId} to tenant {TenantId}",
-traceId, _currentUser.UserId, tenantId);
-await WriteAsync(context, 403, "TENANT_ACCESS_DENIED",
-"You do not have access to this tenant.");
-return;
-}
-}
-}
-catch (Exception ex)
-{
-_logger.LogError(ex,
-"[{TraceId}] Scope check failed for user {UserId}",
-traceId, _currentUser.UserId);
-await WriteAsync(context, 401, "AUTH_VALIDATION_FAILED",
-"Your session could not be validated. Please log in again.");
-return;
-}
-}
-await next(context);
-}
-private static Task WriteAsync(
-HttpContext context, int statusCode, string errorCode, string message)
-{
-if (context.Response.HasStarted) return Task.CompletedTask;
-context.Response.StatusCode = statusCode;
-context.Response.ContentType = "application/json";
-return context.Response.WriteAsync(
-JsonSerializer.Serialize(
-new { success = false, errorCode, message },
-JsonOptions));
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\CreateStoreRequest.cs =====
-namespace CoreKit.Tenant.Models;
-public class CreateStoreRequest
-{
-public string? Name { get; set; }
-public Guid StoreTypeId { get; set; }
-public string? AddressLine1 { get; set; }
-public string? AddressLine2 { get; set; }
-public string? City { get; set; }
-public string? State { get; set; }
-public string? PostalCode { get; set; }
-public string? CountryCode { get; set; }
-public decimal? Latitude { get; set; }
-public decimal? Longitude { get; set; }
-public bool? IsActive { get; set; }
-public string? LogoUrl { get; set; }
-public string? CoverImageUrl { get; set; }
-public string? MetadataJson { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\StoreDto.cs =====
-namespace CoreKit.Tenant.Models;
-public class StoreDto
-{
-public Guid Id { get; set; }
-public Guid TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string Slug { get; set; } = default!;
-public Guid StoreTypeId { get; set; }
-public string StoreTypeName { get; set; } = default!;
-public string StoreCategory { get; set; } = default!;
-public bool IsActive { get; set; }
-public bool IsListedOnMarketplace { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantKitOptions.cs =====
-namespace CoreKit.Tenant.Models;
-public class TenantKitOptions
-{
-public bool AutoApproveTenants { get; set; } = false;
-public bool AllowMultipleStores { get; set; } = false;
-public bool EnableLegalInfo { get; set; } = false;
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationRequest.cs =====
-namespace CoreKit.Tenant.Models;
-public class TenantRegistrationRequest
-{
-public string Name { get; set; } = default!;
-public string? MetadataJson { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\TenantRegistrationResponse.cs =====
-namespace CoreKit.Tenant.Models;
-public class TenantRegistrationResponse
-{
-public Guid TenantId { get; set; }
-public string Message { get; set; } = default!;
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
-namespace CoreKit.Tenant.Models;
-public class UpdateStoreRequest
-{
-public string? Name { get; set; }
-public Guid? StoreTypeId { get; set; }
-public string? AddressLine1 { get; set; }
-public string? AddressLine2 { get; set; }
-public string? City { get; set; }
-public string? State { get; set; }
-public string? PostalCode { get; set; }
-public string? CountryCode { get; set; }
-public decimal? Latitude { get; set; }
-public decimal? Longitude { get; set; }
-public string? LogoUrl { get; set; }
-public string? CoverImageUrl { get; set; }
-public bool? IsActive { get; set; }
-public string? MetadataJson { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\StoreTypeSeeder.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Persistence.Seeders;
-public class StoreTypeSeeder
-{
-private readonly TenantDbContext _db;
-public StoreTypeSeeder(TenantDbContext db)
-{
-_db = db;
-}
-public async Task SeedAsync()
-{
-if (await _db.StoreTypes.AnyAsync())
-return;
-var items = new List<StoreType>
-{
-new()
-{
-Id = Guid.NewGuid(),
-Name = "Restaurant",
-Code = "restaurant",
-Category = "Food",
-IsSystem = true,
-SortOrder = 1
-},
-new()
-{
-Id = Guid.NewGuid(),
-Name = "Pharmacy",
-Code = "pharmacy",
-Category = "Healthcare",
-IsSystem = true,
-SortOrder = 2
-},
-new()
-{
-Id = Guid.NewGuid(),
-Name = "Hotel",
-Code = "hotel",
-Category = "Hospitality",
-IsSystem = true,
-SortOrder = 3
-},
-new()
-{
-Id = Guid.NewGuid(),
-Name = "Salon",
-Code = "salon",
-Category = "Service",
-IsSystem = true,
-SortOrder = 4
-}
-};
-await _db.StoreTypes.AddRangeAsync(items);
-await _db.SaveChangesAsync();
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs =====
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Enums;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Tenant.Persistence.Seeders;
-public sealed class TenantSeeder
-{
-private readonly TenantDbContext _db;
-private readonly ILogger<TenantSeeder> _logger;
-public TenantSeeder(TenantDbContext db, ILogger<TenantSeeder> logger)
-{
-_db = db;
-_logger = logger;
-}
-public async Task SeedAsync()
-{
-_logger.LogInformation("Tenant seeding started...");
-var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
-if (!await _db.Tenants.AnyAsync(t => t.Id == systemTenantId))
-{
-_db.Tenants.Add(new TenantEntity
-{
-Id = systemTenantId,
-Name = "System",
-Slug = "system",
-Status = TenantStatus.Active
-});
-await _db.SaveChangesAsync();
-_logger.LogInformation("✔ System tenant created.");
-}
-else
-{
-_logger.LogInformation("System tenant already exists.");
-}
-if (!await _db.Stores.AnyAsync(s => s.Id == systemStoreId))
-{
-_db.Stores.Add(new Store
-{
-Id = systemStoreId,
-TenantId = systemTenantId,
-Name = "System Store",
-Slug = "system-store",
-IsActive = true,
-IsPrimary = true
-});
-await _db.SaveChangesAsync();
-_logger.LogInformation("✔ System store created.");
-}
-else
-{
-_logger.LogInformation("System store already exists.");
-}
-_logger.LogInformation("Tenant seeding completed.");
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
-using CoreKit.SharedKernel.Common;
-using CoreKit.SharedKernel.Interfaces;
-using CoreKit.Tenant.Entities;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.Tenant.Persistence;
-public class TenantDbContext : AuditableDbContext
-{
-private Guid? _tenantId;
-private bool _isGlobal = true;
-public void SetTenantScope(Guid? tenantId, bool isGlobal)
-{
-_tenantId = tenantId;
-_isGlobal = isGlobal;
-}
-public TenantDbContext(
-DbContextOptions<TenantDbContext> options,
-ICurrentUser? currentUser = null)
-: base(options, currentUser)
-{
-}
-public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
-public DbSet<Store> Stores => Set<Store>();
-public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
-public DbSet<StoreType> StoreTypes => Set<StoreType>();
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-base.OnModelCreating(modelBuilder);
-modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
-modelBuilder.Entity<Store>()
-.HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
-modelBuilder.Entity<TenantLegalInfo>()
-.HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
 }
 }
 

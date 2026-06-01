@@ -4,30 +4,20 @@ namespace CoreKit.IAM.Helpers;
 
 public static class PhoneNormalizer
 {
-    // Normalizes to E.164-style digits only, e.g.:
-    // "+92-300-1234567" => "923001234567"
-    // "0300-123-4567"   => "03001234567"  (local, no country code)
-    // "  +1 (800) 555-1234 " => "18005551234"
     private static readonly Regex StripNonDigits =
         new(@"[^\d]", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Strips all non-digit characters and validates the length (7–15 digits).
+    /// The leading '+' is removed; the caller is responsible for country code handling.
+    /// </summary>
     public static string Normalize(string phone)
     {
         if (string.IsNullOrWhiteSpace(phone))
             return string.Empty;
 
         var trimmed = phone.Trim();
-
-        // Preserve leading + as a country-code marker before stripping
-        var hasPlus = trimmed.StartsWith('+');
         var digitsOnly = StripNonDigits.Replace(trimmed, "");
-
-        // If it started with + we already have the full international number
-        // If it starts with 0 and has 10-11 digits it's a local Pakistani number
-        // — we do NOT auto-expand to +92 here because the country code is
-        // caller-supplied; we just store the normalized digit string so that
-        // "+92-300-1234567" and "0923001234567" are NOT silently merged.
-        // If you want auto-expansion, pass a defaultCountryCode parameter.
 
         if (digitsOnly.Length < 7 || digitsOnly.Length > 15)
             throw new ArgumentException(
@@ -38,21 +28,38 @@ public static class PhoneNormalizer
     }
 
     /// <summary>
-    /// Normalizes and expands a local number to E.164 using the supplied
-    /// country code, e.g. Normalize("0300-1234567", "92") => "923001234567"
+    /// Normalises a phone number and ensures it carries the given country code.
     /// </summary>
+    /// <param name="phone">Raw phone input, e.g. "0300-1234567" or "+923001234567"</param>
+    /// <param name="countryCode">
+    ///   Digits-only country code, e.g. "92" for Pakistan.
+    ///   A leading '+' is accepted and stripped automatically.
+    /// </param>
     public static string Normalize(string phone, string countryCode)
     {
+        if (string.IsNullOrWhiteSpace(countryCode))
+            throw new ArgumentException(
+                "Country code must not be empty.", nameof(countryCode));
+
+        // BUG FIX: strip '+' from countryCode if the caller passes "+92" instead of "92"
+        var digitsOnlyCode = StripNonDigits.Replace(countryCode.Trim(), "");
+        if (digitsOnlyCode.Length == 0)
+            throw new ArgumentException(
+                $"Country code '{countryCode}' contains no digits.", nameof(countryCode));
+
         var normalized = Normalize(phone);
 
-        // Strip leading 0 (trunk prefix) before prepending country code
+        // If the number already starts with the country code, leave it as-is.
+        // Otherwise strip a leading '0' (local trunk prefix) and prepend the code.
+        // BUG FIX: previously the leading-zero strip happened unconditionally before
+        // the StartsWith check, which corrupted numbers that began with the country
+        // code digits but also happened to start with '0' after stripping.
+        if (normalized.StartsWith(digitsOnlyCode))
+            return normalized;
+
         if (normalized.StartsWith('0'))
             normalized = normalized[1..];
 
-        // Avoid double-prepending if already starts with country code
-        if (!normalized.StartsWith(countryCode))
-            normalized = countryCode + normalized;
-
-        return normalized;
+        return digitsOnlyCode + normalized;
     }
 }

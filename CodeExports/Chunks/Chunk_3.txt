@@ -30,15 +30,11 @@ var adminExists = await _db.Users
 .AnyAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
 if (adminExists) return;
 var seedPassword = _configuration["Seeder:AdminPassword"];
+var passwordWasGenerated = false;
 if (string.IsNullOrWhiteSpace(seedPassword))
 {
 seedPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16] + "A1!";
-_logger.LogWarning(
-"Seeder:AdminPassword is not configured. " +
-"A random password was generated for the admin account. " +
-"Set 'Seeder:AdminPassword' in your secrets store before running in production. " +
-"The password has NOT been logged or written to any output stream. " +
-"Rotate it immediately after first login.");
+passwordWasGenerated = true;
 }
 var adminUser = new User
 {
@@ -53,6 +49,35 @@ FailedLoginAttempts = 0
 };
 _db.Users.Add(adminUser);
 await _db.SaveChangesAsync();
+if (passwordWasGenerated)
+{
+const string passwordFilePath = "admin_seed_password.txt";
+try
+{
+await File.WriteAllTextAsync(
+passwordFilePath,
+$"GENERATED ADMIN PASSWORD: {seedPassword}{Environment.NewLine}" +
+$"Generated at (UTC): {DateTime.UtcNow:O}{Environment.NewLine}" +
+$"DELETE THIS FILE IMMEDIATELY after first login.{Environment.NewLine}");
+_logger.LogWarning(
+"Seeder:AdminPassword was not configured. " +
+"A random password has been generated and written to '{FilePath}'. " +
+"Set 'Seeder:AdminPassword' in your secrets store before running in production. " +
+"Delete the file immediately after retrieving the password.",
+passwordFilePath);
+}
+catch (Exception ex)
+{
+_logger.LogWarning(ex,
+"Could not write generated admin password to file. " +
+"Printing to console as fallback.");
+Console.Error.WriteLine("==============================================");
+Console.Error.WriteLine("  GENERATED ADMIN PASSWORD (retrieve now)");
+Console.Error.WriteLine($"  {seedPassword}");
+Console.Error.WriteLine("  Set Seeder:AdminPassword and rotate immediately.");
+Console.Error.WriteLine("==============================================");
+}
+}
 _logger.LogInformation("System admin user seeded successfully.");
 }
 }
@@ -346,11 +371,12 @@ Guid userId, Guid tenantId, CancellationToken ct = default)
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\AuthService.cs =====
-using Microsoft.EntityFrameworkCore;
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
 namespace CoreKit.IAM.Services;
 public class AuthService : IAuthService
 {
@@ -381,10 +407,15 @@ _passwordHasher = passwordHasher;
 _db = db;
 _options = options;
 }
-public async Task<LoginResponse> LoginAsync(LoginRequest request, Guid? tenantId)
+public async Task<LoginResponse> LoginAsync(
+LoginRequest request,
+Guid? tenantId,
+CancellationToken ct = default)
 {
 var user = await _userRepo.GetUserByLoginAsync(
-request.Login, tenantId, _options.LoginIdentifier)
+request.Login,
+tenantId,
+_options.LoginIdentifier)
 ?? throw new UnauthorizedAccessException("Invalid credentials.");
 if (!user.IsActive)
 throw new UnauthorizedAccessException("Account is disabled.");
@@ -396,85 +427,107 @@ if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
 user.FailedLoginAttempts++;
 if (user.FailedLoginAttempts >= 5)
 user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
-await _db.SaveChangesAsync();
+await _db.SaveChangesAsync(ct);
 throw new UnauthorizedAccessException("Invalid credentials.");
 }
 user.FailedLoginAttempts = 0;
 user.LockoutEnd = null;
 user.LastLoginAt = DateTime.UtcNow;
-await _db.SaveChangesAsync();
+await _db.SaveChangesAsync(ct);
 var roles = BuildRoleList(user, tenantId);
 var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-List<Guid>? storeIds = null;
-if (tenantId.HasValue)
-{
-storeIds = await _db.Set<UserStoreAssignment>()
-.Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
-.Select(a => a.StoreId)
-.ToListAsync();
-if (storeIds.Count == 0) storeIds = null;
-}
+var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
 user, tenantId, roles, permissions, storeIds);
 var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, jwtId);
-return new LoginResponse { AccessToken = accessToken, RefreshToken = refreshToken };
+return new LoginResponse
+{
+AccessToken = accessToken,
+RefreshToken = refreshToken
+};
 }
-public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, Guid? tenantId)
+public async Task<LoginResponse> RefreshAsync(
+RefreshTokenRequest request,
+Guid? tenantId,
+CancellationToken ct = default)
 {
 var previewHash = _refreshTokenService.ComputeHash(request.RefreshToken);
 var preview = await _db.RefreshTokens
 .AsNoTracking()
-.FirstOrDefaultAsync(t => t.TokenHash == previewHash);
+.FirstOrDefaultAsync(x => x.TokenHash == previewHash, ct);
 if (preview == null || preview.IsRevoked || preview.ExpiresAtUtc <= DateTime.UtcNow)
 {
 await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
 throw new UnauthorizedAccessException("Invalid or expired refresh token.");
 }
-var user = await _userRepo.GetByIdAsync(preview.UserId)
+var user = await _db.Users
+.Include(u => u.Roles)
+.ThenInclude(ur => ur.Role)
+.ThenInclude(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
+.FirstOrDefaultAsync(u => u.Id == preview.UserId, ct)
 ?? throw new UnauthorizedAccessException("User not found.");
 if (!user.IsActive)
 throw new UnauthorizedAccessException("Account is disabled.");
-var isSuperAdmin = user.Roles.Any(r =>
-r.Role.Name == _options.SuperAdminRoleName);
-if (tenantId.HasValue && !isSuperAdmin)
+if (tenantId.HasValue)
 {
-bool belongsToTenant = user.Roles.Any(ur =>
-ur.TenantId.HasValue && ur.TenantId.Value == tenantId.Value);
+var hasPlatformAccess = user.Roles.Any(x =>
+x.TenantId == null &&
+x.Role.RolePermissions.Any(rp =>
+rp.Permission.Name == Permissions.Platform.ViewAllTenants));
+if (!hasPlatformAccess)
+{
+var belongsToTenant = user.Roles.Any(x =>
+x.TenantId.HasValue && x.TenantId.Value == tenantId.Value);
 if (!belongsToTenant)
 throw new UnauthorizedAccessException(
 "User does not belong to this tenant.");
 }
+}
 var roles = BuildRoleList(user, tenantId);
 var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-List<Guid>? storeIds = null;
-if (tenantId.HasValue)
-{
-storeIds = await _db.Set<UserStoreAssignment>()
-.Where(a => a.UserId == user.Id && a.TenantId == tenantId.Value)
-.Select(a => a.StoreId)
-.ToListAsync();
-if (storeIds.Count == 0) storeIds = null;
-}
+var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
 user, tenantId, roles, permissions, storeIds);
 var (newRefreshToken, _) = await _refreshTokenService.RotateAsync(
 request.RefreshToken, newJwtId);
-return new LoginResponse { AccessToken = accessToken, RefreshToken = newRefreshToken };
+return new LoginResponse
+{
+AccessToken = accessToken,
+RefreshToken = newRefreshToken
+};
 }
 public async Task LogoutAsync(string refreshToken)
-=> await _refreshTokenService.RevokeAsync(refreshToken);
+{
+await _refreshTokenService.RevokeAsync(refreshToken);
+}
 private List<string> BuildRoleList(User user, Guid? tenantId)
-=> user.Roles
-.Where(r => r.TenantId == null || r.TenantId == tenantId)
-.Select(r => r.Role.Name)
+{
+return user.Roles
+.Where(x => x.TenantId == null || x.TenantId == tenantId)
+.Select(x => x.Role.Name)
 .Distinct()
 .ToList();
+}
+private async Task<List<Guid>?> ResolveStoreIdsAsync(
+Guid userId,
+Guid? tenantId,
+CancellationToken ct)
+{
+if (!tenantId.HasValue)
+return null;
+var storeIds = await _db.Set<UserStoreAssignment>()
+.AsNoTracking()
+.Where(x => x.UserId == userId && x.TenantId == tenantId.Value)
+.Select(x => x.StoreId)
+.ToListAsync(ct);
+return storeIds.Count > 0 ? storeIds : null;
+}
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\CurrentUserService.cs =====
 using System.Security.Claims;
 using CoreKit.IAM.Constants;
-using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.SharedKernel.Common;
@@ -506,8 +559,8 @@ return Guid.TryParse(value, out var id) ? id : null;
 }
 }
 public bool IsAuthenticated => UserId.HasValue;
-public bool IsSuperAdmin =>
-User?.IsInRole(_options.SuperAdminRoleName) == true;
+public bool IsPlatformAdmin =>
+User?.IsInRole(_options.PlatformAdminRoleName) == true;
 public bool HasPermission(string permission) =>
 User?.Claims.Any(c =>
 c.Type == ClaimConstants.Permission &&
@@ -515,15 +568,14 @@ c.Value == permission) == true;
 public TenantScope GetTenantScope()
 {
 if (!IsAuthenticated) return TenantScope.Global;
-if (IsSuperAdmin) return TenantScope.Global;
+if (HasPermission(Permissions.Platform.ViewAllTenants))
+return TenantScope.Global;
 var claimValue = User?.FindFirst(ClaimConstants.TenantId)?.Value;
-if (Guid.TryParse(claimValue, out var tenantId) &&
-tenantId != Guid.Empty)
+if (Guid.TryParse(claimValue, out var tenantId) && tenantId != Guid.Empty)
 return TenantScope.For(tenantId);
 if (_options.TenantResolver != null)
 {
-var resolved = _options.TenantResolver(
-_httpContextAccessor.HttpContext!);
+var resolved = _options.TenantResolver(_httpContextAccessor.HttpContext!);
 if (resolved.HasValue)
 return TenantScope.For(resolved.Value);
 }
@@ -532,13 +584,12 @@ return TenantScope.Global;
 public async Task<StoreScope> GetStoreScopeAsync()
 {
 if (!IsAuthenticated)
-throw new UnauthorizedAccessException(
-"User is not authenticated.");
-if (IsSuperAdmin || HasPermission(Permissions.Store.ViewAll))
+throw new UnauthorizedAccessException("User is not authenticated.");
+if (HasPermission(Permissions.Store.ViewAll) ||
+HasPermission(Permissions.Platform.ViewAllStores))
 return StoreScope.All;
 if (UserId == null)
-throw new UnauthorizedAccessException(
-"Cannot resolve store scope without a userId.");
+throw new UnauthorizedAccessException("Cannot resolve store scope without a userId.");
 var claimStoreIds = User!.Claims
 .Where(c => c.Type == ClaimConstants.StoreId)
 .Select(c => Guid.TryParse(c.Value, out var g) ? g : (Guid?)null)
@@ -553,8 +604,7 @@ return StoreScope.All;
 var dbStoreIds = await _storeAssignmentRepo.GetStoreIdsByUserAsync(
 UserId.Value, tenantScope.TenantId);
 if (dbStoreIds.Count == 0)
-throw new UnauthorizedAccessException(
-"User has no store assignments in this tenant.");
+return StoreScope.Empty;
 return StoreScope.For(dbStoreIds);
 }
 }

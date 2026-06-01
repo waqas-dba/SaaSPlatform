@@ -206,4 +206,21 @@ public class UserManagementService : IUserManagementService
         user.FailedLoginAttempts = 0;
         await _db.SaveChangesAsync();
     }
+
+
+    public async Task<List<UserListItem>> GetAllUsersAsync()
+    {
+        return await _db.Users
+            .AsNoTracking()
+            .Select(u => new UserListItem
+            {
+                Id = u.Id,
+                Name = u.Name,
+                Email = u.Email,
+                Phone = u.Phone,
+                IsActive = u.IsActive,
+                TenantId = u.TenantId
+            })
+            .ToListAsync();
+    }
 }

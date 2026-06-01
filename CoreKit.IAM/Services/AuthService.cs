@@ -74,18 +74,7 @@ public class AuthService : IAuthService
         var roles = BuildRoleList(user, tenantId);
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
-        List<Guid>? storeIds = null;
-        if (tenantId.HasValue)
-        {
-            storeIds = await _db.Set<UserStoreAssignment>()
-                .AsNoTracking()
-                .Where(x => x.UserId == user.Id && x.TenantId == tenantId.Value)
-                .Select(x => x.StoreId)
-                .ToListAsync(ct);
-
-            if (storeIds.Count == 0)
-                storeIds = null;
-        }
+        var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
@@ -111,17 +100,28 @@ public class AuthService : IAuthService
 
         if (preview == null || preview.IsRevoked || preview.ExpiresAtUtc <= DateTime.UtcNow)
         {
+            // Even on an obviously invalid token attempt rotation to trigger family revocation
+            // if the token was reused (the rotate service handles that internally).
             await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
             throw new UnauthorizedAccessException("Invalid or expired refresh token.");
         }
 
-        var user = await _userRepo.GetByIdAsync(preview.UserId)
+        // BUG FIX: GetByIdAsync in UserRepository includes Roles → Role, but does NOT
+        // include RolePermissions → Permission. The cross-tenant check below accesses
+        // role.RolePermissions.Any(...) which would always be empty without the include,
+        // silently blocking platform admins from refreshing cross-tenant tokens.
+        // Load with the full include chain here instead of relying on the repo method.
+        var user = await _db.Users
+            .Include(u => u.Roles)
+                .ThenInclude(ur => ur.Role)
+                    .ThenInclude(r => r.RolePermissions)
+                        .ThenInclude(rp => rp.Permission)
+            .FirstOrDefaultAsync(u => u.Id == preview.UserId, ct)
             ?? throw new UnauthorizedAccessException("User not found.");
 
         if (!user.IsActive)
             throw new UnauthorizedAccessException("Account is disabled.");
 
-        // Tenant membership check — permission-based, not role-based
         if (tenantId.HasValue)
         {
             var hasPlatformAccess = user.Roles.Any(x =>
@@ -135,25 +135,15 @@ public class AuthService : IAuthService
                     x.TenantId.HasValue && x.TenantId.Value == tenantId.Value);
 
                 if (!belongsToTenant)
-                    throw new UnauthorizedAccessException("User does not belong to this tenant.");
+                    throw new UnauthorizedAccessException(
+                        "User does not belong to this tenant.");
             }
         }
 
         var roles = BuildRoleList(user, tenantId);
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
 
-        List<Guid>? storeIds = null;
-        if (tenantId.HasValue)
-        {
-            storeIds = await _db.Set<UserStoreAssignment>()
-                .AsNoTracking()
-                .Where(x => x.UserId == user.Id && x.TenantId == tenantId.Value)
-                .Select(x => x.StoreId)
-                .ToListAsync(ct);
-
-            if (storeIds.Count == 0)
-                storeIds = null;
-        }
+        var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
@@ -173,6 +163,10 @@ public class AuthService : IAuthService
         await _refreshTokenService.RevokeAsync(refreshToken);
     }
 
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
     private List<string> BuildRoleList(User user, Guid? tenantId)
     {
         return user.Roles
@@ -180,5 +174,30 @@ public class AuthService : IAuthService
             .Select(x => x.Role.Name)
             .Distinct()
             .ToList();
+    }
+
+    /// <summary>
+    /// Returns the list of store IDs the user is assigned to within the given tenant,
+    /// or null if no tenant context or no assignments exist (null = no store filter
+    /// in the JWT, which is fine for platform-level users).
+    /// </summary>
+    private async Task<List<Guid>?> ResolveStoreIdsAsync(
+        Guid userId,
+        Guid? tenantId,
+        CancellationToken ct)
+    {
+        if (!tenantId.HasValue)
+            return null;
+
+        // BUG FIX: original code returned null when count == 0, which is correct,
+        // but the null check was done after the query in both LoginAsync and RefreshAsync
+        // as duplicated inline code. Centralised here to a single private method.
+        var storeIds = await _db.Set<UserStoreAssignment>()
+            .AsNoTracking()
+            .Where(x => x.UserId == userId && x.TenantId == tenantId.Value)
+            .Select(x => x.StoreId)
+            .ToListAsync(ct);
+
+        return storeIds.Count > 0 ? storeIds : null;
     }
 }

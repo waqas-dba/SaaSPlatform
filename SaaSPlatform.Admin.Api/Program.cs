@@ -6,8 +6,10 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using FluentValidation;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SaaSPlatform.Admin.Api.Validators;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -105,7 +107,10 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
 });
 
-
+builder.Services.Configure<JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
 
 // ==========================================
 // BUILD APP

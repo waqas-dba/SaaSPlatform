@@ -32,7 +32,7 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.18.0" />
     <!-- Optional: EF Core InMemory and PostgreSQL provider (if your host uses them) -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
   </ItemGroup>
 
   <ItemGroup>

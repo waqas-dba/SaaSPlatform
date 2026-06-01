@@ -5,43 +5,69 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.Tenant.Repositories;
 
-public class TenantLegalInfoRepository : ITenantLegalInfoRepository
+public sealed class TenantLegalInfoRepository : ITenantLegalInfoRepository
 {
     private readonly TenantDbContext _db;
 
-    public TenantLegalInfoRepository(TenantDbContext db) => _db = db;
-
-    public async Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
-        => await (_db.TenantLegalInfos ?? throw new InvalidOperationException("TenantLegalInfos not configured"))
-            .FirstOrDefaultAsync(i => i.TenantId == tenantId, ct);
-
-    public async Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default)
+    public TenantLegalInfoRepository(TenantDbContext db)
     {
-        if (_db.TenantLegalInfos == null)
-            throw new InvalidOperationException("TenantLegalInfos not configured");
+        _db = db ?? throw new ArgumentNullException(nameof(db));
+    }
 
-        var existing = await _db.TenantLegalInfos
-            .FirstOrDefaultAsync(i => i.TenantId == info.TenantId, ct);
+    public async Task<TenantLegalInfo?> GetByTenantAsync(
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        return await _db.TenantLegalInfos
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                x => x.TenantId == tenantId,
+                ct);
+    }
 
-        if (existing != null)
-        {
-            existing.BusinessLicenseNumber = info.BusinessLicenseNumber;
-            existing.TaxId = info.TaxId;
-            existing.AdditionalJson = info.AdditionalJson;
-        }
-        else
-        {
-            await _db.TenantLegalInfos.AddAsync(info, ct);
-        }
-    
+    public async Task AddOrUpdateAsync(
+        TenantLegalInfo info,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+
         try
         {
+            var existing = await _db.TenantLegalInfos
+                .SingleOrDefaultAsync(
+                    x => x.TenantId == info.TenantId,
+                    ct);
+
+            if (existing is not null)
+            {
+                existing.BusinessLicenseNumber =
+                    info.BusinessLicenseNumber;
+
+                existing.TaxId =
+                    info.TaxId;
+
+                existing.AdditionalJson =
+                    info.AdditionalJson;
+            }
+            else
+            {
+                await _db.TenantLegalInfos
+                    .AddAsync(info, ct);
+            }
+
             await _db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateConcurrencyException ex)
         {
             throw new InvalidOperationException(
-                "This record was modified by another user. Please refresh and try again.");
+                "The tenant legal information was modified by another user. Refresh the data and try again.",
+                ex);
+        }
+        catch (DbUpdateException ex)
+        {
+            throw new InvalidOperationException(
+                "Failed to save tenant legal information.",
+                ex);
         }
     }
 }

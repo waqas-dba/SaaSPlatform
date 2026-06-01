@@ -1,4 +1,5 @@
 ﻿using CoreKit.IAM.Entities;
+using CoreKit.IAM.Models;
 
 namespace CoreKit.IAM.Interfaces;
 
@@ -13,4 +14,6 @@ public interface IUserManagementService
     Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
     Task LockUserAsync(Guid userId, DateTime lockoutEnd);
     Task UnlockUserAsync(Guid userId);
+
+    Task<List<UserListItem>> GetAllUsersAsync();
 }

@@ -1,6 +1,7 @@
 ﻿using CoreKit.Subscription.Entities;
 using CoreKit.Subscription.Interfaces;
 using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore; // BUG FIX: was missing — ToListAsync, Where, etc. are EF extensions
 
 namespace CoreKit.Subscription.Services;
 
@@ -9,18 +10,25 @@ public class SubscriptionManagementService : ISubscriptionManagementService
     private readonly SubscriptionDbContext _db;
     private readonly ITenantSubscriptionRepository _subscriptionRepo;
 
-    public SubscriptionManagementService(SubscriptionDbContext db, ITenantSubscriptionRepository subscriptionRepo)
+    public SubscriptionManagementService(
+        SubscriptionDbContext db,
+        ITenantSubscriptionRepository subscriptionRepo)
     {
         _db = db;
         _subscriptionRepo = subscriptionRepo;
     }
 
-    public async Task AssignSubscriptionAsync(Guid tenantId, Guid planId, DateTime? startDate = null, DateTime? endDate = null)
+    public async Task AssignSubscriptionAsync(
+        Guid tenantId,
+        Guid planId,
+        DateTime? startDate = null,
+        DateTime? endDate = null)
     {
-        // Cancel any existing active subscription for this tenant
+        // Cancel any currently active subscriptions for this tenant
         var existingActive = await _db.TenantSubscriptions
             .Where(ts => ts.TenantId == tenantId && ts.Status == SubscriptionStatus.Active)
-            .ToListAsync();
+            .ToListAsync(); // BUG FIX: previously failed to compile / resolve without the using
+
         foreach (var sub in existingActive)
         {
             sub.Status = SubscriptionStatus.Cancelled;
@@ -36,6 +44,7 @@ public class SubscriptionManagementService : ISubscriptionManagementService
             EndDate = endDate,
             Status = SubscriptionStatus.Active
         };
+
         _subscriptionRepo.Add(subscription);
         await _db.SaveChangesAsync();
     }

@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
 namespace CoreKit.IAM.Authorization;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
@@ -22,11 +21,6 @@ if (user.Identity?.IsAuthenticated != true)
 context.Result = new UnauthorizedResult();
 return;
 }
-var options = context.HttpContext.RequestServices
-.GetRequiredService<IamOptions>();
-if (options.SuperAdminBypassPermissions &&
-user.IsInRole(options.SuperAdminRoleName))
-return;
 if (user.Claims.Any(c =>
 c.Type == ClaimConstants.Permission &&
 c.Value == _permission))
@@ -408,7 +402,6 @@ public const string Approve = "tenants.approve";
 }
 public static class System
 {
-public const string SuperAdmin = "system.super_admin";
 public const string Settings = "system.settings";
 public const string AuditLogs = "system.audit_logs";
 }
@@ -417,6 +410,19 @@ public static class Store
 public const string View = "store.view";
 public const string ViewAll = "store.view_all";
 public const string Update = "store.update";
+}
+public static class Platform
+{
+public const string ViewAllTenants = "platform.tenants.view";
+public const string ManageTenants = "platform.tenants.manage";
+public const string ViewAllStores = "platform.stores.view";
+public const string ManageAnyStore = "platform.stores.manage";
+public const string ViewAllUsers = "platform.users.view";
+public const string ManageAnyUser = "platform.users.manage";
+public const string ViewAuditLogs = "platform.audit.view";
+public const string ManageSystemSettings = "platform.settings.manage";
+public const string CreateImpersonation = "platform.impersonation.create";
+public const string ManageBilling = "platform.billing.manage";
 }
 public static IReadOnlyList<string> All { get; } =
 typeof(Permissions)

@@ -1,5 +1,6 @@
 ﻿
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
@@ -125,9 +126,9 @@ var user = await _db.Users
 ?? throw new KeyNotFoundException("User not found.");
 var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
 ?? throw new KeyNotFoundException("Role not found.");
-if (role.Name == _options.SuperAdminRoleName && !_currentUser.IsSuperAdmin)
-throw new ForbiddenException("Only a SuperAdmin can assign this role.");
-if (role.IsSystem && !_currentUser.IsSuperAdmin)
+if (role.TenantId == null && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
+throw new ForbiddenException("Only platform administrators can assign platform-level roles.");
+if (role.IsSystem && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
 throw new ForbiddenException("Cannot assign a system role.");
 if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
 throw new InvalidOperationException(
@@ -743,109 +744,86 @@ public class ApiResponse<T> : ApiResponse
 public T? Data { get; init; }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IMutableTenantContext.cs =====
-namespace CoreKit.Tenant.Services;
-public interface IMutableTenantContext : ITenantContext
-{
-void SetTenant(Guid tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\IStoreLimitService.cs =====
-namespace CoreKit.Tenant.Services;
-public interface IStoreLimitService
-{
-Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
-namespace CoreKit.Tenant.Services;
-public interface ITenantContext { Guid? TenantId { get; } }
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
-using CoreKit.Tenant.Entities;
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\PlanConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Configuration;
-public class StoreConfiguration : IEntityTypeConfiguration<Store>
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Configuration;
+public class PlanConfiguration : IEntityTypeConfiguration<Plan>
 {
-public void Configure(EntityTypeBuilder<Store> builder)
+public void Configure(EntityTypeBuilder<Plan> builder)
 {
-builder.ToTable("TNT_Stores");
+builder.ToTable("SUB_Plans");
 builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.HasMaxLength(200)
-.IsRequired();
-builder.Property(x => x.Slug)
-.HasMaxLength(200)
-.IsRequired();
-builder.HasIndex(x => new { x.TenantId, x.Slug })
-.IsUnique();
-builder.Property(x => x.StoreTypeId).IsRequired();
-builder.HasOne(x => x.Tenant)
-.WithMany(x => x.Stores)
-.HasForeignKey(x => x.TenantId)
-.OnDelete(DeleteBehavior.Cascade);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Code).IsRequired().HasMaxLength(50);
+builder.HasIndex(x => x.Code).IsUnique();
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreTypeConfiguration.cs =====
-using CoreKit.Tenant.Entities;
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\TenantSubscriptionConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Persistence.Configurations;
-public class StoreTypeConfiguration
-: IEntityTypeConfiguration<StoreType>
+using CoreKit.Subscription.Entities;
+namespace CoreKit.Subscription.Configuration;
+public class TenantSubscriptionConfiguration : IEntityTypeConfiguration<TenantSubscription>
 {
-public void Configure(EntityTypeBuilder<StoreType> builder)
+public void Configure(EntityTypeBuilder<TenantSubscription> builder)
 {
-builder.ToTable("StoreTypes");
+builder.ToTable("SUB_TenantSubscriptions");
 builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.HasMaxLength(100)
+builder.HasIndex(x => new { x.TenantId, x.Status });
+builder.Property(x => x.Status)
+.HasConversion<int>()
 .IsRequired();
-builder.Property(x => x.Code)
-.HasMaxLength(50)
-.IsRequired();
-builder.Property(x => x.Category)
-.HasMaxLength(50)
-.IsRequired();
-builder.Property(x => x.Description)
-.HasMaxLength(1000);
-builder.Property(x => x.Icon)
-.HasMaxLength(200);
-builder.Property(x => x.Color)
-.HasMaxLength(20);
-builder.HasIndex(x => x.Code)
-.IsUnique();
-builder.HasMany(x => x.Stores)
-.WithOne(x => x.StoreType)
-.HasForeignKey(x => x.StoreTypeId)
+builder.Property(x => x.StartDate).IsRequired();
+builder.Property(x => x.PaymentReference)
+.HasMaxLength(500);
+builder.HasOne(x => x.Plan)
+.WithMany(x => x.Subscriptions)
+.HasForeignKey(x => x.PlanId)
 .OnDelete(DeleteBehavior.Restrict);
 }
 }
 
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
-using CoreKit.Tenant.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Configuration;
-public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\Plan.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Subscription.Entities;
+public class Plan : AuditableEntity
 {
-public void Configure(EntityTypeBuilder<TenantEntity> builder)
-{
-builder.ToTable("TNT_Tenants");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.HasMaxLength(200)
-.IsRequired();
-builder.Property(x => x.Slug)
-.HasMaxLength(200)
-.IsRequired();
-builder.Property(x => x.Status)
-.HasConversion<int>()
-.IsRequired();
-builder.HasIndex(x => x.Name).IsUnique();
-builder.HasIndex(x => x.Slug).IsUnique();
+public string Name { get; set; } = default!;
+public string Code { get; set; } = default!;
+public string? Description { get; set; }
+public decimal MonthlyPrice { get; set; }
+public decimal YearlyPrice { get; set; }
+public int? MaxStores { get; set; }
+public int? MaxProducts { get; set; }
+public int? MaxCategories { get; set; }
+public bool CustomDomainEnabled { get; set; }
+public bool ThemeCustomizationEnabled { get; set; }
+public bool IsActive { get; set; } = true;
+public int SortOrder { get; set; }
+public ICollection<TenantSubscription> Subscriptions { get; set; } = new List<TenantSubscription>();
 }
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\TenantSubscription.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Subscription.Entities;
+public class TenantSubscription : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+public Guid PlanId { get; set; }
+public Plan Plan { get; set; } = default!;
+public DateTime StartDate { get; set; }
+public DateTime? EndDate { get; set; }
+public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Active;
+public string? PaymentReference { get; set; }
+}
+public enum SubscriptionStatus
+{
+Active = 1,
+Expired = 2,
+Cancelled = 3,
+Trial = 4
 }
 

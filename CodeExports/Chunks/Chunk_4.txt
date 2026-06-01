@@ -1,4 +1,57 @@
 ﻿
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\ImpersonationService.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Exceptions;
+using Microsoft.Extensions.Logging;
+namespace CoreKit.IAM.Services;
+public interface IImpersonationService
+{
+Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
+Guid platformUserId,
+Guid targetTenantId,
+string reason);
+}
+public class ImpersonationService : IImpersonationService
+{
+private readonly IJwtTokenService _jwtService;
+private readonly IUserRepository _userRepo;
+private readonly IPermissionService _permissionService;
+private readonly ILogger<ImpersonationService> _logger;
+public ImpersonationService(
+IJwtTokenService jwtService,
+IUserRepository userRepo,
+IPermissionService permissionService,
+ILogger<ImpersonationService> logger)
+{
+_jwtService = jwtService;
+_userRepo = userRepo;
+_permissionService = permissionService;
+_logger = logger;
+}
+public async Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
+Guid platformUserId,
+Guid targetTenantId,
+string reason)
+{
+var hasPermission = await _permissionService.HasPermissionAsync(
+platformUserId, null, Constants.Permissions.Platform.CreateImpersonation);
+if (!hasPermission)
+throw new ForbiddenException("You do not have permission to impersonate tenants.");
+var platformUser = await _userRepo.GetByIdAsync(platformUserId)
+?? throw new KeyNotFoundException("Platform user not found.");
+var (token, expiresAt, _) = _jwtService.GenerateAccessToken(
+platformUser,
+targetTenantId,
+new[] { "TenantAdmin" },
+permissions: null,
+storeIds: null);
+_logger.LogWarning(
+"Platform user {PlatformUserId} ({Email}) created impersonation token for tenant {TenantId}. Reason: {Reason}",
+platformUserId, platformUser.Email, targetTenantId, reason);
+return (token, expiresAt);
+}
+}
+
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\JwtTokenService.cs =====
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -74,8 +127,7 @@ namespace CoreKit.IAM.Services;
 public class PermissionCacheService : IPermissionCacheService
 {
 private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
-private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> _userKeys
-= new();
+private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> _userKeys = new();
 private readonly IMemoryCache _cache;
 public PermissionCacheService(IMemoryCache cache) => _cache = cache;
 public Task<List<string>?> GetAsync(Guid userId, Guid? tenantId)
@@ -94,13 +146,14 @@ AbsoluteExpirationRelativeToNow = Ttl
 };
 options.RegisterPostEvictionCallback((evictedKey, _, _, _) =>
 {
-if (evictedKey is string k &&
-_userKeys.TryGetValue(userId, out var set))
-{
+if (evictedKey is not string k) return;
+var parts = k.Split(':');
+if (parts.Length < 2 || !Guid.TryParse(parts[1], out var evictedUserId))
+return;
+if (!_userKeys.TryGetValue(evictedUserId, out var set)) return;
 set.TryRemove(k, out _);
 if (set.IsEmpty)
-_userKeys.TryRemove(userId, out _);
-}
+_userKeys.TryRemove(evictedUserId, out _);
 });
 _cache.Set(key, permissions, options);
 return Task.CompletedTask;
@@ -256,15 +309,14 @@ hash)
 if (existing == null)
 {
 await tx.RollbackAsync();
-throw new UnauthorizedAccessException(
-"Invalid refresh token.");
+throw new UnauthorizedAccessException("Invalid refresh token.");
 }
 if (existing.IsRevoked)
 {
 _logger.LogWarning(
 "Refresh token reuse detected. " +
-"UserId={UserId} FamilyId={FamilyId} " +
-"RevokedAt={RevokedAt} — revoking all family tokens.",
+"UserId={UserId} FamilyId={FamilyId} RevokedAt={RevokedAt} " +
+"— revoking all family tokens.",
 existing.UserId,
 existing.FamilyId,
 existing.RevokedAtUtc);
@@ -281,8 +333,7 @@ await tx.RollbackAsync();
 throw new UnauthorizedAccessException(
 "Refresh token has expired. Please log in again.");
 }
-var newRaw = Convert.ToBase64String(
-RandomNumberGenerator.GetBytes(64));
+var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 var newHash = TokenHasher.Hash(newRaw);
 var newEntity = new RefreshToken
 {
@@ -304,14 +355,30 @@ return (newRaw, existing.UserId);
 catch (UnauthorizedAccessException)
 {
 if (tx.GetDbTransaction().Connection != null)
-await tx.RollbackAsync();
+{
+try { await tx.RollbackAsync(); }
+catch (Exception rollbackEx)
+{
+_logger.LogWarning(rollbackEx,
+"Rollback failed (transaction may already be committed). " +
+"This is expected for the token-reuse path.");
+}
+}
 throw;
 }
 catch (Exception ex)
 {
 _logger.LogError(ex,
 "Unexpected error during token rotation for hash {Hash}", hash);
-await tx.RollbackAsync();
+if (tx.GetDbTransaction().Connection != null)
+{
+try { await tx.RollbackAsync(); }
+catch (Exception rollbackEx)
+{
+_logger.LogWarning(rollbackEx,
+"Rollback failed after unexpected error.");
+}
+}
 throw;
 }
 }

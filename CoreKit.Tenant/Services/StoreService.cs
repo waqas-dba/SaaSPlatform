@@ -25,9 +25,13 @@ public class StoreService : IStoreService
         ITenantContext tenantContext,
         IOptions<TenantKitOptions> options,
         ICurrentUserService currentUser,
-        IPlanLimitProvider? planLimit = null)  // ← changed
+        IPlanLimitProvider? planLimit = null)
     {
-        // ...
+        // BUG FIX: all injected dependencies were previously ignored
+        _db = db;
+        _tenantContext = tenantContext;
+        _options = options.Value;
+        _currentUser = currentUser;
         _planLimit = planLimit;
     }
 
@@ -106,7 +110,6 @@ public class StoreService : IStoreService
             ?? throw new UnauthorizedAccessException("Tenant context missing.");
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-
         try
         {
             var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
@@ -185,7 +188,8 @@ public class StoreService : IStoreService
         if (!string.IsNullOrWhiteSpace(request.Name))
         {
             store.Name = request.Name.Trim();
-            store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, cancellationToken, store.Id);
+            store.Slug = await GenerateUniqueSlugAsync(
+                request.Name, store.TenantId, cancellationToken, store.Id);
         }
 
         if (request.StoreTypeId.HasValue)
@@ -265,6 +269,10 @@ public class StoreService : IStoreService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
     private async Task EnforceStoreLimitAsync(Guid tenantId, CancellationToken ct)
     {
         if (_planLimit == null) return;
@@ -274,7 +282,8 @@ public class StoreService : IStoreService
         {
             var count = await _db.Stores.CountAsync(x => x.TenantId == tenantId, ct);
             if (count >= maxStores.Value)
-                throw new InvalidOperationException($"Store limit of {maxStores.Value} reached. Upgrade your plan.");
+                throw new InvalidOperationException(
+                    $"Store limit of {maxStores.Value} reached. Upgrade your plan.");
         }
     }
 
@@ -299,7 +308,8 @@ public class StoreService : IStoreService
 
         while (true)
         {
-            IQueryable<Store> query = _db.Stores.Where(x => x.TenantId == tenantId && x.Slug == slug);
+            IQueryable<Store> query = _db.Stores
+                .Where(x => x.TenantId == tenantId && x.Slug == slug);
 
             if (excludeStoreId.HasValue)
                 query = query.Where(x => x.Id != excludeStoreId.Value);
@@ -311,19 +321,16 @@ public class StoreService : IStoreService
         }
     }
 
-    private static StoreDto Map(Store store)
+    private static StoreDto Map(Store store) => new()
     {
-        return new StoreDto
-        {
-            Id = store.Id,
-            TenantId = store.TenantId,
-            Name = store.Name,
-            Slug = store.Slug,
-            StoreTypeId = store.StoreTypeId,
-            StoreTypeName = store.StoreType?.Name ?? string.Empty,
-            StoreCategory = store.StoreType?.Category ?? string.Empty,
-            IsActive = store.IsActive,
-            IsListedOnMarketplace = store.IsListedOnMarketplace
-        };
-    }
+        Id = store.Id,
+        TenantId = store.TenantId,
+        Name = store.Name,
+        Slug = store.Slug,
+        StoreTypeId = store.StoreTypeId,
+        StoreTypeName = store.StoreType?.Name ?? string.Empty,
+        StoreCategory = store.StoreType?.Category ?? string.Empty,
+        IsActive = store.IsActive,
+        IsListedOnMarketplace = store.IsListedOnMarketplace
+    };
 }
