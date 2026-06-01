@@ -51,4 +51,34 @@ public class PlanLimitProvider : IPlanLimitProvider
             .Select(ts => ts.Plan)
             .FirstOrDefaultAsync(ct);
     }
+
+    public async Task<int> GetMaxCategoryLevelAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxCategoryLevel ?? 1;
+    }
+
+    public async Task<bool> IsVariantsEnabledAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.EnableVariants ?? false;
+    }
+
+    public async Task<bool> IsAddonsEnabledAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.EnableAddons ?? false;
+    }
+
+    public async Task<int?> GetMaxVariantsPerProductAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxVariantsPerProduct;
+    }
+
+    public async Task<int?> GetMaxAddonsPerProductAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxAddonsPerProduct;
+    }
 }

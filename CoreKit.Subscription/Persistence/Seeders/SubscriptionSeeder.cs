@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// CoreKit.Subscription/Persistence/Seeders/SubscriptionSeeder.cs
+using Microsoft.EntityFrameworkCore;
 using CoreKit.Subscription.Entities;
 using CoreKit.Subscription.Persistence;
 
@@ -30,7 +31,12 @@ public class SubscriptionSeeder
                 CustomDomainEnabled = false,
                 ThemeCustomizationEnabled = false,
                 IsActive = true,
-                SortOrder = 1
+                SortOrder = 1,
+                MaxCategoryLevel = 1,
+                EnableVariants = false,
+                EnableAddons = false,
+                MaxVariantsPerProduct = 0,
+                MaxAddonsPerProduct = 0
             },
             new()
             {
@@ -38,7 +44,7 @@ public class SubscriptionSeeder
                 Name = "Basic",
                 Code = "basic",
                 Description = "For growing businesses",
-                MonthlyPrice = 2999, // PKR
+                MonthlyPrice = 2999,
                 YearlyPrice = 29990,
                 MaxStores = 3,
                 MaxProducts = 500,
@@ -46,7 +52,12 @@ public class SubscriptionSeeder
                 CustomDomainEnabled = false,
                 ThemeCustomizationEnabled = true,
                 IsActive = true,
-                SortOrder = 2
+                SortOrder = 2,
+                MaxCategoryLevel = 2,
+                EnableVariants = true,
+                EnableAddons = true,
+                MaxVariantsPerProduct = 5,
+                MaxAddonsPerProduct = 10
             },
             new()
             {
@@ -56,13 +67,18 @@ public class SubscriptionSeeder
                 Description = "For established businesses",
                 MonthlyPrice = 7999,
                 YearlyPrice = 79990,
-                MaxStores = null, // unlimited
+                MaxStores = null,       // unlimited
                 MaxProducts = null,
                 MaxCategories = null,
                 CustomDomainEnabled = true,
                 ThemeCustomizationEnabled = true,
                 IsActive = true,
-                SortOrder = 3
+                SortOrder = 3,
+                MaxCategoryLevel = 0,   // unlimited
+                EnableVariants = true,
+                EnableAddons = true,
+                MaxVariantsPerProduct = null, // unlimited
+                MaxAddonsPerProduct = null    // unlimited
             }
         };
 
