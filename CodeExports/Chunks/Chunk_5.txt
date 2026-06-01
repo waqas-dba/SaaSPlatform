@@ -1,829 +1,630 @@
 ﻿
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContextFactory.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+namespace CoreKit.IAM.Persistence;
+public class IamDbContextFactory : IDesignTimeDbContextFactory<IamDbContext>
+{
+public IamDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new IamDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\PermissionRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+namespace CoreKit.IAM.Repositories;
+public class PermissionRepository : IPermissionRepository
+{
+private readonly IamDbContext _db;
+public PermissionRepository(IamDbContext db) => _db = db;
+public async Task<bool> HasPermissionAsync(
+Guid userId, Guid? tenantId, string permission)
+{
+return await (
+from ur in _db.UserRoles
+join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+join p in _db.Permissions on rp.PermissionId equals p.Id
+where ur.UserId == userId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
+&& p.Name == permission
+select p
+).AnyAsync();
+}
+public async Task<bool> HasPermissionByModuleAsync(
+Guid userId, Guid? tenantId, string module)
+{
+var prefix = module + ".";
+return await (
+from ur in _db.UserRoles
+join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+join p in _db.Permissions on rp.PermissionId equals p.Id
+where ur.UserId == userId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
+&& p.Name.StartsWith(prefix)
+select p
+).AnyAsync();
+}
+public async Task<List<string>> GetPermissionsAsync(
+Guid userId, Guid? tenantId)
+{
+return await (
+from ur in _db.UserRoles
+join rp in _db.RolePermissions on ur.RoleId equals rp.RoleId
+join p in _db.Permissions on rp.PermissionId equals p.Id
+where ur.UserId == userId
+&& (ur.TenantId == null || ur.TenantId == tenantId)
+select p.Name
+)
+.Distinct()
+.ToListAsync();
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RefreshTokenRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+namespace CoreKit.IAM.Repositories;
+public class RefreshTokenRepository : IRefreshTokenRepository
+{
+private readonly IamDbContext _db;
+public RefreshTokenRepository(IamDbContext db) => _db = db;
+public async Task AddAsync(RefreshToken token)
+{
+await _db.RefreshTokens.AddAsync(token);
+}
+public async Task<RefreshToken?> GetByTokenHashAsync(string tokenHash)
+=> await _db.RefreshTokens.FirstOrDefaultAsync(x => x.TokenHash == tokenHash);
+public async Task<List<RefreshToken>> GetByFamilyIdAsync(string familyId)
+=> await _db.RefreshTokens.Where(x => x.FamilyId == familyId).ToListAsync();
+public void Update(RefreshToken token)
+=> _db.RefreshTokens.Update(token);
+public void UpdateRange(IEnumerable<RefreshToken> tokens)
+=> _db.RefreshTokens.UpdateRange(tokens);
+public async Task RevokeFamilyAsync(string familyId, string? revokedByIp = null)
+{
+var tokens = await GetByFamilyIdAsync(familyId);
+foreach (var t in tokens)
+{
+t.IsRevoked = true;
+t.RevokedAtUtc = DateTime.UtcNow;
+t.RevokedByIp = revokedByIp;
+}
+UpdateRange(tokens);
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\RoleRepository.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Repositories;
+public class RoleRepository : IRoleRepository
+{
+private readonly IamDbContext _db;
+public RoleRepository(IamDbContext db) => _db = db;
+public async Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId)
+=> await _db.Roles
+.Where(r => r.TenantId == tenantId)
+.Include(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
+.ToListAsync();
+public async Task<Role?> GetByIdAsync(Guid roleId)
+=> await _db.Roles
+.Include(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
+.Include(r => r.UserRoles)
+.FirstOrDefaultAsync(r => r.Id == roleId);
+public void Add(Role role) => _db.Roles.Add(role);
+public void Update(Role role) => _db.Roles.Update(role);
+public void Delete(Role role) => _db.Roles.Remove(role);
+public async Task<List<Permission>> GetAllPermissionsAsync(
+CancellationToken ct = default)
+=> await _db.Permissions.ToListAsync(ct);
+public void AddRolePermission(RolePermission rp) => _db.RolePermissions.Add(rp);
+public void RemoveRolePermission(RolePermission rp) => _db.RolePermissions.Remove(rp);
+public void AddUserRole(UserRole ur) => _db.UserRoles.Add(ur);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\UserRepository.cs =====
+using Microsoft.EntityFrameworkCore;
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Helpers;
+using CoreKit.IAM.Persistence;
+namespace CoreKit.IAM.Repositories;
+public class UserRepository : IUserRepository
+{
+private readonly IamDbContext _db;
+public UserRepository(IamDbContext db)
+{
+_db = db;
+}
+public async Task<User?> GetByIdAsync(Guid userId)
+{
+return await _db.Users
+.Include(u => u.Roles)
+.ThenInclude(ur => ur.Role)
+.FirstOrDefaultAsync(u => u.Id == userId);
+}
+public async Task<User?> GetByPhoneAsync(
+string phone,
+Guid? tenantId = null)
+{
+phone = PhoneNormalizer.Normalize(phone);
+return await _db.Users
+.Include(u => u.Roles)
+.ThenInclude(ur => ur.Role)
+.FirstOrDefaultAsync(u =>
+u.Phone == phone &&
+u.TenantId == tenantId);
+}
+public async Task<User?> GetByEmailAsync(
+string email,
+Guid? tenantId = null)
+{
+email = email.Trim().ToLowerInvariant();
+return await _db.Users
+.Include(u => u.Roles)
+.ThenInclude(ur => ur.Role)
+.FirstOrDefaultAsync(u =>
+u.Email == email &&
+u.TenantId == tenantId);
+}
+public async Task<List<User>> GetByTenantAsync(Guid tenantId)
+{
+return await _db.Users
+.Where(u => u.TenantId == tenantId)
+.ToListAsync();
+}
+public async Task<bool> ExistsByPhoneAsync(
+string phone,
+Guid? tenantId = null)
+{
+phone = PhoneNormalizer.Normalize(phone);
+return await _db.Users.AnyAsync(u =>
+u.Phone == phone &&
+u.TenantId == tenantId);
+}
+public async Task<bool> ExistsByEmailAsync(
+string email,
+Guid? tenantId = null)
+{
+email = email.Trim().ToLowerInvariant();
+return await _db.Users.AnyAsync(u =>
+u.Email == email &&
+u.TenantId == tenantId);
+}
+public void Add(User user)
+{
+_db.Users.Add(user);
+}
+public void Update(User user)
+{
+_db.Users.Update(user);
+}
+public void Delete(User user)
+{
+_db.Users.Remove(user);
+}
+public async Task<User?> GetUserByLoginAsync(
+string login,
+Guid? tenantId,
+string loginIdentifier)
+{
+switch (loginIdentifier.ToLowerInvariant())
+{
+case "email":
+return await GetByEmailAsync(login, tenantId);
+case "both":
+return login.Contains('@')
+? await GetByEmailAsync(login, tenantId)
+: await GetByPhoneAsync(login, tenantId);
+default:
+return await GetByPhoneAsync(login, tenantId);
+}
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\UserStoreAssignmentRepository.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Repositories;
+public class UserStoreAssignmentRepository : IUserStoreAssignmentRepository
+{
+private readonly IamDbContext _db;
+public UserStoreAssignmentRepository(IamDbContext db) => _db = db;
+public async Task<List<Guid>> GetStoreIdsByUserAsync(
+Guid userId, Guid tenantId, CancellationToken ct = default)
+=> await _db.Set<UserStoreAssignment>()
+.Where(a => a.UserId == userId && a.TenantId == tenantId)
+.Select(a => a.StoreId)
+.ToListAsync(ct);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\AuthService.cs =====
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
-using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
-using CoreKit.SharedKernel.Exceptions;
 using Microsoft.EntityFrameworkCore;
 namespace CoreKit.IAM.Services;
-public class UserManagementService : IUserManagementService
+public class AuthService : IAuthService
 {
-private readonly IamDbContext _db;
-private readonly ICurrentUserService _currentUser;
-private readonly IPasswordHasher _passwordHasher;
-private readonly IamOptions _options;
+private readonly IUserRepository _userRepo;
+private readonly IJwtTokenService _jwtService;
+private readonly IRefreshTokenService _refreshTokenService;
+private readonly IPermissionService _permissionService;
 private readonly IPermissionCacheService _permissionCache;
-public UserManagementService(
-IamDbContext db,
-ICurrentUserService currentUser,
+private readonly IPasswordHasher _passwordHasher;
+private readonly IamDbContext _db;
+private readonly IamOptions _options;
+public AuthService(
+IUserRepository userRepo,
+IJwtTokenService jwtService,
+IRefreshTokenService refreshTokenService,
+IPermissionService permissionService,
+IPermissionCacheService permissionCache,
 IPasswordHasher passwordHasher,
-IamOptions options,
-IPermissionCacheService permissionCache)
+IamDbContext db,
+IamOptions options)
 {
-_db = db;
-_currentUser = currentUser;
-_passwordHasher = passwordHasher;
-_options = options;
+_userRepo = userRepo;
+_jwtService = jwtService;
+_refreshTokenService = refreshTokenService;
+_permissionService = permissionService;
 _permissionCache = permissionCache;
+_passwordHasher = passwordHasher;
+_db = db;
+_options = options;
 }
-public async Task<User> CreateUserAsync(
-string name, string phone, string? email,
-string password, Guid? tenantId)
+public async Task<LoginResponse> LoginAsync(
+LoginRequest request,
+Guid? tenantId,
+CancellationToken ct = default)
 {
-phone = PhoneNormalizer.Normalize(phone);
-email = string.IsNullOrWhiteSpace(email)
-? null
-: email.Trim().ToLowerInvariant();
-if (await _db.Users.AnyAsync(u => u.Phone == phone && u.TenantId == tenantId))
-throw new InvalidOperationException(
-"A user with this phone already exists in the tenant.");
-if (email != null &&
-await _db.Users.AnyAsync(u => u.Email == email && u.TenantId == tenantId))
-throw new InvalidOperationException(
-"A user with this email already exists in the tenant.");
-if (password.Length < _options.MinPasswordLength)
-throw new ArgumentException(
-$"Password must be at least {_options.MinPasswordLength} characters.");
-var user = new User
+var user = await _userRepo.GetUserByLoginAsync(
+request.Login,
+tenantId,
+_options.LoginIdentifier)
+?? throw new UnauthorizedAccessException("Invalid credentials.");
+if (!user.IsActive)
+throw new UnauthorizedAccessException("Account is disabled.");
+if (user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow)
+throw new UnauthorizedAccessException(
+$"Account locked until {user.LockoutEnd:O}");
+if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
 {
-Id = Guid.NewGuid(),
-TenantId = tenantId,
-Name = name,
-Phone = phone,
-Email = email,
-PasswordHash = _passwordHasher.Hash(password),
-IsActive = true
-};
-_db.Users.Add(user);
-try
-{
-await _db.SaveChangesAsync();
+user.FailedLoginAttempts++;
+if (user.FailedLoginAttempts >= 5)
+user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
+await _db.SaveChangesAsync(ct);
+throw new UnauthorizedAccessException("Invalid credentials.");
 }
-catch (DbUpdateException ex)
-when (ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true)
-{
-throw new InvalidOperationException(
-"A user with this phone or email already exists. Please use different credentials.");
-}
-return user;
-}
-public async Task UpdateUserAsync(
-Guid userId, string? name, string? email,
-string? phone, Guid? tenantId)
-{
-var user = await _db.Users
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
-?? throw new KeyNotFoundException("User not found.");
-if (name != null) user.Name = name;
-if (phone != null)
-{
-var normalizedPhone = PhoneNormalizer.Normalize(phone);
-var phoneInUse = await _db.Users.AnyAsync(u =>
-u.Phone == normalizedPhone &&
-u.TenantId == tenantId &&
-u.Id != userId);
-if (phoneInUse)
-throw new InvalidOperationException("Phone already in use.");
-user.Phone = normalizedPhone;
-}
-if (email != null)
-{
-var normalizedEmail = email.Trim().ToLowerInvariant();
-var emailInUse = await _db.Users.AnyAsync(u =>
-u.Email == normalizedEmail &&
-u.TenantId == tenantId &&
-u.Id != userId);
-if (emailInUse)
-throw new InvalidOperationException("Email already in use.");
-user.Email = normalizedEmail;
-}
-await _db.SaveChangesAsync();
-}
-public async Task<List<User>> GetUsersAsync(Guid? tenantId)
-=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
-public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
-=> await _db.Users
-.Include(u => u.Roles).ThenInclude(r => r.Role)
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
-public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
-{
-var user = await _db.Users
-.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
-?? throw new KeyNotFoundException("User not found.");
-user.IsDeleted = true;
-user.IsActive = false;
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
-{
-var user = await _db.Users
-.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId)
-?? throw new KeyNotFoundException("Role not found.");
-if (role.TenantId == null && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
-throw new ForbiddenException("Only platform administrators can assign platform-level roles.");
-if (role.IsSystem && !_currentUser.HasPermission(Permissions.Platform.ManageAnyUser))
-throw new ForbiddenException("Cannot assign a system role.");
-if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
-throw new InvalidOperationException(
-"User already has this role in the specified scope.");
-user.Roles.Add(new UserRole { UserId = userId, RoleId = roleId, TenantId = tenantId });
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
-{
-var user = await _db.Users
-.Include(u => u.Roles)
-.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-var userRole = user.Roles.FirstOrDefault(r =>
-r.RoleId == roleId && r.TenantId == tenantId)
-?? throw new KeyNotFoundException(
-"User does not have this role in the specified scope.");
-user.Roles.Remove(userRole);
-await _db.SaveChangesAsync();
-await _permissionCache.InvalidateUserAsync(userId);
-}
-public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
-{
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-user.LockoutEnd = lockoutEnd;
-await _db.SaveChangesAsync();
-}
-public async Task UnlockUserAsync(Guid userId)
-{
-var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
-?? throw new KeyNotFoundException("User not found.");
-user.LockoutEnd = null;
 user.FailedLoginAttempts = 0;
-await _db.SaveChangesAsync();
+user.LockoutEnd = null;
+user.LastLoginAt = DateTime.UtcNow;
+await _db.SaveChangesAsync(ct);
+var roles = BuildRoleList(user, tenantId);
+var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
+var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
+user, tenantId, roles, permissions, storeIds);
+var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, jwtId);
+return new LoginResponse
+{
+AccessToken = accessToken,
+RefreshToken = refreshToken
+};
+}
+public async Task<LoginResponse> RefreshAsync(
+RefreshTokenRequest request,
+Guid? tenantId,
+CancellationToken ct = default)
+{
+var previewHash = _refreshTokenService.ComputeHash(request.RefreshToken);
+var preview = await _db.RefreshTokens
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.TokenHash == previewHash, ct);
+if (preview == null || preview.IsRevoked || preview.ExpiresAtUtc <= DateTime.UtcNow)
+{
+await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
+throw new UnauthorizedAccessException("Invalid or expired refresh token.");
+}
+var user = await _db.Users
+.Include(u => u.Roles)
+.ThenInclude(ur => ur.Role)
+.ThenInclude(r => r.RolePermissions)
+.ThenInclude(rp => rp.Permission)
+.FirstOrDefaultAsync(u => u.Id == preview.UserId, ct)
+?? throw new UnauthorizedAccessException("User not found.");
+if (!user.IsActive)
+throw new UnauthorizedAccessException("Account is disabled.");
+if (tenantId.HasValue)
+{
+var hasPlatformAccess = user.Roles.Any(x =>
+x.TenantId == null &&
+x.Role.RolePermissions.Any(rp =>
+rp.Permission.Name == Permissions.Platform.ViewAllTenants));
+if (!hasPlatformAccess)
+{
+var belongsToTenant = user.Roles.Any(x =>
+x.TenantId.HasValue && x.TenantId.Value == tenantId.Value);
+if (!belongsToTenant)
+throw new UnauthorizedAccessException(
+"User does not belong to this tenant.");
 }
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\CreateUserRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+var roles = BuildRoleList(user, tenantId);
+var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
+var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
+user, tenantId, roles, permissions, storeIds);
+var (newRefreshToken, _) = await _refreshTokenService.RotateAsync(
+request.RefreshToken, newJwtId);
+return new LoginResponse
 {
-public CreateUserRequestValidator()
-{
-RuleFor(x => x.Name)
-.NotEmpty()
-.WithMessage("Name is required.")
-.MaximumLength(200)
-.WithMessage("Name must not exceed 200 characters.");
-RuleFor(x => x.Phone)
-.NotEmpty()
-.WithMessage("Phone is required.")
-.Matches(@"^\+?[\d\s\-]{7,15}$")
-.WithMessage("Phone number is not valid.");
-RuleFor(x => x.Email)
-.EmailAddress()
-.WithMessage("Email is not valid.")
-.MaximumLength(200)
-.WithMessage("Email must not exceed 200 characters.")
-.When(x => !string.IsNullOrWhiteSpace(x.Email));
-RuleFor(x => x.Password)
-.NotEmpty()
-.WithMessage("Password is required.")
-.MinimumLength(8)
-.WithMessage("Password must be at least 8 characters.")
-.MaximumLength(100)
-.WithMessage("Password must not exceed 100 characters.")
-.Matches("[A-Z]")
-.WithMessage("Password must contain at least one uppercase letter.")
-.Matches("[a-z]")
-.WithMessage("Password must contain at least one lowercase letter.")
-.Matches("[0-9]")
-.WithMessage("Password must contain at least one digit.")
-.Matches("[^a-zA-Z0-9]")
-.WithMessage("Password must contain at least one special character.");
+AccessToken = accessToken,
+RefreshToken = newRefreshToken
+};
 }
+public async Task LogoutAsync(string refreshToken)
+{
+await _refreshTokenService.RevokeAsync(refreshToken);
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\LoginRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class LoginRequestValidator : AbstractValidator<LoginRequest>
+private List<string> BuildRoleList(User user, Guid? tenantId)
 {
-public LoginRequestValidator()
-{
-RuleFor(x => x.Login)
-.NotEmpty().WithMessage("Login is required.")
-.MaximumLength(200).WithMessage("Login must not exceed 200 characters.");
-RuleFor(x => x.Password)
-.NotEmpty().WithMessage("Password is required.")
-.MinimumLength(8).WithMessage("Password must be at least 8 characters.")
-.MaximumLength(100).WithMessage("Password must not exceed 100 characters.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\RefreshTokenRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class RefreshTokenRequestValidator : AbstractValidator<RefreshTokenRequest>
-{
-public RefreshTokenRequestValidator()
-{
-RuleFor(x => x.RefreshToken)
-.NotEmpty().WithMessage("Refresh token is required.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\ValidationFilter.cs =====
-using FluentValidation;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
-namespace CoreKit.IAM.Validators;
-public class ValidationFilter : IAsyncActionFilter
-{
-private readonly IServiceProvider _serviceProvider;
-public ValidationFilter(IServiceProvider serviceProvider)
-=> _serviceProvider = serviceProvider;
-public async Task OnActionExecutionAsync(
-ActionExecutingContext context,
-ActionExecutionDelegate next)
-{
-foreach (var (_, value) in context.ActionArguments)
-{
-if (value is null) continue;
-var validatorType = typeof(IValidator<>)
-.MakeGenericType(value.GetType());
-if (_serviceProvider.GetService(validatorType)
-is not IValidator validator)
-continue;
-var validationContext = new ValidationContext<object>(value);
-var result = await validator.ValidateAsync(
-validationContext, context.HttpContext.RequestAborted);
-if (result.IsValid) continue;
-var errors = result.Errors
-.Select(e => new
-{
-field = e.PropertyName,
-message = e.ErrorMessage
-})
+return user.Roles
+.Where(x => x.TenantId == null || x.TenantId == tenantId)
+.Select(x => x.Role.Name)
+.Distinct()
 .ToList();
-context.Result = new ObjectResult(new
-{
-success = false,
-errorCode = "VALIDATION_ERROR",
-message = "One or more validation errors occurred.",
-errors
-})
-{
-StatusCode = 422
-};
-return;
 }
-await next();
-}
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Controllers\ApiControllerBase.cs =====
-using CoreKit.Infrastructure.Models;
-using Microsoft.AspNetCore.Mvc;
-namespace CoreKit.Infrastructure.Controllers;
-[ApiController]
-public abstract class ApiControllerBase : ControllerBase
+private async Task<List<Guid>?> ResolveStoreIdsAsync(
+Guid userId,
+Guid? tenantId,
+CancellationToken ct)
 {
-protected IActionResult OkResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message));
-protected IActionResult OkResponse<T>(T data, string? message = null)
-=> Ok(ApiResponse.Ok(data, message));
-protected IActionResult DeletedResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message ?? "Deleted successfully."));
-protected IActionResult UpdatedResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message ?? "Updated successfully."));
-protected IActionResult CreatedResponse<T>(T data, string? message = null)
-=> Ok(ApiResponse.Ok(data, message ?? "Created successfully."));
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Extentions\BootCheckExtensions.cs =====
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Infrastructure.Extensions;
-public static class BootCheckExtensions
-{
-public static async Task PerformBootCheckAsync(this WebApplication app)
-{
-var logger = app.Services.GetRequiredService<ILogger<WebApplication>>();
-logger.LogInformation("===== SERVICE RESOLUTION CHECK =====");
-try
-{
-using var scope = app.Services.CreateScope();
-var sp = scope.ServiceProvider;
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IEncryptionService");
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IAuthService");
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.ICurrentUserService");
-ResolveByName(sp, logger, "CoreKit.Tenant.Services.IMutableTenantContext");
-ResolveByName(sp, logger, "CoreKit.Tenant.Middleware.TenantResolutionMiddleware");
-await CheckDatabaseAsync(sp, logger);
-}
-catch (Exception ex)
-{
-logger.LogCritical(ex, "Boot check failed: {Message}", ex.Message);
-}
-finally
-{
-logger.LogInformation("===== BOOT CHECK COMPLETE =====");
-}
-}
-private static void ResolveByName(
-IServiceProvider sp,
-ILogger logger,
-string fullTypeName)
-{
-var type = FindType(fullTypeName);
-if (type == null)
-{
-logger.LogWarning("Type not found in loaded assemblies: {Type}", fullTypeName);
-return;
-}
-try
-{
-var service = sp.GetService(type);
-if (service != null)
-logger.LogInformation("{ShortName,-30} OK", type.Name);
-else
-logger.LogWarning("{ShortName,-30} NOT REGISTERED", type.Name);
-}
-catch (Exception ex)
-{
-logger.LogError(ex, "{ShortName,-30} FAILED — {Error}", type.Name, ex.Message);
-}
-}
-private static async Task CheckDatabaseAsync(
-IServiceProvider sp,
-ILogger logger)
-{
-logger.LogInformation("Testing database connection...");
-var dbContextType = FindType("CoreKit.IAM.Persistence.IamDbContext");
-if (dbContextType == null)
-{
-logger.LogWarning("IamDbContext type not found — skipping DB check.");
-return;
-}
-var dbContext = sp.GetService(dbContextType);
-if (dbContext == null)
-{
-logger.LogWarning("IamDbContext not registered — skipping DB check.");
-return;
-}
-try
-{
-var databaseProp = dbContextType.BaseType is not null
-? GetPropertyFromHierarchy(dbContextType, "Database")
-: null;
-if (databaseProp == null)
-{
-logger.LogWarning("Could not reflect Database property on IamDbContext.");
-return;
-}
-var database = databaseProp.GetValue(dbContext);
-if (database == null)
-{
-logger.LogWarning("Database property returned null.");
-return;
-}
-var canConnectMethod = database.GetType()
-.GetMethod("CanConnectAsync",
-new[] { typeof(CancellationToken) });
-if (canConnectMethod == null)
-{
-logger.LogWarning("CanConnectAsync method not found on DatabaseFacade.");
-return;
-}
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-try
-{
-var task = (Task<bool>)canConnectMethod.Invoke(
-database, new object[] { cts.Token })!;
-var canConnect = await task;
-if (canConnect)
-logger.LogInformation("DATABASE connection             OK");
-else
-logger.LogCritical("DATABASE: CanConnect returned false. Check credentials.");
-}
-catch (OperationCanceledException)
-{
-logger.LogCritical(
-"DATABASE: connection timed out after 5 seconds. " +
-"Check SSL mode or network connectivity.");
-}
-}
-catch (Exception ex)
-{
-logger.LogError(ex, "Database check failed: {Error}", ex.Message);
-}
-}
-private static Type? FindType(string fullTypeName)
-{
-return AppDomain.CurrentDomain
-.GetAssemblies()
-.Where(a => !a.IsDynamic)
-.SelectMany(a =>
-{
-try { return a.GetExportedTypes(); }
-catch { return Array.Empty<Type>(); }
-})
-.FirstOrDefault(t => t.FullName == fullTypeName);
-}
-private static System.Reflection.PropertyInfo? GetPropertyFromHierarchy(
-Type type, string propertyName)
-{
-var current = type;
-while (current != null)
-{
-var prop = current.GetProperty(
-propertyName,
-System.Reflection.BindingFlags.Public |
-System.Reflection.BindingFlags.Instance);
-if (prop != null) return prop;
-current = current.BaseType;
-}
+if (!tenantId.HasValue)
 return null;
+var storeIds = await _db.Set<UserStoreAssignment>()
+.AsNoTracking()
+.Where(x => x.UserId == userId && x.TenantId == tenantId.Value)
+.Select(x => x.StoreId)
+.ToListAsync(ct);
+return storeIds.Count > 0 ? storeIds : null;
 }
 }
 
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Extentions\ConfigurationValidationExtensions.cs =====
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
-namespace CoreKit.Infrastructure.Extensions;
-public static class ConfigurationValidationExtensions
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\CurrentUserService.cs =====
+using System.Security.Claims;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.AspNetCore.Http;
+namespace CoreKit.IAM.Services;
+public class CurrentUserService : ICurrentUserService, ICurrentUser
 {
-public static void ValidateCoreKitConfiguration(
-this WebApplicationBuilder builder)
+private readonly IHttpContextAccessor _httpContextAccessor;
+private readonly IamOptions _options;
+private readonly IUserStoreAssignmentRepository _storeAssignmentRepo;
+public CurrentUserService(
+IHttpContextAccessor httpContextAccessor,
+IamOptions options,
+IUserStoreAssignmentRepository storeAssignmentRepo)
 {
-var config = builder.Configuration;
-var env = builder.Environment;
-var errors = new List<string>();
-var jwtSecret = config["Jwt:Secret"];
-if (string.IsNullOrWhiteSpace(jwtSecret))
-{
-errors.Add("Jwt:Secret is not configured.");
+_httpContextAccessor = httpContextAccessor;
+_options = options;
+_storeAssignmentRepo = storeAssignmentRepo;
 }
-else
+private ClaimsPrincipal? User =>
+_httpContextAccessor.HttpContext?.User;
+public Guid? UserId
 {
-try
+get
 {
-var bytes = Convert.FromBase64String(jwtSecret);
-if (bytes.Length < 32)
-errors.Add(
-$"Jwt:Secret is too short ({bytes.Length} bytes). " +
-"Minimum is 32 bytes (256 bits). " +
-"Generate with: openssl rand -base64 64");
-}
-catch
-{
-if (System.Text.Encoding.UTF8.GetByteCount(jwtSecret) < 32)
-errors.Add(
-"Jwt:Secret is too short. Minimum is 32 bytes.");
+var value = User?.FindFirst(ClaimConstants.UserId)?.Value;
+return Guid.TryParse(value, out var id) ? id : null;
 }
 }
-var encKey = config["EncryptionKey"];
-if (string.IsNullOrWhiteSpace(encKey))
+public bool IsAuthenticated => UserId.HasValue;
+public bool IsPlatformAdmin =>
+User?.IsInRole(_options.PlatformAdminRoleName) == true;
+public bool HasPermission(string permission) =>
+User?.Claims.Any(c =>
+c.Type == ClaimConstants.Permission &&
+c.Value == permission) == true;
+public TenantScope GetTenantScope()
 {
-errors.Add("EncryptionKey is not configured.");
-}
-else
+if (!IsAuthenticated) return TenantScope.Global;
+if (HasPermission(Permissions.Platform.ViewAllTenants))
+return TenantScope.Global;
+var claimValue = User?.FindFirst(ClaimConstants.TenantId)?.Value;
+if (Guid.TryParse(claimValue, out var tenantId) && tenantId != Guid.Empty)
+return TenantScope.For(tenantId);
+if (_options.TenantResolver != null)
 {
-try
+var resolved = _options.TenantResolver(_httpContextAccessor.HttpContext!);
+if (resolved.HasValue)
+return TenantScope.For(resolved.Value);
+}
+return TenantScope.Global;
+}
+public async Task<StoreScope> GetStoreScopeAsync()
 {
-var bytes = Convert.FromBase64String(encKey);
-if (bytes.Length != 32)
-errors.Add(
-$"EncryptionKey must be exactly 32 bytes " +
-$"(got {bytes.Length}). " +
-"Generate with: openssl rand -base64 32");
-}
-catch
-{
-errors.Add("EncryptionKey is not valid base64.");
-}
-}
-var connStr = config.GetConnectionString("Postgres");
-if (string.IsNullOrWhiteSpace(connStr))
-errors.Add("ConnectionStrings:Postgres is not configured.");
-if (env.IsProduction())
-{
-if (connStr != null &&
-connStr.Contains(
-"SSL Mode=Disable",
-StringComparison.OrdinalIgnoreCase))
-errors.Add(
-"SSL must not be disabled in production. " +
-"Use 'SSL Mode=Require' in the connection string.");
-if (connStr != null &&
-connStr.Contains(
-"Username=postgres",
-StringComparison.OrdinalIgnoreCase))
-errors.Add(
-"Do not connect as the 'postgres' superuser in production. " +
-"Create a dedicated application database user.");
-if (jwtSecret != null &&
-jwtSecret == "k8!sJ3$pW9^tR2@zL7#mN5&bV8~qF4*hX6)d")
-errors.Add(
-"JWT secret is the default example value. " +
-"Rotate it immediately.");
-}
-if (errors.Count == 0) return;
-Console.ForegroundColor = ConsoleColor.Red;
-Console.WriteLine(
-"\n[CONFIG ERROR] Application cannot start " +
-"due to configuration problems:");
-foreach (var e in errors)
-Console.WriteLine($"  • {e}");
-Console.ResetColor();
-throw new InvalidOperationException(
-"Invalid configuration:\n" +
-string.Join("\n", errors.Select(e => "  • " + e)));
+if (!IsAuthenticated)
+throw new UnauthorizedAccessException("User is not authenticated.");
+if (HasPermission(Permissions.Store.ViewAll) ||
+HasPermission(Permissions.Platform.ViewAllStores))
+return StoreScope.All;
+if (UserId == null)
+throw new UnauthorizedAccessException("Cannot resolve store scope without a userId.");
+var claimStoreIds = User!.Claims
+.Where(c => c.Type == ClaimConstants.StoreId)
+.Select(c => Guid.TryParse(c.Value, out var g) ? g : (Guid?)null)
+.Where(g => g.HasValue)
+.Select(g => g!.Value)
+.ToList();
+if (claimStoreIds.Count > 0)
+return StoreScope.For(claimStoreIds);
+var tenantScope = GetTenantScope();
+if (tenantScope.IsGlobal)
+return StoreScope.All;
+var dbStoreIds = await _storeAssignmentRepo.GetStoreIdsByUserAsync(
+UserId.Value, tenantScope.TenantId);
+if (dbStoreIds.Count == 0)
+return StoreScope.Empty;
+return StoreScope.For(dbStoreIds);
 }
 }
 
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Extentions\MvcExtensions.cs =====
-using CoreKit.IAM.Validators;
-using Microsoft.Extensions.DependencyInjection;
-namespace CoreKit.Infrastructure.Extensions;
-public static class MvcExtensions
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\EncryptionService.cs =====
+using System.Security.Cryptography;
+using System.Text;
+using CoreKit.IAM.Interfaces;
+namespace CoreKit.IAM.Services;
+public class EncryptionService : IEncryptionService
 {
-public static IServiceCollection AddCoreKitControllers(
-this IServiceCollection services)
+private readonly byte[] _key;
+public EncryptionService(string key)
 {
-services.AddControllers(options =>
+if (string.IsNullOrWhiteSpace(key))
 {
-options.Filters.Add<ValidationFilter>();
-});
-services.AddScoped<ValidationFilter>();
-return services;
+throw new ArgumentNullException(nameof(key));
+}
+_key = Convert.FromBase64String(key);
+if (_key.Length != 32)
+{
+throw new ArgumentException(
+"Encryption key must be 32 bytes.");
+}
+}
+public string Encrypt(string plainText)
+{
+var plainBytes = Encoding.UTF8.GetBytes(plainText);
+var encrypted = Encrypt(plainBytes);
+return Convert.ToBase64String(encrypted);
+}
+public string Decrypt(string cipherText)
+{
+var encryptedBytes = Convert.FromBase64String(cipherText);
+var plainBytes = Decrypt(encryptedBytes);
+return Encoding.UTF8.GetString(plainBytes);
+}
+public byte[] Encrypt(byte[] plainBytes)
+{
+var nonce = RandomNumberGenerator.GetBytes(12);
+var cipherBytes = new byte[plainBytes.Length];
+var tag = new byte[16];
+using var aes = new AesGcm(_key, 16);
+aes.Encrypt(nonce, plainBytes, cipherBytes, tag);
+var result = new byte[12 + cipherBytes.Length + 16];
+Buffer.BlockCopy(nonce, 0, result, 0, 12);
+Buffer.BlockCopy(cipherBytes, 0, result, 12, cipherBytes.Length);
+Buffer.BlockCopy(tag, 0, result, 12 + cipherBytes.Length, 16);
+return result;
+}
+public byte[] Decrypt(byte[] encryptedBytes)
+{
+var nonce = new byte[12];
+var tag = new byte[16];
+var cipherBytes = new byte[encryptedBytes.Length - 12 - 16];
+Buffer.BlockCopy(encryptedBytes, 0, nonce, 0, 12);
+Buffer.BlockCopy(encryptedBytes, 12, cipherBytes, 0, cipherBytes.Length);
+Buffer.BlockCopy(encryptedBytes, 12 + cipherBytes.Length, tag, 0, 16);
+var plainBytes = new byte[cipherBytes.Length];
+using var aes = new AesGcm(_key, 16);
+aes.Decrypt(nonce, cipherBytes, tag, plainBytes);
+return plainBytes;
 }
 }
 
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\ExceptionMiddleware.cs =====
-using System.Text.Json;
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\HttpContextCurrentUser.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.AspNetCore.Http;
+namespace CoreKit.IAM.Services;
+internal sealed class HttpContextCurrentUser : ICurrentUser
+{
+private readonly IHttpContextAccessor _accessor;
+public HttpContextCurrentUser(IHttpContextAccessor accessor)
+=> _accessor = accessor;
+public Guid? UserId
+{
+get
+{
+var value = _accessor.HttpContext?
+.User
+.FindFirst(ClaimConstants.UserId)?
+.Value;
+return Guid.TryParse(value, out var id) ? id : null;
+}
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\ImpersonationService.cs =====
+using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Exceptions;
-using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-namespace CoreKit.Infrastructure.Middleware;
-public class ExceptionMiddleware
+namespace CoreKit.IAM.Services;
+public interface IImpersonationService
 {
-private readonly RequestDelegate _next;
-private readonly ILogger<ExceptionMiddleware> _logger;
-private static readonly JsonSerializerOptions JsonOptions =
-new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-public ExceptionMiddleware(
-RequestDelegate next,
-ILogger<ExceptionMiddleware> logger)
+Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
+Guid platformUserId,
+Guid targetTenantId,
+string reason);
+}
+public class ImpersonationService : IImpersonationService
 {
-_next = next;
+private readonly IJwtTokenService _jwtService;
+private readonly IUserRepository _userRepo;
+private readonly IPermissionService _permissionService;
+private readonly ILogger<ImpersonationService> _logger;
+public ImpersonationService(
+IJwtTokenService jwtService,
+IUserRepository userRepo,
+IPermissionService permissionService,
+ILogger<ImpersonationService> logger)
+{
+_jwtService = jwtService;
+_userRepo = userRepo;
+_permissionService = permissionService;
 _logger = logger;
 }
-public async Task InvokeAsync(HttpContext context)
+public async Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
+Guid platformUserId,
+Guid targetTenantId,
+string reason)
 {
-try
-{
-await _next(context);
+var hasPermission = await _permissionService.HasPermissionAsync(
+platformUserId, null, Constants.Permissions.Platform.CreateImpersonation);
+if (!hasPermission)
+throw new ForbiddenException("You do not have permission to impersonate tenants.");
+var platformUser = await _userRepo.GetByIdAsync(platformUserId)
+?? throw new KeyNotFoundException("Platform user not found.");
+var (token, expiresAt, _) = _jwtService.GenerateAccessToken(
+platformUser,
+targetTenantId,
+new[] { "TenantAdmin" },
+permissions: null,
+storeIds: null);
+_logger.LogWarning(
+"Platform user {PlatformUserId} ({Email}) created impersonation token for tenant {TenantId}. Reason: {Reason}",
+platformUserId, platformUser.Email, targetTenantId, reason);
+return (token, expiresAt);
 }
-catch (OperationCanceledException)
-when (context.RequestAborted.IsCancellationRequested)
-{
-_logger.LogInformation(
-"Request cancelled by client: {Method} {Path}",
-context.Request.Method,
-context.Request.Path);
-if (!context.Response.HasStarted)
-context.Response.StatusCode = 499;
-}
-catch (Exception ex)
-{
-_logger.LogError(ex,
-"Unhandled exception: {Method} {Path}",
-context.Request.Method,
-context.Request.Path);
-await WriteErrorAsync(context, ex);
-}
-}
-private static async Task WriteErrorAsync(HttpContext context, Exception ex)
-{
-if (context.Response.HasStarted) return;
-var (statusCode, message, errorCode) = Classify(ex);
-context.Response.Clear();
-context.Response.StatusCode = statusCode;
-context.Response.ContentType = "application/json";
-var body = new ApiErrorResponse
-{
-Success = false,
-ErrorCode = errorCode,
-Message = message
-};
-await context.Response.WriteAsync(
-JsonSerializer.Serialize(body, JsonOptions));
-}
-private static (int StatusCode, string Message, string ErrorCode) Classify(Exception ex)
-=> ex switch
-{
-UnauthorizedAccessException =>
-(401,
-"You are not authorised to perform this action. Please log in and try again.",
-"UNAUTHORIZED"),
-ForbiddenException =>
-(403,
-ex.Message,
-"FORBIDDEN"),
-KeyNotFoundException =>
-(404,
-"The requested resource was not found.",
-"NOT_FOUND"),
-InvalidOperationException =>
-(400,
-ex.Message,
-"INVALID_OPERATION"),
-ArgumentException =>
-(400,
-ex.Message,
-"BAD_REQUEST"),
-DbUpdateConcurrencyException =>
-(409,
-"The record was modified by another user. Please refresh and try again.",
-"CONFLICT"),
-DbUpdateException =>
-(422,
-"The request could not be saved. Please check your input and try again.",
-"UNPROCESSABLE"),
-TimeoutException =>
-(504,
-"The request took too long. Please try again.",
-"TIMEOUT"),
-_ =>
-(500,
-"Something went wrong on our end. Please try again in a moment.",
-"SERVER_ERROR")
-};
-private sealed class ApiErrorResponse
-{
-public bool Success { get; init; }
-public string ErrorCode { get; init; } = string.Empty;
-public string Message { get; init; } = string.Empty;
-}
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Middleware\RequestTracingMiddleware.cs =====
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Infrastructure.Middleware;
-public class RequestTracingMiddleware
-{
-private readonly RequestDelegate _next;
-private readonly ILogger<RequestTracingMiddleware> _logger;
-public RequestTracingMiddleware(
-RequestDelegate next,
-ILogger<RequestTracingMiddleware> logger)
-{
-_next = next;
-_logger = logger;
-}
-public async Task InvokeAsync(HttpContext context)
-{
-var traceId = Guid.NewGuid().ToString()[..8].ToUpper();
-context.Items["TraceId"] = traceId;
-var method = context.Request.Method;
-var path = context.Request.Path;
-var hasTenant = context.Request.Headers.ContainsKey("x-tenant-id");
-var hasAuth = context.Request.Headers.ContainsKey("Authorization");
-using var scope = _logger.BeginScope(
-new Dictionary<string, object> { ["TraceId"] = traceId });
-_logger.LogInformation(
-"Incoming {Method} {Path} | tenant={HasTenant} auth={HasAuth}",
-method, path, hasTenant, hasAuth);
-var sw = System.Diagnostics.Stopwatch.StartNew();
-try
-{
-await _next(context);
-sw.Stop();
-_logger.LogInformation(
-"Completed {Method} {Path} → {Status} in {ElapsedMs}ms",
-method, path, context.Response.StatusCode, sw.ElapsedMilliseconds);
-}
-catch (Exception ex)
-{
-sw.Stop();
-_logger.LogError(ex,
-"Unhandled exception in {Method} {Path} after {ElapsedMs}ms",
-method, path, sw.ElapsedMilliseconds);
-throw;
-}
-}
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Models\ApiResponse.cs =====
-namespace CoreKit.Infrastructure.Models;
-public class ApiResponse
-{
-public bool Success { get; init; }
-public string? Message { get; init; }
-public static ApiResponse Ok(string? message = null) =>
-new() { Success = true, Message = message };
-public static ApiResponse<T> Ok<T>(T data, string? message = null) =>
-new() { Success = true, Data = data, Message = message };
-}
-public class ApiResponse<T> : ApiResponse
-{
-public T? Data { get; init; }
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\PlanConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.Subscription.Entities;
-namespace CoreKit.Subscription.Configuration;
-public class PlanConfiguration : IEntityTypeConfiguration<Plan>
-{
-public void Configure(EntityTypeBuilder<Plan> builder)
-{
-builder.ToTable("SUB_Plans");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
-builder.Property(x => x.Code).IsRequired().HasMaxLength(50);
-builder.HasIndex(x => x.Code).IsUnique();
-}
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\TenantSubscriptionConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.Subscription.Entities;
-namespace CoreKit.Subscription.Configuration;
-public class TenantSubscriptionConfiguration : IEntityTypeConfiguration<TenantSubscription>
-{
-public void Configure(EntityTypeBuilder<TenantSubscription> builder)
-{
-builder.ToTable("SUB_TenantSubscriptions");
-builder.HasKey(x => x.Id);
-builder.HasIndex(x => new { x.TenantId, x.Status });
-builder.Property(x => x.Status)
-.HasConversion<int>()
-.IsRequired();
-builder.Property(x => x.StartDate).IsRequired();
-builder.Property(x => x.PaymentReference)
-.HasMaxLength(500);
-builder.HasOne(x => x.Plan)
-.WithMany(x => x.Subscriptions)
-.HasForeignKey(x => x.PlanId)
-.OnDelete(DeleteBehavior.Restrict);
-}
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\Plan.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.Subscription.Entities;
-public class Plan : AuditableEntity
-{
-public string Name { get; set; } = default!;
-public string Code { get; set; } = default!;
-public string? Description { get; set; }
-public decimal MonthlyPrice { get; set; }
-public decimal YearlyPrice { get; set; }
-public int? MaxStores { get; set; }
-public int? MaxProducts { get; set; }
-public int? MaxCategories { get; set; }
-public bool CustomDomainEnabled { get; set; }
-public bool ThemeCustomizationEnabled { get; set; }
-public bool IsActive { get; set; } = true;
-public int SortOrder { get; set; }
-public ICollection<TenantSubscription> Subscriptions { get; set; } = new List<TenantSubscription>();
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\TenantSubscription.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.Subscription.Entities;
-public class TenantSubscription : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public Guid PlanId { get; set; }
-public Plan Plan { get; set; } = default!;
-public DateTime StartDate { get; set; }
-public DateTime? EndDate { get; set; }
-public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Active;
-public string? PaymentReference { get; set; }
-}
-public enum SubscriptionStatus
-{
-Active = 1,
-Expired = 2,
-Cancelled = 3,
-Trial = 4
 }
 

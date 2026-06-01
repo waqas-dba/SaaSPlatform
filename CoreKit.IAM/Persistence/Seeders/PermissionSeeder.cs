@@ -46,6 +46,8 @@ public sealed class PermissionSeeder
             });
         }
 
+
+
         await _db.SaveChangesAsync();
     }
 }

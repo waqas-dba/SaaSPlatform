@@ -1,4 +1,981 @@
 ﻿
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\CategoryConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+{
+public void Configure(EntityTypeBuilder<Category> builder)
+{
+builder.ToTable("Catalog_Categories");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Slug }).IsUnique().HasFilter("\"StoreId\" IS NOT NULL");
+builder.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique().HasFilter("\"StoreId\" IS NULL");
+builder.Property(x => x.IconUrl).HasMaxLength(2000);
+builder.HasOne(x => x.ParentCategory).WithMany(x => x.SubCategories).HasForeignKey(x => x.ParentCategoryId).OnDelete(DeleteBehavior.Restrict);
+builder.Property(x => x.Level).HasDefaultValue(1);
+builder.Property(x => x.StoreTypeCode).HasMaxLength(50);
+builder.HasMany(x => x.Products).WithOne(x => x.Category).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AttributeTemplates).WithOne(x => x.Category).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+public void Configure(EntityTypeBuilder<Product> builder)
+{
+builder.ToTable("Catalog_Products");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+builder.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
+builder.Property(x => x.Description).HasMaxLength(2000);
+builder.Property(x => x.BasePrice).HasColumnType("decimal(18,2)").IsRequired();
+builder.HasOne(x => x.Category).WithMany(x => x.Products).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+builder.HasOne(x => x.AddonGroup).WithMany(x => x.Products).HasForeignKey(x => x.AddonGroupId).OnDelete(DeleteBehavior.SetNull);
+builder.HasMany(x => x.Images).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AttributeValues).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.Variants).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AdHocAddons).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Addon.cs =====
+namespace CoreKit.Catalog.Entities;
+public class Addon
+{
+public Guid Id { get; set; }
+public Guid AddonGroupId { get; set; }
+public AddonGroup AddonGroup { get; set; } = default!;
+public string Name { get; set; } = default!;
+public decimal AdditionalPrice { get; set; }
+public bool IsActive { get; set; } = true;
+public Guid? ProductId { get; set; }
+public Product? Product { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\AddonGroup.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class AddonGroup : AuditableEntity, ITenantScoped
+{
+public string Name { get; set; } = default!;
+public string? StoreTypeCode { get; set; }
+public Guid TenantId { get; set; }
+public ICollection<Addon> Addons { get; set; } = new List<Addon>();
+public ICollection<Product> Products { get; set; } = new List<Product>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\AttributeTemplate.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class AttributeTemplate : AuditableEntity, ITenantScoped
+{
+public string Name { get; set; } = default!;
+public AttributeFieldType FieldType { get; set; }
+public string? OptionsJson { get; set; }
+public bool IsRequired { get; set; }
+public string? StoreTypeCode { get; set; }
+public Guid? CategoryId { get; set; }
+public Category? Category { get; set; }
+public Guid TenantId { get; set; }
+public ICollection<ProductAttributeValue> ProductAttributeValues { get; set; } = new List<ProductAttributeValue>();
+}
+public enum AttributeFieldType
+{
+Text = 1,
+Number = 2,
+Boolean = 3,
+Select = 4
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Category.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class Category : AuditableEntity, ITenantScoped
+{
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? IconUrl { get; set; }
+public Guid? ParentCategoryId { get; set; }
+public Category? ParentCategory { get; set; }
+public ICollection<Category> SubCategories { get; set; } = new List<Category>();
+public int Level { get; set; } = 1;
+public string? StoreTypeCode { get; set; }
+public Guid? StoreId { get; set; }
+public Guid TenantId { get; set; }
+public ICollection<Product> Products { get; set; } = new List<Product>();
+public ICollection<AttributeTemplate> AttributeTemplates { get; set; } = new List<AttributeTemplate>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Product.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class Product : AuditableEntity, ITenantScoped, IStoreScoped
+{
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? Description { get; set; }
+public decimal BasePrice { get; set; }
+public Guid CategoryId { get; set; }
+public Category Category { get; set; } = default!;
+public Guid StoreId { get; set; }
+public Guid TenantId { get; set; }
+public bool TrackInventory { get; set; } = false;
+public bool IsActive { get; set; } = true;
+public Guid? AddonGroupId { get; set; }
+public AddonGroup? AddonGroup { get; set; }
+public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+public ICollection<ProductAttributeValue> AttributeValues { get; set; } = new List<ProductAttributeValue>();
+public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
+public ICollection<Addon> AdHocAddons { get; set; } = new List<Addon>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeValue.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductAttributeValue
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public Guid TemplateId { get; set; }
+public AttributeTemplate Template { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductImage.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductImage
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public string ImageUrl { get; set; } = default!;
+public bool IsPrimary { get; set; }
+public int SortOrder { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductVariant.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductVariant
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public string Sku { get; set; } = default!;
+public decimal Price { get; set; }
+public bool IsActive { get; set; } = true;
+public ICollection<VariantAttributeValue> AttributeValues { get; set; } = new List<VariantAttributeValue>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeTemplate.cs =====
+namespace CoreKit.Catalog.Entities;
+public class VariantAttributeTemplate
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string? OptionsJson { get; set; }
+public string StoreTypeCode { get; set; } = default!;
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeValue.cs =====
+namespace CoreKit.Catalog.Entities;
+public class VariantAttributeValue
+{
+public Guid Id { get; set; }
+public Guid VariantId { get; set; }
+public ProductVariant Variant { get; set; } = default!;
+public Guid TemplateId { get; set; }
+public VariantAttributeTemplate Template { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Catalog.Services;
+using CoreKit.Catalog.Validators;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+namespace CoreKit.Catalog.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddCatalogModule(
+this IServiceCollection services,
+string connectionString)
+{
+services.AddDbContext<CatalogDbContext>(options =>
+options.UseNpgsql(connectionString));
+services.AddScoped<ICategoryService, CategoryService>();
+services.AddScoped<IProductService, ProductService>();
+services.AddScoped<IProductVariantService, ProductVariantService>();
+services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
+return services;
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\ICategoryService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface ICategoryService
+{
+Task<List<CategoryDto>> GetByTenantAsync(Guid tenantId, Guid? storeId = null);
+Task<CategoryDto?> GetByIdAsync(Guid id);
+Task<CategoryDto> CreateAsync(CreateCategoryRequest request);
+Task UpdateAsync(Guid id, UpdateCategoryRequest request);
+Task DeleteAsync(Guid id);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IProductService
+{
+Task<ProductDto> CreateAsync(CreateProductRequest request);
+Task<ProductDto?> GetByIdAsync(Guid id);
+Task<List<ProductDto>> GetByStoreAsync(Guid storeId);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductVariantService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IProductVariantService
+{
+Task<List<ProductVariantDto>> GetByProductAsync(Guid productId);
+Task<ProductVariantDto?> GetByIdAsync(Guid id);
+Task<ProductVariantDto> CreateAsync(Guid productId, CreateVariantRequest request);
+Task UpdateAsync(Guid id, UpdateVariantRequest request);
+Task DeleteAsync(Guid id);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddonDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class AddonDto
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public decimal AdditionalPrice { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddonGroupDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class AddonGroupDto
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public List<AddonDto> Addons { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AttributeValueItem.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class AttributeValueItem
+{
+public Guid TemplateId { get; set; }
+public string Value { get; set; } = default!;
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CategoryDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class CategoryDto
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? IconUrl { get; set; }
+public Guid? ParentCategoryId { get; set; }
+public int Level { get; set; }
+public string? StoreTypeCode { get; set; }
+public Guid? StoreId { get; set; }
+public Guid TenantId { get; set; }
+public List<CategoryDto> SubCategories { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateAddonItem.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class CreateAddonItem
+{
+public string Name { get; set; } = default!;
+public decimal AdditionalPrice { get; set; }
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateCategoryRequest.cs =====
+namespace CoreKit.Catalog.Models;
+public class CreateCategoryRequest
+{
+public string Name { get; set; } = default!;
+public string? IconUrl { get; set; }
+public Guid? ParentCategoryId { get; set; }
+public string? StoreTypeCode { get; set; }
+public Guid? StoreId { get; set; }
+public Guid TenantId { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateImageItem.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class CreateImageItem
+{
+public string ImageUrl { get; set; } = default!;
+public bool IsPrimary { get; set; }
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateProductRequest.cs =====
+namespace CoreKit.Catalog.Models;
+public class CreateProductRequest
+{
+public string Name { get; set; } = default!;
+public string? Description { get; set; }
+public decimal BasePrice { get; set; }
+public Guid CategoryId { get; set; }
+public Guid StoreId { get; set; }
+public bool TrackInventory { get; set; } = false;
+public Guid? AddonGroupId { get; set; }
+public List<CreateAddonItem> Addons { get; set; } = new();
+public List<CreateVariantItem> Variants { get; set; } = new();
+public List<AttributeValueItem> Attributes { get; set; } = new();
+public List<CreateImageItem> Images { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateVariantItem.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class CreateVariantItem
+{
+public string Sku { get; set; } = default!;
+public decimal Price { get; set; }
+public List<VariantAttributeItem> Attributes { get; set; } = new();
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateVariantRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models;
+public class CreateVariantRequest
+{
+public string Sku { get; set; } = default!;
+public decimal Price { get; set; }
+public List<VariantAttributeItem> Attributes { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductAttributeValueDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class ProductAttributeValueDto
+{
+public Guid Id { get; set; }
+public string TemplateName { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class ProductDto
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? Description { get; set; }
+public decimal BasePrice { get; set; }
+public Guid CategoryId { get; set; }
+public string CategoryName { get; set; } = default!;
+public Guid StoreId { get; set; }
+public Guid TenantId { get; set; }
+public bool TrackInventory { get; set; }
+public bool IsActive { get; set; }
+public Guid? AddonGroupId { get; set; }
+public List<ProductImageDto> Images { get; set; } = new();
+public List<ProductAttributeValueDto> AttributeValues { get; set; } = new();
+public List<ProductVariantDto> Variants { get; set; } = new();
+public List<AddonDto> Addons { get; set; } = new();
+public AddonGroupDto? AddonGroup { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductImageDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class ProductImageDto
+{
+public Guid Id { get; set; }
+public string ImageUrl { get; set; } = default!;
+public bool IsPrimary { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductVariantDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class ProductVariantDto
+{
+public Guid Id { get; set; }
+public string Sku { get; set; } = default!;
+public decimal Price { get; set; }
+public bool IsActive { get; set; }
+public List<VariantAttributeValueDto> Attributes { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateCategoryRequest.cs =====
+namespace CoreKit.Catalog.Models;
+public class UpdateCategoryRequest
+{
+public string? Name { get; set; }
+public string? IconUrl { get; set; }
+public string? StoreTypeCode { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateProductRequest.cs =====
+namespace CoreKit.Catalog.Models;
+public class UpdateProductRequest
+{
+public string? Name { get; set; }
+public string? Description { get; set; }
+public decimal? BasePrice { get; set; }
+public Guid? AddonGroupId { get; set; }
+public bool? IsActive { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateVariantRequest.cs =====
+namespace CoreKit.Catalog.Models;
+public class UpdateVariantRequest
+{
+public string? Sku { get; set; }
+public decimal? Price { get; set; }
+public List<VariantAttributeItem>? Attributes { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\VariantAttributeItem.cs =====
+namespace CoreKit.Catalog.Models
+{
+public class VariantAttributeItem
+{
+public string Name { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\VariantAttributeValueDto.cs =====
+namespace CoreKit.Catalog.Models;
+public class VariantAttributeValueDto
+{
+public string Name { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Persistence\CatalogDbContext.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Configuration;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Persistence;
+public class CatalogDbContext : AuditableDbContext
+{
+public CatalogDbContext(DbContextOptions<CatalogDbContext> options, ICurrentUser? currentUser = null)
+: base(options, currentUser) { }
+public DbSet<Category> Categories => Set<Category>();
+public DbSet<Product> Products => Set<Product>();
+public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+public DbSet<AttributeTemplate> AttributeTemplates => Set<AttributeTemplate>();
+public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
+public DbSet<VariantAttributeTemplate> VariantAttributeTemplates => Set<VariantAttributeTemplate>();
+public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+public DbSet<VariantAttributeValue> VariantAttributeValues => Set<VariantAttributeValue>();
+public DbSet<AddonGroup> AddonGroups => Set<AddonGroup>();
+public DbSet<Addon> Addons => Set<Addon>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(typeof(CatalogDbContext).Assembly);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\CategoryService.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Services;
+public class CategoryService : ICategoryService
+{
+private readonly CatalogDbContext _db;
+private readonly IPlanLimitProvider? _planLimit;
+public CategoryService(CatalogDbContext db, IPlanLimitProvider? planLimit = null)
+{
+_db = db;
+_planLimit = planLimit;
+}
+public async Task<List<CategoryDto>> GetByTenantAsync(Guid tenantId, Guid? storeId = null)
+{
+var query = _db.Categories
+.Where(c => c.TenantId == tenantId && (storeId == null || c.StoreId == storeId))
+.Include(c => c.SubCategories);
+return await query.Select(c => MapToDto(c)).ToListAsync();
+}
+public async Task<CategoryDto?> GetByIdAsync(Guid id)
+{
+var category = await _db.Categories
+.Include(c => c.SubCategories)
+.FirstOrDefaultAsync(c => c.Id == id);
+return category is null ? null : MapToDto(category);
+}
+public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request)
+{
+if (_planLimit is not null && request.ParentCategoryId.HasValue)
+{
+var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(request.TenantId);
+if (maxLevel > 0)
+{
+var parentLevel = await _db.Categories
+.Where(c => c.Id == request.ParentCategoryId.Value)
+.Select(c => c.Level)
+.FirstOrDefaultAsync();
+if (parentLevel >= maxLevel)
+throw new ForbiddenException($"Category depth limited to {maxLevel} level(s) by your subscription.");
+}
+}
+var category = new Category
+{
+Id = Guid.NewGuid(),
+Name = request.Name,
+Slug = SlugHelper.Generate(request.Name),
+IconUrl = request.IconUrl,
+ParentCategoryId = request.ParentCategoryId,
+StoreTypeCode = request.StoreTypeCode,
+StoreId = request.StoreId,
+TenantId = request.TenantId,
+Level = request.ParentCategoryId.HasValue ? 2 : 1
+};
+if (request.ParentCategoryId.HasValue)
+{
+var parent = await _db.Categories.FindAsync(request.ParentCategoryId.Value);
+if (parent is null) throw new KeyNotFoundException("Parent category not found.");
+category.Level = parent.Level + 1;
+}
+_db.Categories.Add(category);
+await _db.SaveChangesAsync();
+return MapToDto(category);
+}
+public async Task UpdateAsync(Guid id, UpdateCategoryRequest request)
+{
+var category = await _db.Categories.FindAsync(id)
+?? throw new KeyNotFoundException("Category not found.");
+if (request.Name is not null)
+{
+category.Name = request.Name;
+category.Slug = SlugHelper.Generate(request.Name);
+}
+if (request.IconUrl is not null) category.IconUrl = request.IconUrl;
+if (request.StoreTypeCode is not null) category.StoreTypeCode = request.StoreTypeCode;
+await _db.SaveChangesAsync();
+}
+public async Task DeleteAsync(Guid id)
+{
+var category = await _db.Categories
+.Include(c => c.SubCategories)
+.FirstOrDefaultAsync(c => c.Id == id)
+?? throw new KeyNotFoundException("Category not found.");
+if (category.SubCategories.Any())
+throw new InvalidOperationException("Cannot delete a category with subcategories.");
+_db.Categories.Remove(category);
+await _db.SaveChangesAsync();
+}
+private static CategoryDto MapToDto(Category category)
+{
+return new CategoryDto
+{
+Id = category.Id,
+Name = category.Name,
+Slug = category.Slug,
+IconUrl = category.IconUrl,
+ParentCategoryId = category.ParentCategoryId,
+Level = category.Level,
+StoreTypeCode = category.StoreTypeCode,
+StoreId = category.StoreId,
+TenantId = category.TenantId,
+SubCategories = category.SubCategories.Select(c => new CategoryDto
+{
+Id = c.Id,
+Name = c.Name,
+Slug = c.Slug,
+Level = c.Level
+}).ToList()
+};
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductService.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Services;
+public class ProductService : IProductService
+{
+private readonly CatalogDbContext _db;
+private readonly IPlanLimitProvider? _planLimit;
+public ProductService(CatalogDbContext db, IPlanLimitProvider? planLimit = null)
+{
+_db = db;
+_planLimit = planLimit;
+}
+public async Task<ProductDto> CreateAsync(CreateProductRequest request)
+{
+var store = await _db.Set<Store>()
+.FirstOrDefaultAsync(s => s.Id == request.StoreId)
+?? throw new KeyNotFoundException("Store not found.");
+if (_planLimit != null)
+{
+if (request.Variants.Any())
+{
+if (!await _planLimit.IsVariantsEnabledAsync(store.TenantId))
+throw new ForbiddenException("Your plan does not include product variants.");
+var maxVariants = await _planLimit.GetMaxVariantsPerProductAsync(store.TenantId);
+if (maxVariants.HasValue && request.Variants.Count > maxVariants.Value)
+throw new InvalidOperationException($"Maximum {maxVariants.Value} variants per product.");
+}
+if (request.Addons.Any())
+{
+if (!await _planLimit.IsAddonsEnabledAsync(store.TenantId))
+throw new ForbiddenException("Your plan does not include add-ons.");
+var maxAddons = await _planLimit.GetMaxAddonsPerProductAsync(store.TenantId);
+if (maxAddons.HasValue && request.Addons.Count > maxAddons.Value)
+throw new InvalidOperationException($"Maximum {maxAddons.Value} add-ons per product.");
+}
+var maxProducts = await _planLimit.GetMaxProductsAsync(store.TenantId);
+if (maxProducts.HasValue)
+{
+var currentCount = await _db.Products.CountAsync(p => p.StoreId == store.Id);
+if (currentCount >= maxProducts.Value)
+throw new InvalidOperationException("Product limit reached. Upgrade your plan.");
+}
+}
+var product = new Product
+{
+Id = Guid.NewGuid(),
+Name = request.Name,
+Slug = SlugHelper.Generate(request.Name),
+Description = request.Description,
+BasePrice = request.BasePrice,
+CategoryId = request.CategoryId,
+StoreId = request.StoreId,
+TenantId = store.TenantId,
+TrackInventory = request.TrackInventory
+};
+_db.Products.Add(product);
+foreach (var attr in request.Attributes)
+{
+product.AttributeValues.Add(new ProductAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = attr.TemplateId,
+Value = attr.Value
+});
+}
+foreach (var varItem in request.Variants)
+{
+var variant = new ProductVariant
+{
+Id = Guid.NewGuid(),
+Sku = varItem.Sku,
+Price = varItem.Price
+};
+foreach (var vAttr in varItem.Attributes)
+{
+var template = await _db.VariantAttributeTemplates
+.FirstOrDefaultAsync(t => t.Name == vAttr.Name && t.StoreTypeCode == store.StoreType.Code)
+?? throw new InvalidOperationException($"Variant attribute '{vAttr.Name}' not defined.");
+variant.AttributeValues.Add(new VariantAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = template.Id,
+Value = vAttr.Value
+});
+}
+product.Variants.Add(variant);
+}
+if (request.AddonGroupId.HasValue)
+{
+product.AddonGroupId = request.AddonGroupId.Value;
+}
+else
+{
+foreach (var addonItem in request.Addons)
+{
+product.AdHocAddons.Add(new Addon
+{
+Id = Guid.NewGuid(),
+Name = addonItem.Name,
+AdditionalPrice = addonItem.AdditionalPrice,
+AddonGroupId = Guid.Empty
+});
+}
+}
+foreach (var img in request.Images)
+{
+product.Images.Add(new ProductImage
+{
+Id = Guid.NewGuid(),
+ImageUrl = img.ImageUrl,
+IsPrimary = img.IsPrimary
+});
+}
+await _db.SaveChangesAsync();
+return MapToDto(product);
+}
+public async Task<ProductDto?> GetByIdAsync(Guid id)
+{
+var product = await _db.Products
+.Include(p => p.Category)
+.Include(p => p.Images)
+.Include(p => p.AttributeValues).ThenInclude(av => av.Template)
+.Include(p => p.Variants).ThenInclude(v => v.AttributeValues).ThenInclude(va => va.Template)
+.Include(p => p.AdHocAddons)
+.Include(p => p.AddonGroup).ThenInclude(ag => ag!.Addons)
+.FirstOrDefaultAsync(p => p.Id == id);
+return product is null ? null : MapToDto(product);
+}
+public async Task<List<ProductDto>> GetByStoreAsync(Guid storeId)
+{
+var products = await _db.Products
+.Where(p => p.StoreId == storeId)
+.Include(p => p.Category)
+.Include(p => p.Images)
+.Include(p => p.Variants).ThenInclude(v => v.AttributeValues)
+.ToListAsync();
+return products.Select(MapToDto).ToList();
+}
+private static ProductDto MapToDto(Product product)
+{
+return new ProductDto
+{
+Id = product.Id,
+Name = product.Name,
+Slug = product.Slug,
+Description = product.Description,
+BasePrice = product.BasePrice,
+CategoryId = product.CategoryId,
+CategoryName = product.Category?.Name ?? string.Empty,
+StoreId = product.StoreId,
+TenantId = product.TenantId,
+TrackInventory = product.TrackInventory,
+IsActive = product.IsActive,
+AddonGroupId = product.AddonGroupId,
+Images = product.Images.Select(i => new ProductImageDto
+{
+Id = i.Id,
+ImageUrl = i.ImageUrl,
+IsPrimary = i.IsPrimary
+}).ToList(),
+AttributeValues = product.AttributeValues.Select(av => new ProductAttributeValueDto
+{
+Id = av.Id,
+TemplateName = av.Template.Name,
+Value = av.Value
+}).ToList(),
+Variants = product.Variants.Select(v => new ProductVariantDto
+{
+Id = v.Id,
+Sku = v.Sku,
+Price = v.Price,
+IsActive = v.IsActive,
+Attributes = v.AttributeValues.Select(va => new VariantAttributeValueDto
+{
+Name = va.Template.Name,
+Value = va.Value
+}).ToList()
+}).ToList(),
+Addons = product.AdHocAddons.Select(a => new AddonDto
+{
+Id = a.Id,
+Name = a.Name,
+AdditionalPrice = a.AdditionalPrice
+}).ToList(),
+AddonGroup = product.AddonGroup is null ? null : new AddonGroupDto
+{
+Id = product.AddonGroup.Id,
+Name = product.AddonGroup.Name,
+Addons = product.AddonGroup.Addons.Select(a => new AddonDto
+{
+Id = a.Id,
+Name = a.Name,
+AdditionalPrice = a.AdditionalPrice
+}).ToList()
+}
+};
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductVariantService.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Services;
+public class ProductVariantService : IProductVariantService
+{
+private readonly CatalogDbContext _db;
+public ProductVariantService(CatalogDbContext db) => _db = db;
+public async Task<List<ProductVariantDto>> GetByProductAsync(Guid productId)
+{
+return await _db.ProductVariants
+.Where(v => v.ProductId == productId)
+.Include(v => v.AttributeValues).ThenInclude(av => av.Template)
+.Select(v => MapToDto(v))
+.ToListAsync();
+}
+public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
+{
+var variant = await _db.ProductVariants
+.Include(v => v.AttributeValues).ThenInclude(av => av.Template)
+.FirstOrDefaultAsync(v => v.Id == id);
+return variant is null ? null : MapToDto(variant);
+}
+public async Task<ProductVariantDto> CreateAsync(Guid productId, CreateVariantRequest request)
+{
+var product = await _db.Products
+.Include(p => p.Category)
+.FirstOrDefaultAsync(p => p.Id == productId)
+?? throw new KeyNotFoundException("Product not found.");
+var store = await _db.Set<CoreKit.Tenant.Entities.Store>()
+.FirstOrDefaultAsync(s => s.Id == product.StoreId)
+?? throw new KeyNotFoundException("Store not found.");
+var variant = new ProductVariant
+{
+Id = Guid.NewGuid(),
+ProductId = productId,
+Sku = request.Sku,
+Price = request.Price
+};
+foreach (var attr in request.Attributes)
+{
+var template = await _db.VariantAttributeTemplates
+.FirstOrDefaultAsync(t =>
+t.Name == attr.Name &&
+t.StoreTypeCode == store.StoreType.Code)
+?? throw new InvalidOperationException($"Variant attribute '{attr.Name}' not defined.");
+variant.AttributeValues.Add(new VariantAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = template.Id,
+Value = attr.Value
+});
+}
+_db.ProductVariants.Add(variant);
+await _db.SaveChangesAsync();
+await _db.Entry(variant)
+.Collection(v => v.AttributeValues).Query()
+.Include(av => av.Template).LoadAsync();
+return MapToDto(variant);
+}
+public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
+{
+var variant = await _db.ProductVariants
+.Include(v => v.AttributeValues)
+.FirstOrDefaultAsync(v => v.Id == id)
+?? throw new KeyNotFoundException("Variant not found.");
+if (request.Sku is not null) variant.Sku = request.Sku;
+if (request.Price.HasValue) variant.Price = request.Price.Value;
+if (request.Attributes is not null)
+{
+_db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
+variant.AttributeValues.Clear();
+var product = await _db.Products
+.Include(p => p.Category)
+.FirstOrDefaultAsync(p => p.Id == variant.ProductId)
+?? throw new KeyNotFoundException("Product not found.");
+var store = await _db.Set<CoreKit.Tenant.Entities.Store>()
+.FirstOrDefaultAsync(s => s.Id == product.StoreId)
+?? throw new KeyNotFoundException("Store not found.");
+foreach (var attr in request.Attributes)
+{
+var template = await _db.VariantAttributeTemplates
+.FirstOrDefaultAsync(t =>
+t.Name == attr.Name &&
+t.StoreTypeCode == store.StoreType.Code)
+?? throw new InvalidOperationException($"Variant attribute '{attr.Name}' not defined.");
+variant.AttributeValues.Add(new VariantAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = template.Id,
+Value = attr.Value
+});
+}
+}
+await _db.SaveChangesAsync();
+}
+public async Task DeleteAsync(Guid id)
+{
+var variant = await _db.ProductVariants.FindAsync(id)
+?? throw new KeyNotFoundException("Variant not found.");
+_db.ProductVariants.Remove(variant);
+await _db.SaveChangesAsync();
+}
+private static ProductVariantDto MapToDto(ProductVariant variant)
+{
+return new ProductVariantDto
+{
+Id = variant.Id,
+Sku = variant.Sku,
+Price = variant.Price,
+IsActive = variant.IsActive,
+Attributes = variant.AttributeValues.Select(av => new VariantAttributeValueDto
+{
+Name = av.Template.Name,
+Value = av.Value
+}).ToList()
+};
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Validators\CreateProductRequestValidator.cs =====
+using CoreKit.Catalog.Models;
+using FluentValidation;
+namespace CoreKit.Catalog.Validators;
+public class CreateProductRequestValidator : AbstractValidator<CreateProductRequest>
+{
+public CreateProductRequestValidator()
+{
+RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+RuleFor(x => x.BasePrice).GreaterThanOrEqualTo(0);
+RuleFor(x => x.CategoryId).NotEmpty();
+RuleFor(x => x.StoreId).NotEmpty();
+}
+}
+
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Authorization\RequiresPermissionAttribute.cs =====
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -1001,6 +1978,7 @@ Task DeleteAsync(Guid userId);
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserManagementService.cs =====
 using CoreKit.IAM.Entities;
+using CoreKit.IAM.Models;
 namespace CoreKit.IAM.Interfaces;
 public interface IUserManagementService
 {
@@ -1013,6 +1991,7 @@ Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
 Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
 Task LockUserAsync(Guid userId, DateTime lockoutEnd);
 Task UnlockUserAsync(Guid userId);
+Task<List<UserListItem>> GetAllUsersAsync();
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserRepository.cs =====
@@ -1143,6 +2122,18 @@ namespace CoreKit.IAM.Models;
 public class RefreshTokenRequest
 {
 public string RefreshToken { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\UserListItem.cs =====
+namespace CoreKit.IAM.Models;
+public class UserListItem
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string? Email { get; set; }
+public string Phone { get; set; } = default!;
+public bool IsActive { get; set; }
+public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamBootstrap.cs =====
@@ -2870,6 +3861,21 @@ user.LockoutEnd = null;
 user.FailedLoginAttempts = 0;
 await _db.SaveChangesAsync();
 }
+public async Task<List<UserListItem>> GetAllUsersAsync()
+{
+return await _db.Users
+.AsNoTracking()
+.Select(u => new UserListItem
+{
+Id = u.Id,
+Name = u.Name,
+Email = u.Email,
+Phone = u.Phone,
+IsActive = u.IsActive,
+TenantId = u.TenantId
+})
+.ToListAsync();
+}
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\CreateUserRequestValidator.cs =====
@@ -3462,6 +4468,11 @@ builder.HasKey(x => x.Id);
 builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
 builder.Property(x => x.Code).IsRequired().HasMaxLength(50);
 builder.HasIndex(x => x.Code).IsUnique();
+builder.Property(x => x.MaxCategoryLevel).HasDefaultValue(1);
+builder.Property(x => x.EnableVariants).HasDefaultValue(false);
+builder.Property(x => x.EnableAddons).HasDefaultValue(false);
+builder.Property(x => x.MaxVariantsPerProduct).IsRequired(false);
+builder.Property(x => x.MaxAddonsPerProduct).IsRequired(false);
 }
 }
 
@@ -3507,6 +4518,11 @@ public bool CustomDomainEnabled { get; set; }
 public bool ThemeCustomizationEnabled { get; set; }
 public bool IsActive { get; set; } = true;
 public int SortOrder { get; set; }
+public int MaxCategoryLevel { get; set; } = 1;
+public bool EnableVariants { get; set; } = false;
+public bool EnableAddons { get; set; } = false;
+public int? MaxVariantsPerProduct { get; set; }
+public int? MaxAddonsPerProduct { get; set; }
 public ICollection<TenantSubscription> Subscriptions { get; set; } = new List<TenantSubscription>();
 }
 
@@ -3630,7 +4646,12 @@ MaxCategories = 10,
 CustomDomainEnabled = false,
 ThemeCustomizationEnabled = false,
 IsActive = true,
-SortOrder = 1
+SortOrder = 1,
+MaxCategoryLevel = 1,
+EnableVariants = false,
+EnableAddons = false,
+MaxVariantsPerProduct = 0,
+MaxAddonsPerProduct = 0
 },
 new()
 {
@@ -3646,7 +4667,12 @@ MaxCategories = 50,
 CustomDomainEnabled = false,
 ThemeCustomizationEnabled = true,
 IsActive = true,
-SortOrder = 2
+SortOrder = 2,
+MaxCategoryLevel = 2,
+EnableVariants = true,
+EnableAddons = true,
+MaxVariantsPerProduct = 5,
+MaxAddonsPerProduct = 10
 },
 new()
 {
@@ -3662,7 +4688,12 @@ MaxCategories = null,
 CustomDomainEnabled = true,
 ThemeCustomizationEnabled = true,
 IsActive = true,
-SortOrder = 3
+SortOrder = 3,
+MaxCategoryLevel = 0,
+EnableVariants = true,
+EnableAddons = true,
+MaxVariantsPerProduct = null,
+MaxAddonsPerProduct = null
 }
 };
 _db.Plans.AddRange(plans);
@@ -3692,6 +4723,24 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 base.OnModelCreating(modelBuilder);
 modelBuilder.ApplyConfiguration(new PlanConfiguration());
 modelBuilder.ApplyConfiguration(new TenantSubscriptionConfiguration());
+}
+}
+
+===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\SubscriptionDbContextFactory.cs =====
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+namespace CoreKit.Subscription;
+public class SubscriptionDbContextFactory
+: IDesignTimeDbContextFactory<SubscriptionDbContext>
+{
+public SubscriptionDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder =
+new DbContextOptionsBuilder<SubscriptionDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new SubscriptionDbContext(optionsBuilder.Options);
 }
 }
 
@@ -3779,6 +4828,31 @@ return await _db.TenantSubscriptions
 && (ts.EndDate == null || ts.EndDate >= DateTime.UtcNow))
 .Select(ts => ts.Plan)
 .FirstOrDefaultAsync(ct);
+}
+public async Task<int> GetMaxCategoryLevelAsync(Guid tenantId, CancellationToken ct)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxCategoryLevel ?? 1;
+}
+public async Task<bool> IsVariantsEnabledAsync(Guid tenantId, CancellationToken ct)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.EnableVariants ?? false;
+}
+public async Task<bool> IsAddonsEnabledAsync(Guid tenantId, CancellationToken ct)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.EnableAddons ?? false;
+}
+public async Task<int?> GetMaxVariantsPerProductAsync(Guid tenantId, CancellationToken ct)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxVariantsPerProduct;
+}
+public async Task<int?> GetMaxAddonsPerProductAsync(Guid tenantId, CancellationToken ct)
+{
+var plan = await GetActivePlanAsync(tenantId, ct);
+return plan?.MaxAddonsPerProduct;
 }
 }
 
@@ -3886,6 +4960,11 @@ Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
 Task<int?> GetMaxProductsAsync(Guid tenantId, CancellationToken ct = default);
 Task<int?> GetMaxCategoriesAsync(Guid tenantId, CancellationToken ct = default);
 Task<bool> IsFeatureEnabledAsync(Guid tenantId, string featureCode, CancellationToken ct = default);
+Task<int> GetMaxCategoryLevelAsync(Guid tenantId, CancellationToken ct = default);
+Task<bool> IsVariantsEnabledAsync(Guid tenantId, CancellationToken ct = default);
+Task<bool> IsAddonsEnabledAsync(Guid tenantId, CancellationToken ct = default);
+Task<int?> GetMaxVariantsPerProductAsync(Guid tenantId, CancellationToken ct = default);
+Task<int?> GetMaxAddonsPerProductAsync(Guid tenantId, CancellationToken ct = default);
 }
 
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Abstractions\ITenantContext.cs =====
@@ -4138,6 +5217,9 @@ services.AddScoped<ITenantService, TenantService>();
 services.AddScoped<IStoreService, StoreService>();
 services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
 services.AddScoped<IStoreTypeService, StoreTypeService>();
+services.AddScoped<IMutableTenantContext, TenantContext>();
+services.AddScoped<ITenantContext>(sp =>
+sp.GetRequiredService<IMutableTenantContext>());
 services.AddScoped<TenantContext>();
 services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
 services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
@@ -4800,37 +5882,61 @@ using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Persistence;
 using Microsoft.EntityFrameworkCore;
 namespace CoreKit.Tenant.Repositories;
-public class TenantLegalInfoRepository : ITenantLegalInfoRepository
+public sealed class TenantLegalInfoRepository : ITenantLegalInfoRepository
 {
 private readonly TenantDbContext _db;
-public TenantLegalInfoRepository(TenantDbContext db) => _db = db;
-public async Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default)
-=> await (_db.TenantLegalInfos ?? throw new InvalidOperationException("TenantLegalInfos not configured"))
-.FirstOrDefaultAsync(i => i.TenantId == tenantId, ct);
-public async Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default)
+public TenantLegalInfoRepository(TenantDbContext db)
 {
-if (_db.TenantLegalInfos == null)
-throw new InvalidOperationException("TenantLegalInfos not configured");
+_db = db ?? throw new ArgumentNullException(nameof(db));
+}
+public async Task<TenantLegalInfo?> GetByTenantAsync(
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.TenantLegalInfos
+.AsNoTracking()
+.SingleOrDefaultAsync(
+x => x.TenantId == tenantId,
+ct);
+}
+public async Task AddOrUpdateAsync(
+TenantLegalInfo info,
+CancellationToken ct = default)
+{
+ArgumentNullException.ThrowIfNull(info);
+try
+{
 var existing = await _db.TenantLegalInfos
-.FirstOrDefaultAsync(i => i.TenantId == info.TenantId, ct);
-if (existing != null)
+.SingleOrDefaultAsync(
+x => x.TenantId == info.TenantId,
+ct);
+if (existing is not null)
 {
-existing.BusinessLicenseNumber = info.BusinessLicenseNumber;
-existing.TaxId = info.TaxId;
-existing.AdditionalJson = info.AdditionalJson;
+existing.BusinessLicenseNumber =
+info.BusinessLicenseNumber;
+existing.TaxId =
+info.TaxId;
+existing.AdditionalJson =
+info.AdditionalJson;
 }
 else
 {
-await _db.TenantLegalInfos.AddAsync(info, ct);
+await _db.TenantLegalInfos
+.AddAsync(info, ct);
 }
-try
-{
 await _db.SaveChangesAsync(ct);
 }
-catch (DbUpdateConcurrencyException)
+catch (DbUpdateConcurrencyException ex)
 {
 throw new InvalidOperationException(
-"This record was modified by another user. Please refresh and try again.");
+"The tenant legal information was modified by another user. Refresh the data and try again.",
+ex);
+}
+catch (DbUpdateException ex)
+{
+throw new InvalidOperationException(
+"Failed to save tenant legal information.",
+ex);
 }
 }
 }
@@ -4844,22 +5950,50 @@ namespace CoreKit.Tenant.Repositories;
 public class TenantRepository : ITenantRepository
 {
 private readonly TenantDbContext _db;
-public TenantRepository(TenantDbContext db) => _db = db;
+public TenantRepository(TenantDbContext db)
+{
+_db = db;
+}
 public async Task<TenantEntity?> GetByIdAsync(
-Guid tenantId, CancellationToken ct = default)
-=> await _db.Tenants
-.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.Id == tenantId, ct);
+}
 public async Task<TenantEntity?> GetByIdIncludeDeletedAsync(
-Guid tenantId, CancellationToken ct = default)
-=> await _db.Tenants
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.Tenants
 .IgnoreQueryFilters()
-.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
-public async Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default)
-=> await _db.Tenants.ToListAsync(ct);
-public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
-=> await _db.Tenants.AnyAsync(t => t.Name == name, ct);
-public void Add(TenantEntity tenant) => _db.Tenants.Add(tenant);
-public void Update(TenantEntity tenant) => _db.Tenants.Update(tenant);
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.Id == tenantId, ct);
+}
+public async Task<List<TenantEntity>> GetAllAsync(
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AsNoTracking()
+.OrderBy(x => x.Name)
+.ToListAsync(ct);
+}
+public async Task<bool> ExistsByNameAsync(
+string name,
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AnyAsync(x => x.Name == name, ct);
+}
+public void Add(TenantEntity tenant)
+{
+_db.Tenants.Add(tenant);
+}
+public void Update(TenantEntity tenant)
+{
+_db.Tenants.Update(tenant);
+}
 }
 
 ===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs =====
@@ -5430,7 +6564,7 @@ RuleFor(x => x.PostalCode)
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-namespace CoreKit.IAM.Validators;
+namespace CoreKit.Tenant.Validators;
 public class ValidationFilter : IAsyncActionFilter
 {
 private readonly IServiceProvider _serviceProvider;
@@ -5472,6 +6606,59 @@ StatusCode = 422
 return;
 }
 await next();
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\AdminCategoriesController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/categories")]
+[Authorize]
+public class AdminCategoriesController : ApiControllerBase
+{
+private readonly ICategoryService _categoryService;
+public AdminCategoriesController(ICategoryService categoryService)
+=> _categoryService = categoryService;
+[HttpGet("tenant/{tenantId}")]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetByTenant(Guid tenantId, [FromQuery] Guid? storeId = null)
+{
+var categories = await _categoryService.GetByTenantAsync(tenantId, storeId);
+return Ok(categories);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var category = await _categoryService.GetByIdAsync(id);
+return category is null ? NotFound() : Ok(category);
+}
+[HttpPost]
+[RequiresPermission("catalog.categories.create")]
+public async Task<IActionResult> Create(CreateCategoryRequest request)
+{
+var category = await _categoryService.CreateAsync(request);
+return CreatedResponse(category);
+}
+[HttpPut("{id}")]
+[RequiresPermission("catalog.categories.update")]
+public async Task<IActionResult> Update(Guid id, UpdateCategoryRequest request)
+{
+await _categoryService.UpdateAsync(id, request);
+return UpdatedResponse();
+}
+[HttpDelete("{id}")]
+[RequiresPermission("catalog.categories.delete")]
+public async Task<IActionResult> Delete(Guid id)
+{
+await _categoryService.DeleteAsync(id);
+return DeletedResponse();
 }
 }
 
@@ -5599,6 +6786,157 @@ public bool ThemeCustomizationEnabled { get; set; }
 public int SortOrder { get; set; } = 99;
 }
 
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductAddonsController.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Persistence;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products/{productId}/addons")]
+[Authorize]
+public class ProductAddonsController : ApiControllerBase
+{
+private readonly CatalogDbContext _db;
+public ProductAddonsController(CatalogDbContext db) => _db = db;
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetAddons(Guid productId)
+{
+var addons = await _db.Addons.Where(a => a.ProductId == productId).ToListAsync();
+return Ok(addons);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Create(Guid productId, [FromBody] CreateAddonRequest request)
+{
+var product = await _db.Products.FindAsync(productId);
+if (product is null) return NotFound();
+var addon = new Addon
+{
+Id = Guid.NewGuid(),
+Name = request.Name,
+AdditionalPrice = request.AdditionalPrice,
+AddonGroupId = Guid.Empty,
+ProductId = productId
+};
+_db.Addons.Add(addon);
+await _db.SaveChangesAsync();
+return CreatedResponse(addon);
+}
+[HttpDelete("{addonId}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Delete(Guid addonId)
+{
+var addon = await _db.Addons.FindAsync(addonId);
+if (addon is null) return NotFound();
+_db.Addons.Remove(addon);
+await _db.SaveChangesAsync();
+return DeletedResponse();
+}
+}
+public class CreateAddonRequest
+{
+public string Name { get; set; } = default!;
+public decimal AdditionalPrice { get; set; }
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Helpers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+private readonly IProductService _productService;
+public ProductsController(IProductService productService)
+=> _productService = productService;
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(CreateProductRequest request)
+{
+var product = await _productService.CreateAsync(request);
+return CreatedResponse(product);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var product = await _productService.GetByIdAsync(id);
+return product is null ? NotFound() : Ok(product);
+}
+[HttpGet("store/{storeId}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByStore(Guid storeId)
+{
+var products = await _productService.GetByStoreAsync(storeId);
+return Ok(products);
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductVariantsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products/{productId}/variants")]
+[Authorize]
+public class ProductVariantsController : ApiControllerBase
+{
+private readonly IProductVariantService _variantService;
+public ProductVariantsController(IProductVariantService variantService)
+=> _variantService = variantService;
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByProduct(Guid productId)
+{
+var variants = await _variantService.GetByProductAsync(productId);
+return Ok(variants);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var variant = await _variantService.GetByIdAsync(id);
+return variant is null ? NotFound() : Ok(variant);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Create(Guid productId, CreateVariantRequest request)
+{
+var variant = await _variantService.CreateAsync(productId, request);
+return CreatedResponse(variant);
+}
+[HttpPut("{id}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(Guid id, UpdateVariantRequest request)
+{
+await _variantService.UpdateAsync(id, request);
+return UpdatedResponse();
+}
+[HttpDelete("{id}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Delete(Guid id)
+{
+await _variantService.DeleteAsync(id);
+return DeletedResponse();
+}
+}
+
 ===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs =====
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
@@ -5632,6 +6970,63 @@ Guid roleId, [FromBody] AssignPermissionRequest request)
 await _roleService.AssignPermissionAsync(
 roleId, request.PermissionId);
 return UpdatedResponse("Permission assigned successfully.");
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\SubscriptionController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/subscription")]
+[Authorize]
+public class SubscriptionController : ApiControllerBase
+{
+private readonly IPlanService _planService;
+private readonly ISubscriptionManagementService _subService;
+public SubscriptionController(
+IPlanService planService,
+ISubscriptionManagementService subService)
+{
+_planService = planService;
+_subService = subService;
+}
+[HttpGet("plans")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> GetAllPlans()
+{
+var plans = await _planService.GetAllAsync();
+return Ok(plans);
+}
+[HttpPost("assign")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> AssignSubscription([FromBody] AssignSubscriptionRequest request)
+{
+await _subService.AssignSubscriptionAsync(
+request.TenantId,
+request.PlanId,
+startDate: request.StartDate,
+endDate: request.EndDate);
+var active = await _subService.GetActiveSubscriptionForTenantAsync(request.TenantId);
+return Ok(active);
+}
+[HttpGet("tenant/{tenantId}/active")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> GetActiveSubscription(Guid tenantId)
+{
+var sub = await _subService.GetActiveSubscriptionForTenantAsync(tenantId);
+if (sub is null)
+return NotFound(new
+{
+success = false,
+errorCode = "NOT_FOUND",
+message = "No active subscription found."
+});
+return Ok(sub);
 }
 }
 
@@ -5747,24 +7142,28 @@ public class UsersController : ApiControllerBase
 private readonly IUserManagementService _userService;
 public UsersController(IUserManagementService userService)
 => _userService = userService;
+[HttpGet]
+[RequiresPermission(Permissions.Platform.ViewAllUsers)]
+public async Task<IActionResult> GetAll()
+{
+var users = await _userService.GetAllUsersAsync();
+return Ok(users);
+}
 [HttpPost]
-[RequiresPermission(Permissions.Users.Create)]
-public async Task<IActionResult> Create(
-[FromBody] SaaSPlatform.Admin.Api.Models.CreateUserRequest request)
+[RequiresPermission(Permissions.Platform.ManageAnyUser)]
+public async Task<IActionResult> Create([FromBody] SaaSPlatform.Admin.Api.Models.CreateUserRequest request)
 {
 var user = await _userService.CreateUserAsync(
 request.Name, request.Phone,
 request.Email, request.Password,
 request.TenantId);
-return CreatedResponse(new { user.Id, user.Name, user.Phone });
+return CreatedResponse(new { user.Id, user.Name, user.Phone }, "Created successfully.");
 }
 [HttpPost("{userId}/roles")]
 [RequiresPermission(Permissions.Users.AssignRole)]
-public async Task<IActionResult> AssignRole(
-Guid userId, [FromBody] AssignRoleWithTenantRequest request)
+public async Task<IActionResult> AssignRole(Guid userId, [FromBody] AssignRoleWithTenantRequest request)
 {
-await _userService.AssignRoleAsync(
-userId, request.RoleId, request.TenantId);
+await _userService.AssignRoleAsync(userId, request.RoleId, request.TenantId);
 return UpdatedResponse("Role assigned successfully.");
 }
 }
@@ -5774,6 +7173,16 @@ namespace SaaSPlatform.Admin.Api.Models;
 public class AssignPermissionRequest
 {
 public Guid PermissionId { get; set; }
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\AssignSubscriptionRequest.cs =====
+namespace SaaSPlatform.Admin.Api.Models;
+public class AssignSubscriptionRequest
+{
+public Guid TenantId { get; set; }
+public Guid PlanId { get; set; }
+public DateTime? StartDate { get; set; }
+public DateTime? EndDate { get; set; }
 }
 
 ===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\CreateRoleRequest.cs =====
@@ -5817,6 +7226,7 @@ RuleFor(x => x.Password)
 }
 
 ===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs =====
+using CoreKit.Catalog.Extensions;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -5825,8 +7235,10 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using FluentValidation;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SaaSPlatform.Admin.Api.Validators;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
@@ -5873,9 +7285,14 @@ options.EnableLegalInfo = true;
 builder.Services.AddSubscriptionModule(connStr);
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
+builder.Services.AddCatalogModule(connStr);
 builder.WebHost.ConfigureKestrel(options =>
 {
 options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
+builder.Services.Configure<JsonOptions>(options =>
+{
+options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 });
 var app = builder.Build();
 app.Use(async (context, next) =>
@@ -6479,6 +7896,45 @@ Errors = errors ?? new()
 };
 }
 
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\ProductsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+private readonly IProductService _productService;
+public ProductsController(IProductService productService)
+=> _productService = productService;
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(CreateProductRequest request)
+{
+var product = await _productService.CreateAsync(request);
+return CreatedResponse(product);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var product = await _productService.GetByIdAsync(id);
+return product is null ? NotFound() : Ok(product);
+}
+[HttpGet("store/{storeId}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByStore(Guid storeId)
+{
+var products = await _productService.GetByStoreAsync(storeId);
+return Ok(products);
+}
+}
+
 ===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoresController.cs =====
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
@@ -6587,6 +8043,26 @@ public async Task<IActionResult> GetAll()
 {
 var types = await _storeTypeService.GetAllActiveAsync();
 return Ok(types);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Catalog.Services;
+using CoreKit.Catalog.Validators;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+namespace CoreKit.Catalog.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddCatalogModule(this IServiceCollection services, string connectionString)
+{
+services.AddDbContext<CatalogDbContext>(options => options.UseNpgsql(connectionString));
+services.AddScoped<IProductService, ProductService>();
+services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
+return services;
 }
 }
 

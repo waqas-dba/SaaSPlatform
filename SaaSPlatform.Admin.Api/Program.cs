@@ -1,3 +1,4 @@
+using CoreKit.Catalog.Extensions;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -98,6 +99,8 @@ builder.Services.AddCoreKitControllers();
 // STARTUP CONFIGURATION VALIDATION
 // ==========================================
 builder.ValidateCoreKitConfiguration();
+
+builder.Services.AddCatalogModule(connStr);
 
 // ==========================================
 // KESTREL

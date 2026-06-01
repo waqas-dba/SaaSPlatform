@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CoreKit.Catalog\CoreKit.Catalog.csproj" />
     <ProjectReference Include="..\CoreKit.IAM\CoreKit.IAM.csproj" />
     <ProjectReference Include="..\CoreKit.Infrastructure\CoreKit.Infrastructure.csproj" />
     <ProjectReference Include="..\CoreKit.Subscription\CoreKit.Subscription.csproj" />

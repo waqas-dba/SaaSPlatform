@@ -1,663 +1,593 @@
 ﻿
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\ImpersonationService.cs =====
-using CoreKit.IAM.Interfaces;
-using CoreKit.SharedKernel.Exceptions;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.IAM.Services;
-public interface IImpersonationService
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionRepository.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IPermissionRepository
 {
-Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
-Guid platformUserId,
-Guid targetTenantId,
-string reason);
-}
-public class ImpersonationService : IImpersonationService
-{
-private readonly IJwtTokenService _jwtService;
-private readonly IUserRepository _userRepo;
-private readonly IPermissionService _permissionService;
-private readonly ILogger<ImpersonationService> _logger;
-public ImpersonationService(
-IJwtTokenService jwtService,
-IUserRepository userRepo,
-IPermissionService permissionService,
-ILogger<ImpersonationService> logger)
-{
-_jwtService = jwtService;
-_userRepo = userRepo;
-_permissionService = permissionService;
-_logger = logger;
-}
-public async Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
-Guid platformUserId,
-Guid targetTenantId,
-string reason)
-{
-var hasPermission = await _permissionService.HasPermissionAsync(
-platformUserId, null, Constants.Permissions.Platform.CreateImpersonation);
-if (!hasPermission)
-throw new ForbiddenException("You do not have permission to impersonate tenants.");
-var platformUser = await _userRepo.GetByIdAsync(platformUserId)
-?? throw new KeyNotFoundException("Platform user not found.");
-var (token, expiresAt, _) = _jwtService.GenerateAccessToken(
-platformUser,
-targetTenantId,
-new[] { "TenantAdmin" },
-permissions: null,
-storeIds: null);
-_logger.LogWarning(
-"Platform user {PlatformUserId} ({Email}) created impersonation token for tenant {TenantId}. Reason: {Reason}",
-platformUserId, platformUser.Email, targetTenantId, reason);
-return (token, expiresAt);
-}
+Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+Task<bool> HasPermissionByModuleAsync(Guid userId, Guid? tenantId, string module);
+Task<List<string>> GetPermissionsAsync(Guid userId, Guid? tenantId);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\JwtTokenService.cs =====
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using CoreKit.IAM.Constants;
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IPermissionService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IPermissionService
+{
+Task<bool> HasPermissionAsync(Guid userId, Guid? tenantId, string permission);
+Task<bool> HasModuleAccessAsync(Guid userId, Guid? tenantId, string module);
+Task<List<string>> GetUserPermissionsAsync(Guid userId, Guid? tenantId);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenRepository.cs =====
 using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
-namespace CoreKit.IAM.Services;
-public class JwtTokenService : IJwtTokenService
+namespace CoreKit.IAM.Interfaces;
+public interface IRefreshTokenRepository
 {
-private readonly JwtSettings _settings;
-public JwtTokenService(IOptions<JwtSettings> options)
-{
-_settings = options.Value;
-}
-public (string Token, DateTime ExpiresAt, string JwtId) GenerateAccessToken(
-User user,
-Guid? tenantId,
-IEnumerable<string> roles,
-IEnumerable<string>? permissions = null,
-IEnumerable<Guid>? storeIds = null)
-{
-var expiresAt = DateTime.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
-var jwtId = Guid.NewGuid().ToString();
-var claims = new List<Claim>
-{
-new(ClaimConstants.UserId,              user.Id.ToString()),
-new(JwtRegisteredClaimNames.Sub,         user.Id.ToString()),
-new(JwtRegisteredClaimNames.Jti,         jwtId),
-new(ClaimConstants.Name,                 user.Name)
-};
-if (!string.IsNullOrWhiteSpace(user.Email))
-claims.Add(new Claim(ClaimConstants.Email, user.Email));
-if (tenantId.HasValue)
-claims.Add(new Claim(ClaimConstants.TenantId, tenantId.Value.ToString()));
-foreach (var role in roles.Distinct())
-claims.Add(new Claim(ClaimConstants.Role, role));
-if (permissions != null)
-foreach (var permission in permissions.Distinct())
-claims.Add(new Claim(ClaimConstants.Permission, permission));
-if (storeIds != null)
-foreach (var storeId in storeIds.Distinct())
-claims.Add(new Claim(ClaimConstants.StoreId, storeId.ToString()));
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
-var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-var token = new JwtSecurityToken(
-issuer: _settings.Issuer,
-audience: _settings.Audience,
-claims: claims,
-expires: expiresAt,
-signingCredentials: creds);
-return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt, jwtId);
-}
+Task AddAsync(RefreshToken token);
+Task<RefreshToken?> GetByTokenHashAsync(string tokenHash);
+Task<List<RefreshToken>> GetByFamilyIdAsync(string familyId);
+void Update(RefreshToken token);
+void UpdateRange(IEnumerable<RefreshToken> tokens);
+Task RevokeFamilyAsync(string familyId, string? revokedByIp = null);
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PasswordHasher.cs =====
-using CoreKit.IAM.Interfaces;
-namespace CoreKit.IAM.Services;
-public class PasswordHasher : IPasswordHasher
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRefreshTokenService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IRefreshTokenService
 {
-public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password);
-public bool Verify(string password, string passwordHash) => BCrypt.Net.BCrypt.Verify(password, passwordHash);
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionCacheService.cs =====
-using System.Collections.Concurrent;
-using CoreKit.IAM.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
-namespace CoreKit.IAM.Services;
-public class PermissionCacheService : IPermissionCacheService
-{
-private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
-private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> _userKeys = new();
-private readonly IMemoryCache _cache;
-public PermissionCacheService(IMemoryCache cache) => _cache = cache;
-public Task<List<string>?> GetAsync(Guid userId, Guid? tenantId)
-{
-_cache.TryGetValue(CacheKey(userId, tenantId), out List<string>? result);
-return Task.FromResult(result);
-}
-public Task SetAsync(Guid userId, Guid? tenantId, List<string> permissions)
-{
-var key = CacheKey(userId, tenantId);
-var keySet = _userKeys.GetOrAdd(userId, _ => new ConcurrentDictionary<string, byte>());
-keySet.TryAdd(key, 0);
-var options = new MemoryCacheEntryOptions
-{
-AbsoluteExpirationRelativeToNow = Ttl
-};
-options.RegisterPostEvictionCallback((evictedKey, _, _, _) =>
-{
-if (evictedKey is not string k) return;
-var parts = k.Split(':');
-if (parts.Length < 2 || !Guid.TryParse(parts[1], out var evictedUserId))
-return;
-if (!_userKeys.TryGetValue(evictedUserId, out var set)) return;
-set.TryRemove(k, out _);
-if (set.IsEmpty)
-_userKeys.TryRemove(evictedUserId, out _);
-});
-_cache.Set(key, permissions, options);
-return Task.CompletedTask;
-}
-public Task InvalidateAsync(Guid userId, Guid? tenantId)
-{
-var key = CacheKey(userId, tenantId);
-_cache.Remove(key);
-if (_userKeys.TryGetValue(userId, out var keySet))
-{
-keySet.TryRemove(key, out _);
-if (keySet.IsEmpty)
-_userKeys.TryRemove(userId, out _);
-}
-return Task.CompletedTask;
-}
-public Task InvalidateUserAsync(Guid userId)
-{
-if (!_userKeys.TryRemove(userId, out var keySet))
-return Task.CompletedTask;
-foreach (var key in keySet.Keys)
-_cache.Remove(key);
-return Task.CompletedTask;
-}
-private static string CacheKey(Guid userId, Guid? tenantId)
-=> $"perm:{userId}:{tenantId?.ToString() ?? "global"}";
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\PermissionService.cs =====
-using CoreKit.IAM.Interfaces;
-namespace CoreKit.IAM.Services;
-public class PermissionService : IPermissionService
-{
-private readonly IPermissionRepository _repo;
-private readonly IPermissionCacheService _cache;
-public PermissionService(
-IPermissionRepository repo,
-IPermissionCacheService cache)
-{
-_repo = repo;
-_cache = cache;
-}
-public async Task<bool> HasPermissionAsync(
-Guid userId, Guid? tenantId, string permission)
-{
-var permissions = await GetUserPermissionsAsync(userId, tenantId);
-return permissions.Contains(permission);
-}
-public async Task<bool> HasModuleAccessAsync(
-Guid userId, Guid? tenantId, string module)
-{
-var permissions = await GetUserPermissionsAsync(userId, tenantId);
-var prefix = module + ".";
-return permissions.Any(p => p.StartsWith(prefix));
-}
-public async Task<List<string>> GetUserPermissionsAsync(
-Guid userId, Guid? tenantId)
-{
-var cached = await _cache.GetAsync(userId, tenantId);
-if (cached != null) return cached;
-var fresh = await _repo.GetPermissionsAsync(userId, tenantId);
-await _cache.SetAsync(userId, tenantId, fresh);
-return fresh;
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RefreshTokenService.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Helpers;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Models;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using System.Security.Cryptography;
-namespace CoreKit.IAM.Services;
-public class RefreshTokenService : IRefreshTokenService
-{
-private readonly IRefreshTokenRepository _repo;
-private readonly IamDbContext _db;
-private readonly JwtSettings _settings;
-private readonly ILogger<RefreshTokenService> _logger;
-public RefreshTokenService(
-IRefreshTokenRepository repo,
-IamDbContext db,
-IOptions<JwtSettings> options,
-ILogger<RefreshTokenService> logger)
-{
-_repo = repo;
-_db = db;
-_settings = options.Value;
-_logger = logger;
-}
-public async Task<string> GenerateAsync(
+Task<string> GenerateAsync(
 Guid userId,
 string jwtId,
 string? ipAddress = null,
-string? userAgent = null)
-{
-var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-var entity = new RefreshToken
-{
-UserId = userId,
-JwtId = jwtId,
-FamilyId = Guid.NewGuid().ToString(),
-TokenHash = TokenHasher.Hash(rawToken),
-ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays),
-CreatedByIp = ipAddress,
-UserAgent = userAgent
-};
-await _repo.AddAsync(entity);
-await _db.SaveChangesAsync();
-return rawToken;
-}
-public async Task<bool> ValidateAsync(string token)
-{
-var hash = TokenHasher.Hash(token);
-var stored = await _repo.GetByTokenHashAsync(hash);
-return stored is { IsActive: true };
-}
-public async Task RevokeAsync(
+string? userAgent = null);
+Task<bool> ValidateAsync(string token);
+Task RevokeAsync(
 string token,
 string? replacedByToken = null,
-string? revokedByIp = null)
+string? revokedByIp = null);
+Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
+string token,
+string newJwtId);
+string ComputeHash(string token);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleDocumentRequirementService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IRoleDocumentRequirementService
 {
-var hash = TokenHasher.Hash(token);
-var stored = await _repo.GetByTokenHashAsync(hash);
-if (stored == null) return;
-stored.IsRevoked = true;
-stored.RevokedAtUtc = DateTime.UtcNow;
-stored.RevokedByIp = revokedByIp;
-if (replacedByToken != null)
-stored.ReplacedByTokenHash = TokenHasher.Hash(replacedByToken);
-_repo.Update(stored);
+Task AddRequirementAsync(Guid roleId, string documentType);
+Task RemoveRequirementAsync(Guid roleId, string documentType);
+Task<List<string>> GetRequiredDocumentsAsync(Guid roleId);
+Task<bool> IsRequiredAsync(Guid roleId, string documentType);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleManagementService.cs =====
+using CoreKit.IAM.Entities;
+namespace CoreKit.IAM.Interfaces;
+public interface IRoleManagementService
+{
+Task<List<Role>> GetRolesAsync(Guid? tenantId);
+Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId);
+Task<Role> CreateRoleAsync(string name, Guid? tenantId, string? description = null);
+Task UpdateRoleAsync(Guid roleId, string? newName, string? newDescription, Guid? tenantId);
+Task DeleteRoleAsync(Guid roleId, Guid? tenantId);
+Task AssignPermissionAsync(Guid roleId, Guid permissionId);
+Task RemovePermissionAsync(Guid roleId, Guid permissionId);
+Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IRoleRepository.cs =====
+using CoreKit.IAM.Entities;
+namespace CoreKit.IAM.Interfaces;
+public interface IRoleRepository
+{
+Task<List<Role>> GetRolesByTenantAsync(Guid? tenantId);
+Task<Role?> GetByIdAsync(Guid roleId);
+void Add(Role role);
+void Update(Role role);
+void Delete(Role role);
+Task<List<Permission>> GetAllPermissionsAsync(CancellationToken ct = default);
+void AddRolePermission(RolePermission rolePermission);
+void RemoveRolePermission(RolePermission rolePermission);
+void AddUserRole(UserRole userRole);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserDocumentService.cs =====
+using CoreKit.IAM.Entities;
+namespace CoreKit.IAM.Interfaces;
+public interface IUserDocumentService
+{
+Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl);
+Task<UserDocument?> GetAsync(Guid userId, string documentType);
+Task<List<UserDocument>> GetByUserAsync(Guid userId);
+Task DeleteAsync(Guid userId, string documentType);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserIdentityService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IUserIdentityService
+{
+Task SetCnicAsync(Guid userId, string plainCnic);
+Task<string?> GetCnicAsync(Guid userId);
+Task DeleteAsync(Guid userId);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserManagementService.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Models;
+namespace CoreKit.IAM.Interfaces;
+public interface IUserManagementService
+{
+Task<List<User>> GetUsersAsync(Guid? tenantId);
+Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId);
+Task<User> CreateUserAsync(string name, string phone, string? email, string password, Guid? tenantId);
+Task UpdateUserAsync(Guid userId, string? name, string? email, string? phone, Guid? tenantId);
+Task DeleteUserAsync(Guid userId, Guid? tenantId);
+Task AssignRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId);
+Task LockUserAsync(Guid userId, DateTime lockoutEnd);
+Task UnlockUserAsync(Guid userId);
+Task<List<UserListItem>> GetAllUsersAsync();
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserRepository.cs =====
+using CoreKit.IAM.Entities;
+namespace CoreKit.IAM.Interfaces;
+public interface IUserRepository
+{
+Task<User?> GetByIdAsync(Guid userId);
+Task<User?> GetByPhoneAsync(string phone, Guid? tenantId = null);
+Task<User?> GetByEmailAsync(string email, Guid? tenantId = null);
+Task<List<User>> GetByTenantAsync(Guid tenantId);
+Task<bool> ExistsByPhoneAsync(string phone, Guid? tenantId = null);
+Task<bool> ExistsByEmailAsync(string email, Guid? tenantId = null);
+void Add(User user);
+void Update(User user);
+void Delete(User user);
+Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserStoreAssignmentRepository.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IUserStoreAssignmentRepository
+{
+Task<List<Guid>> GetStoreIdsByUserAsync(
+Guid userId, Guid tenantId, CancellationToken ct = default);
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignPermissionRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.IAM.Models;
+public class AssignPermissionRequest
+{
+public Guid PermissionId { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleWithTenantRequest.cs =====
+namespace CoreKit.IAM.Models;
+public class AssignRoleWithTenantRequest
+{
+public Guid RoleId { get; set; }
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\CreateRoleRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.IAM.Models;
+public class CreateRoleRequest
+{
+public string Name { get; set; } = default!;
+public Guid? TenantId { get; set; }
+public string? Description { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\CreateUserRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.IAM.Models;
+public class CreateUserRequest
+{
+public string Name { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string? Email { get; set; }
+public string Password { get; set; } = default!;
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
+namespace CoreKit.IAM.Models;
+public class IamOptions
+{
+public string LoginIdentifier { get; set; } = "phone";
+public Func<Microsoft.AspNetCore.Http.HttpContext, Guid?>? TenantResolver { get; set; }
+public int MinPasswordLength { get; set; } = 8;
+public bool EnableUserDocuments { get; set; } = false;
+public bool EnableUserIdentities { get; set; } = false;
+public bool RequireCnic { get; set; } = true;
+public bool EnableRoleDocumentRequirements { get; set; } = false;
+public bool AllowDefaultAdminSeed { get; set; } = false;
+public bool RunMigrationsOnBootstrap { get; set; } = false;
+public string PlatformAdminRoleName { get; set; } = "PlatformAdmin";
+public bool EnableImpersonation { get; set; } = true;
+public bool RequireImpersonationForCrossTenant { get; set; } = true;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
+namespace CoreKit.IAM.Models;
+public class JwtSettings
+{
+public string Secret { get; set; } = default!;
+public string Issuer { get; set; } = default!;
+public string Audience { get; set; } = default!;
+public int AccessTokenMinutes { get; set; } = 120;
+public int RefreshTokenDays { get; set; } = 7;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginRequest.cs =====
+namespace CoreKit.IAM.Models;
+public class LoginRequest
+{
+public string Login { get; set; } = default!;
+public string Password { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginResponse.cs =====
+namespace CoreKit.IAM.Models;
+public class LoginResponse
+{
+public string AccessToken { get; set; } = default!;
+public string RefreshToken { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LogoutRequest.cs =====
+namespace CoreKit.IAM.Models
+{
+public class LogoutRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\RefreshTokenRequest.cs =====
+namespace CoreKit.IAM.Models;
+public class RefreshTokenRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\UserListItem.cs =====
+namespace CoreKit.IAM.Models;
+public class UserListItem
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string? Email { get; set; }
+public string Phone { get; set; } = default!;
+public bool IsActive { get; set; }
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamBootstrap.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using CoreKit.IAM.Models;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class IamBootstrap
+{
+private readonly IamDbContext _db;
+private readonly PermissionSeeder _permissionSeeder;
+private readonly RoleSeeder _roleSeeder;
+private readonly UserSeeder _userSeeder;
+private readonly RolePermissionSeeder _rolePermissionSeeder;
+private readonly UserRoleSeeder _userRoleSeeder;
+private readonly IamOptions _options;
+private readonly ILogger<IamBootstrap> _logger;
+public IamBootstrap(
+IamDbContext db,
+PermissionSeeder permissionSeeder,
+RoleSeeder roleSeeder,
+UserSeeder userSeeder,
+RolePermissionSeeder rolePermissionSeeder,
+UserRoleSeeder userRoleSeeder,
+IamOptions options,
+ILogger<IamBootstrap> logger)
+{
+_db = db;
+_permissionSeeder = permissionSeeder;
+_roleSeeder = roleSeeder;
+_userSeeder = userSeeder;
+_rolePermissionSeeder = rolePermissionSeeder;
+_userRoleSeeder = userRoleSeeder;
+_options = options;
+_logger = logger;
+}
+public async Task RunAsync()
+{
+if (!await _db.Database.CanConnectAsync())
+{
+_logger.LogCritical("Cannot connect to database.");
+throw new InvalidOperationException("Database connection failed.");
+}
+if (_options.RunMigrationsOnBootstrap)
+{
+var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
+if (pendingMigrations.Any())
+{
+_logger.LogInformation("Applying {Count} pending migration(s)...", pendingMigrations.Count());
+await _db.Database.MigrateAsync();
+}
+else
+{
+_logger.LogInformation("No pending migrations.");
+}
+}
+else
+{
+_logger.LogInformation("RunMigrationsOnBootstrap is disabled — skipping migration check.");
+}
+_logger.LogInformation("Starting IAM bootstrap...");
+await _permissionSeeder.SeedAsync();
+await _roleSeeder.SeedAsync();
+await _userSeeder.SeedAsync();
+await _rolePermissionSeeder.SeedAsync();
+await _userRoleSeeder.SeedAsync();
+_logger.LogInformation("IAM bootstrap completed successfully.");
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\PermissionSeeder.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class PermissionSeeder
+{
+private readonly IamDbContext _db;
+public PermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var iamModule = await _db.PermissionModules
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(m => m.Code == "iam");
+if (iamModule == null)
+{
+iamModule = new PermissionModule
+{
+Id = Guid.Parse("30000000-0000-0000-0000-000000000004"),
+Name = "IAM",
+Code = "iam"
+};
+_db.PermissionModules.Add(iamModule);
 await _db.SaveChangesAsync();
 }
-public async Task<(string NewRefreshToken, Guid UserId)> RotateAsync(
-string token,
-string newJwtId)
+foreach (var permissionName in Permissions.All)
 {
-var hash = TokenHasher.Hash(token);
-await using var tx = await _db.Database.BeginTransactionAsync();
+var exists = await _db.Permissions
+.IgnoreQueryFilters()
+.AnyAsync(p => p.Name == permissionName);
+if (exists) continue;
+_db.Permissions.Add(new Permission
+{
+Id = Guid.NewGuid(),
+Name = permissionName,
+PermissionModuleId = iamModule.Id
+});
+}
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RolePermissionSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RolePermissionSeeder
+{
+private readonly IamDbContext _db;
+public RolePermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null) return;
+var allPermissions = await _db.Permissions.ToListAsync();
+foreach (var permission in allPermissions)
+{
+var exists = await _db.RolePermissions
+.AnyAsync(rp => rp.RoleId == platformAdmin.Id && rp.PermissionId == permission.Id);
+if (exists) continue;
+_db.RolePermissions.Add(new RolePermission
+{
+RoleId = platformAdmin.Id,
+PermissionId = permission.Id
+});
+}
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RoleSeeder
+{
+private readonly IamDbContext _db;
+public RoleSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null)
+{
+_db.Roles.Add(new Role
+{
+Id = Guid.Parse("40000000-0000-0000-0000-000000000001"),
+Name = "PlatformAdmin",
+Description = "Platform administrator with full platform permissions",
+TenantId = null,
+IsSystem = true
+});
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserRoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class UserRoleSeeder
+{
+private readonly IamDbContext _db;
+public UserRoleSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var adminUser = await _db.Users
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(u =>
+u.Phone == "0000000000" || u.Email == "admin@system.com");
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r =>
+r.Name == "PlatformAdmin" && r.TenantId == null);
+if (adminUser == null || platformAdmin == null) return;
+var alreadyAssigned = await _db.UserRoles
+.AnyAsync(ur =>
+ur.UserId == adminUser.Id &&
+ur.RoleId == platformAdmin.Id);
+if (alreadyAssigned) return;
+_db.UserRoles.Add(new UserRole
+{
+UserId = adminUser.Id,
+RoleId = platformAdmin.Id,
+TenantId = null
+});
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserSeeder.cs =====
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Interfaces;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class UserSeeder
+{
+private readonly IamDbContext _db;
+private readonly IPasswordHasher _hasher;
+private readonly IConfiguration _configuration;
+private readonly ILogger<UserSeeder> _logger;
+public UserSeeder(
+IamDbContext db,
+IPasswordHasher hasher,
+IConfiguration configuration,
+ILogger<UserSeeder> logger)
+{
+_db = db;
+_hasher = hasher;
+_configuration = configuration;
+_logger = logger;
+}
+public async Task SeedAsync()
+{
+var adminExists = await _db.Users
+.IgnoreQueryFilters()
+.AnyAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
+if (adminExists) return;
+var seedPassword = _configuration["Seeder:AdminPassword"];
+var passwordWasGenerated = false;
+if (string.IsNullOrWhiteSpace(seedPassword))
+{
+seedPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16] + "A1!";
+passwordWasGenerated = true;
+}
+var adminUser = new User
+{
+Id = Guid.NewGuid(),
+Name = "System Admin",
+Phone = "0000000000",
+Email = "admin@system.com",
+PasswordHash = _hasher.Hash(seedPassword),
+TenantId = null,
+IsActive = true,
+FailedLoginAttempts = 0
+};
+_db.Users.Add(adminUser);
+await _db.SaveChangesAsync();
+if (passwordWasGenerated)
+{
+const string passwordFilePath = "admin_seed_password.txt";
 try
 {
-var existing = await _db.RefreshTokens
-.FromSqlRaw(
-"SELECT * FROM \"RefreshTokens\" " +
-"WHERE \"TokenHash\" = {0} FOR UPDATE",
-hash)
-.FirstOrDefaultAsync();
-if (existing == null)
-{
-await tx.RollbackAsync();
-throw new UnauthorizedAccessException("Invalid refresh token.");
-}
-if (existing.IsRevoked)
-{
+await File.WriteAllTextAsync(
+passwordFilePath,
+$"GENERATED ADMIN PASSWORD: {seedPassword}{Environment.NewLine}" +
+$"Generated at (UTC): {DateTime.UtcNow:O}{Environment.NewLine}" +
+$"DELETE THIS FILE IMMEDIATELY after first login.{Environment.NewLine}");
 _logger.LogWarning(
-"Refresh token reuse detected. " +
-"UserId={UserId} FamilyId={FamilyId} RevokedAt={RevokedAt} " +
-"— revoking all family tokens.",
-existing.UserId,
-existing.FamilyId,
-existing.RevokedAtUtc);
-await _repo.RevokeFamilyAsync(existing.FamilyId);
-await _db.SaveChangesAsync();
-await tx.CommitAsync();
-throw new UnauthorizedAccessException(
-"Refresh token reuse detected. " +
-"All sessions have been revoked for security.");
-}
-if (existing.ExpiresAtUtc <= DateTime.UtcNow)
-{
-await tx.RollbackAsync();
-throw new UnauthorizedAccessException(
-"Refresh token has expired. Please log in again.");
-}
-var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-var newHash = TokenHasher.Hash(newRaw);
-var newEntity = new RefreshToken
-{
-UserId = existing.UserId,
-JwtId = newJwtId,
-FamilyId = existing.FamilyId,
-TokenHash = newHash,
-ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenDays)
-};
-existing.IsRevoked = true;
-existing.RevokedAtUtc = DateTime.UtcNow;
-existing.ReplacedByTokenHash = newHash;
-_repo.Update(existing);
-await _repo.AddAsync(newEntity);
-await _db.SaveChangesAsync();
-await tx.CommitAsync();
-return (newRaw, existing.UserId);
-}
-catch (UnauthorizedAccessException)
-{
-if (tx.GetDbTransaction().Connection != null)
-{
-try { await tx.RollbackAsync(); }
-catch (Exception rollbackEx)
-{
-_logger.LogWarning(rollbackEx,
-"Rollback failed (transaction may already be committed). " +
-"This is expected for the token-reuse path.");
-}
-}
-throw;
+"Seeder:AdminPassword was not configured. " +
+"A random password has been generated and written to '{FilePath}'. " +
+"Set 'Seeder:AdminPassword' in your secrets store before running in production. " +
+"Delete the file immediately after retrieving the password.",
+passwordFilePath);
 }
 catch (Exception ex)
 {
-_logger.LogError(ex,
-"Unexpected error during token rotation for hash {Hash}", hash);
-if (tx.GetDbTransaction().Connection != null)
-{
-try { await tx.RollbackAsync(); }
-catch (Exception rollbackEx)
-{
-_logger.LogWarning(rollbackEx,
-"Rollback failed after unexpected error.");
+_logger.LogWarning(ex,
+"Could not write generated admin password to file. " +
+"Printing to console as fallback.");
+Console.Error.WriteLine("==============================================");
+Console.Error.WriteLine("  GENERATED ADMIN PASSWORD (retrieve now)");
+Console.Error.WriteLine($"  {seedPassword}");
+Console.Error.WriteLine("  Set Seeder:AdminPassword and rotate immediately.");
+Console.Error.WriteLine("==============================================");
 }
 }
-throw;
-}
-}
-public string ComputeHash(string token) => TokenHasher.Hash(token);
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleDocumentRequirementService.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Services;
-public class RoleDocumentRequirementService : IRoleDocumentRequirementService
-{
-private readonly IamDbContext _db;
-public RoleDocumentRequirementService(IamDbContext db) => _db = db;
-public async Task AddRequirementAsync(Guid roleId, string documentType)
-{
-bool exists = await _db.RoleDocumentRequirements
-.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
-if (!exists)
-{
-_db.RoleDocumentRequirements.Add(new RoleDocumentRequirement
-{
-Id = Guid.NewGuid(),
-RoleId = roleId,
-DocumentType = documentType
-});
-await _db.SaveChangesAsync();
-}
-}
-public async Task RemoveRequirementAsync(Guid roleId, string documentType)
-{
-var req = await _db.RoleDocumentRequirements
-.FirstOrDefaultAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
-if (req != null)
-{
-_db.RoleDocumentRequirements.Remove(req);
-await _db.SaveChangesAsync();
-}
-}
-public async Task<List<string>> GetRequiredDocumentsAsync(Guid roleId)
-{
-return await _db.RoleDocumentRequirements
-.Where(r => r.RoleId == roleId)
-.Select(r => r.DocumentType)
-.ToListAsync();
-}
-public async Task<bool> IsRequiredAsync(Guid roleId, string documentType)
-{
-return await _db.RoleDocumentRequirements
-.AnyAsync(r => r.RoleId == roleId && r.DocumentType == documentType);
+_logger.LogInformation("System admin user seeded successfully.");
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\RoleManagementService.cs =====
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
 using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using CoreKit.SharedKernel.Exceptions;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Services;
-public class RoleManagementService : IRoleManagementService
+namespace CoreKit.IAM.Persistence;
+public class IamDbContext : AuditableDbContext
 {
-private readonly IamDbContext _db;
-private readonly ICurrentUserService _currentUser;
-private readonly IPermissionCacheService _permissionCache;
-public RoleManagementService(
-IamDbContext db,
-ICurrentUserService currentUser,
-IPermissionCacheService permissionCache)
+public IamDbContext(
+DbContextOptions<IamDbContext> options,
+ICurrentUser? currentUser = null)
+: base(options, currentUser)
 {
-_db = db;
-_currentUser = currentUser;
-_permissionCache = permissionCache;
 }
-public Task<List<Role>> GetRolesAsync(Guid? tenantId)
-=> _db.Roles.Where(r => r.TenantId == tenantId).ToListAsync();
-public Task<Role?> GetRoleByIdAsync(Guid roleId, Guid? tenantId)
-=> _db.Roles.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId);
-public async Task<Role> CreateRoleAsync(
-string name, Guid? tenantId, string? description = null)
+public DbSet<User> Users => Set<User>();
+public DbSet<Role> Roles => Set<Role>();
+public DbSet<UserRole> UserRoles => Set<UserRole>();
+public DbSet<Permission> Permissions => Set<Permission>();
+public DbSet<PermissionModule> PermissionModules => Set<PermissionModule>();
+public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
+public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
+public DbSet<RoleDocumentRequirement> RoleDocumentRequirements
+=> Set<RoleDocumentRequirement>();
+public DbSet<UserStoreAssignment> UserStoreAssignments
+=> Set<UserStoreAssignment>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
-if (await _db.Roles.AnyAsync(r => r.Name == name && r.TenantId == tenantId))
-throw new InvalidOperationException("Role already exists.");
-var role = new Role
-{
-Id = Guid.NewGuid(),
-Name = name,
-Description = description,
-TenantId = tenantId
-};
-_db.Roles.Add(role);
-await _db.SaveChangesAsync();
-return role;
-}
-public async Task UpdateRoleAsync(
-Guid roleId, string? newName, string? newDescription, Guid? tenantId)
-{
-var role = await _db.Roles
-.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
-?? throw new KeyNotFoundException("Role not found.");
-GuardSystemRole(role, "modified");
-if (!string.IsNullOrWhiteSpace(newName)) role.Name = newName;
-if (newDescription != null) role.Description = newDescription;
-await _db.SaveChangesAsync();
-}
-public async Task DeleteRoleAsync(Guid roleId, Guid? tenantId)
-{
-var role = await _db.Roles
-.Include(r => r.UserRoles)
-.FirstOrDefaultAsync(r => r.Id == roleId && r.TenantId == tenantId)
-?? throw new KeyNotFoundException("Role not found.");
-GuardSystemRole(role, "deleted");
-var affectedUserIds = role.UserRoles
-.Select(ur => ur.UserId)
-.Distinct()
-.ToList();
-_db.Roles.Remove(role);
-await _db.SaveChangesAsync();
-await Task.WhenAll(
-affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
-}
-public async Task AssignPermissionAsync(Guid roleId, Guid permissionId)
-{
-var role = await _db.Roles
-.Include(r => r.RolePermissions)
-.Include(r => r.UserRoles)
-.FirstOrDefaultAsync(r => r.Id == roleId)
-?? throw new KeyNotFoundException("Role not found.");
-GuardSystemRole(role, "modified");
-if (role.RolePermissions.Any(p => p.PermissionId == permissionId))
-return;
-role.RolePermissions.Add(new RolePermission
-{
-RoleId = roleId,
-PermissionId = permissionId
-});
-await _db.SaveChangesAsync();
-var affectedUserIds = role.UserRoles
-.Select(ur => ur.UserId)
-.Distinct()
-.ToList();
-await Task.WhenAll(
-affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
-}
-public async Task RemovePermissionAsync(Guid roleId, Guid permissionId)
-{
-var role = await _db.Roles
-.Include(r => r.UserRoles)
-.FirstOrDefaultAsync(r => r.Id == roleId)
-?? throw new KeyNotFoundException("Role not found.");
-GuardSystemRole(role, "modified");
-var rp = await _db.RolePermissions
-.FirstOrDefaultAsync(x =>
-x.RoleId == roleId && x.PermissionId == permissionId);
-if (rp == null) return;
-_db.RolePermissions.Remove(rp);
-await _db.SaveChangesAsync();
-var affectedUserIds = role.UserRoles
-.Select(ur => ur.UserId)
-.Distinct()
-.ToList();
-await Task.WhenAll(
-affectedUserIds.Select(uid => _permissionCache.InvalidateUserAsync(uid)));
-}
-public async Task<List<Permission>> GetPermissionsForRoleAsync(Guid roleId)
-=> await _db.RolePermissions
-.Where(x => x.RoleId == roleId)
-.Select(x => x.Permission)
-.ToListAsync();
-private static void GuardSystemRole(Role role, string action)
-{
-if (role.IsSystem)
-throw new ForbiddenException(
-$"System role '{role.Name}' cannot be {action}.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserDocumentService.cs =====
-using Microsoft.EntityFrameworkCore;
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-namespace CoreKit.IAM.Services;
-public class UserDocumentService : IUserDocumentService
-{
-private readonly IamDbContext _db;
-public UserDocumentService(IamDbContext db) => _db = db;
-public async Task AddOrUpdateAsync(Guid userId, string documentType, string imageUrl)
-{
-var existing = await _db.UserDocuments
-.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
-if (existing != null)
-{
-existing.ImageUrl = imageUrl;
-_db.UserDocuments.Update(existing);
-}
-else
-{
-_db.UserDocuments.Add(new UserDocument
-{
-Id = Guid.NewGuid(),
-UserId = userId,
-DocumentType = documentType,
-ImageUrl = imageUrl
-});
-}
-await _db.SaveChangesAsync();
-}
-public async Task<UserDocument?> GetAsync(Guid userId, string documentType)
-=> await _db.UserDocuments
-.FirstOrDefaultAsync(d => d.UserId == userId && d.DocumentType == documentType);
-public async Task<List<UserDocument>> GetByUserAsync(Guid userId)
-=> await _db.UserDocuments
-.Where(d => d.UserId == userId)
-.ToListAsync();
-public async Task DeleteAsync(Guid userId, string documentType)
-{
-var doc = await GetAsync(userId, documentType);
-if (doc != null)
-{
-_db.UserDocuments.Remove(doc);
-await _db.SaveChangesAsync();
-}
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserIdentityService.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Services;
-public class UserIdentityService : IUserIdentityService
-{
-private readonly IamDbContext _db;
-private readonly IEncryptionService _crypto;
-public UserIdentityService(IamDbContext db, IEncryptionService crypto)
-{
-_db = db;
-_crypto = crypto;
-}
-public async Task SetCnicAsync(Guid userId, string plainCnic)
-{
-var encrypted = _crypto.Encrypt(plainCnic);
-var existing = await _db.UserIdentities
-.FirstOrDefaultAsync(i => i.UserId == userId);
-if (existing != null)
-{
-existing.EncryptedCnic = encrypted;
-_db.UserIdentities.Update(existing);
-}
-else
-{
-_db.UserIdentities.Add(new UserIdentity
-{
-Id = Guid.NewGuid(),
-UserId = userId,
-EncryptedCnic = encrypted
-});
-}
-await _db.SaveChangesAsync();
-}
-public async Task<string?> GetCnicAsync(Guid userId)
-{
-var identity = await _db.UserIdentities
-.FirstOrDefaultAsync(i => i.UserId == userId);
-return identity == null ? null : _crypto.Decrypt(identity.EncryptedCnic);
-}
-public async Task DeleteAsync(Guid userId)
-{
-var identity = await _db.UserIdentities
-.FirstOrDefaultAsync(i => i.UserId == userId);
-if (identity != null)
-{
-_db.UserIdentities.Remove(identity);
-await _db.SaveChangesAsync();
-}
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(
+typeof(IamDbContext).Assembly);
 }
 }
 

@@ -10,6 +10,7 @@
     <Project Path="SaaSPlatform.Tenant.Api/SaaSPlatform.Tenant.Api.csproj" />
   </Folder>
   <Folder Name="/src/Modules/">
+    <Project Path="CoreKit.Catalog/CoreKit.Catalog.csproj" Id="69343311-2717-48c1-afca-a27643f36fc5" />
     <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
     <Project Path="CoreKit.Subscription/CoreKit.Subscription.csproj" Id="29c4d424-b996-47df-8028-fa63836a4cab" />
     <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />

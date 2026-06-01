@@ -1,0 +1,533 @@
+﻿
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs =====
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.SharedKernel.Common;
+public abstract class AuditableDbContext : DbContext
+{
+private readonly ICurrentUser? _currentUser;
+protected AuditableDbContext(
+DbContextOptions options,
+ICurrentUser? currentUser = null)
+: base(options)
+{
+_currentUser = currentUser;
+}
+public override int SaveChanges(bool acceptAllChangesOnSuccess)
+{
+StampAuditFields();
+return base.SaveChanges(acceptAllChangesOnSuccess);
+}
+public override async Task<int> SaveChangesAsync(
+CancellationToken cancellationToken = default)
+{
+StampAuditFields();
+return await base.SaveChangesAsync(cancellationToken);
+}
+private void StampAuditFields()
+{
+if (!ChangeTracker.HasChanges()) return;
+var utcNow = DateTime.UtcNow;
+foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
+{
+switch (entry.State)
+{
+case EntityState.Added:
+entry.Entity.CreatedAt = utcNow;
+entry.Entity.CreatedBy = _currentUser?.UserId;
+break;
+case EntityState.Modified:
+entry.Entity.UpdatedAt = utcNow ;
+entry.Entity.UpdatedBy = _currentUser?.UserId;
+if (entry.Entity is ISoftDelete deletable &&
+entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
+deletable.IsDeleted)
+{
+deletable.DeletedAtUtc = utcNow;
+deletable.DeletedBy = _currentUser?.UserId;
+}
+break;
+}
+}
+}
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+{
+if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
+modelBuilder.Entity(entityType.ClrType)
+.HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
+if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
+modelBuilder.Entity(entityType.ClrType)
+.Property<uint>("RowVersion")
+.IsRowVersion()
+.HasColumnName("xmin")
+.HasColumnType("xid")
+.ValueGeneratedOnAddOrUpdate();
+}
+}
+private static System.Linq.Expressions.LambdaExpression
+BuildSoftDeleteFilter(Type entityType)
+{
+var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
+var property = System.Linq.Expressions.Expression.Property(
+param, nameof(ISoftDelete.IsDeleted));
+var condition = System.Linq.Expressions.Expression.Equal(
+property,
+System.Linq.Expressions.Expression.Constant(false));
+return System.Linq.Expressions.Expression.Lambda(condition, param);
+}
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs =====
+namespace CoreKit.SharedKernel.Common;
+public abstract class AuditableEntity : BaseEntity, ISoftDelete
+{
+public DateTime CreatedAt { get; set; }
+public Guid? CreatedBy { get; set; }
+public DateTime? UpdatedAt { get; set; }
+public Guid? UpdatedBy { get; set; }
+public bool IsDeleted { get; set; }
+public DateTime? DeletedAtUtc { get; set; }
+public Guid? DeletedBy { get; set; }
+public uint RowVersion { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs =====
+namespace CoreKit.SharedKernel.Common;
+public abstract class BaseEntity
+{
+public Guid Id { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs =====
+namespace CoreKit.SharedKernel.Common;
+public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
+{
+public Guid TenantId { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs =====
+namespace CoreKit.SharedKernel.Common;
+public interface ISoftDelete
+{
+bool IsDeleted { get; set; }
+DateTime? DeletedAtUtc { get; set; }
+Guid? DeletedBy { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\IStoreScoped.cs =====
+namespace CoreKit.SharedKernel.Common;
+public interface IStoreScoped
+{
+Guid StoreId { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs =====
+namespace CoreKit.SharedKernel.Common;
+public interface ITenantScoped
+{
+Guid TenantId { get; set; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\StoreScope.cs =====
+namespace CoreKit.SharedKernel.Common;
+public sealed class StoreScope
+{
+public IReadOnlyList<Guid> StoreIds { get; }
+public bool IsAllStores { get; }
+public bool IsEmpty { get; }
+private StoreScope(IReadOnlyList<Guid> storeIds, bool isAllStores, bool isEmpty)
+{
+StoreIds = storeIds;
+IsAllStores = isAllStores;
+IsEmpty = isEmpty;
+}
+public static StoreScope All => new(Array.Empty<Guid>(), true, false);
+public static StoreScope Empty => new(Array.Empty<Guid>(), false, true);
+public static StoreScope For(IEnumerable<Guid> storeIds)
+{
+var ids = storeIds.Distinct().ToList();
+if (ids.Count == 0)
+return Empty;
+return new(ids, false, false);
+}
+public IQueryable<T> Apply<T>(IQueryable<T> query) where T : class, IStoreScoped
+{
+if (IsAllStores) return query;
+if (IsEmpty) return query.Where(e => false);
+return query.Where(e => StoreIds.Contains(e.StoreId));
+}
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\TenantScope.cs =====
+namespace CoreKit.SharedKernel.Common;
+public sealed class TenantScope
+{
+public Guid TenantId { get; }
+public bool IsGlobal { get; }
+private TenantScope(Guid tenantId, bool isGlobal)
+{
+TenantId = tenantId;
+IsGlobal = isGlobal;
+}
+public static TenantScope Global => new(Guid.Empty, true);
+public static TenantScope For(Guid tenantId)
+{
+if (tenantId == Guid.Empty)
+throw new ArgumentException("tenantId cannot be Guid.Empty.", nameof(tenantId));
+return new(tenantId, false);
+}
+public IQueryable<T> Apply<T>(IQueryable<T> query) where T : class, ITenantScoped
+{
+if (IsGlobal) return query;
+return query.Where(e => e.TenantId == TenantId);
+}
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Exceptions\ForbiddenException.cs =====
+namespace CoreKit.SharedKernel.Exceptions;
+public class ForbiddenException : Exception
+{
+public ForbiddenException(string message) : base(message) { }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Helper\SlugHelper.cs =====
+using System.Text.RegularExpressions;
+namespace CoreKit.SharedKernel.Helpers;
+public static class SlugHelper
+{
+public static string Generate(string input)
+{
+if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+var slug = input.Trim().ToLowerInvariant();
+slug = Regex.Replace(slug, @"[^a-z0-9\s-]", "");
+slug = Regex.Replace(slug, @"\s+", "-");
+return slug.Trim('-');
+}
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs =====
+namespace CoreKit.SharedKernel.Interfaces
+{
+public interface IAggregateRoot
+{
+}
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs =====
+namespace CoreKit.SharedKernel.Interfaces;
+public interface ICurrentUser
+{
+Guid? UserId { get; }
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs =====
+namespace CoreKit.SharedKernel.Interfaces;
+public interface ISlugGenerator
+{
+string Generate(string input);
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs =====
+namespace CoreKit.SharedKernel.Interfaces;
+public interface IUnitOfWork : IDisposable
+{
+Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+Task CommitAsync(CancellationToken cancellationToken = default);
+Task RollbackAsync(CancellationToken cancellationToken = default);
+Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+===== CoreKit.SharedKernel | D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs =====
+namespace CoreKit.SharedKernel.Results;
+public class Result
+{
+public bool Succeeded { get; init; }
+public string Message { get; init; } = string.Empty;
+public List<string> Errors { get; init; } = new();
+public static Result Success(string message = "")
+=> new() { Succeeded = true, Message = message };
+public static Result Failure(string message, List<string>? errors = null)
+=> new()
+{
+Succeeded = false,
+Message = message,
+Errors = errors ?? new()
+};
+}
+public class Result<T> : Result
+{
+public T? Data { get; init; }
+public static Result<T> Success(T data, string message = "")
+=> new()
+{
+Succeeded = true,
+Data = data,
+Message = message
+};
+public new static Result<T> Failure(string message, List<string>? errors = null)
+=> new()
+{
+Succeeded = false,
+Message = message,
+Errors = errors ?? new()
+};
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\ProductsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+private readonly IProductService _productService;
+public ProductsController(IProductService productService)
+=> _productService = productService;
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(CreateProductRequest request)
+{
+var product = await _productService.CreateAsync(request);
+return CreatedResponse(product);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var product = await _productService.GetByIdAsync(id);
+return product is null ? NotFound() : Ok(product);
+}
+[HttpGet("store/{storeId}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByStore(Guid storeId)
+{
+var products = await _productService.GetByStoreAsync(storeId);
+return Ok(products);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoresController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/stores")]
+[Authorize]
+public class StoresController : ApiControllerBase
+{
+private readonly IStoreService _storeService;
+private readonly ITenantContext _tenantContext;
+public StoresController(IStoreService storeService, ITenantContext tenantContext)
+{
+_storeService = storeService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetAll()
+{
+if (_tenantContext.TenantId == null)
+{
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+}
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Create(CreateStoreRequest request)
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+var store = await _storeService.CreateAsync(request);
+return Ok(store);
+}
+[HttpPut("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Update(Guid storeId, UpdateStoreRequest request)
+{
+await _storeService.UpdateAsync(storeId, request);
+return NoContent();
+}
+[HttpDelete("{storeId}")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Delete(Guid storeId)
+{
+await _storeService.DeleteAsync(storeId);
+return NoContent();
+}
+[HttpPut("{storeId}/marketplace")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isListed)
+{
+await _storeService.SetMarketplaceListingAsync(storeId, isListed);
+return NoContent();
+}
+[HttpGet("my")]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetMine()
+{
+if (_tenantContext.TenantId == null)
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+var stores = await _storeService.GetAllByTenantAsync(_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoreTypesController.cs =====
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/storetypes")]
+[Authorize]
+public class StoreTypesController : ApiControllerBase
+{
+private readonly IStoreTypeService _storeTypeService;
+public StoreTypesController(IStoreTypeService storeTypeService)
+=> _storeTypeService = storeTypeService;
+[HttpGet]
+public async Task<IActionResult> GetAll()
+{
+var types = await _storeTypeService.GetAllActiveAsync();
+return Ok(types);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Catalog.Services;
+using CoreKit.Catalog.Validators;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+namespace CoreKit.Catalog.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddCatalogModule(this IServiceCollection services, string connectionString)
+{
+services.AddDbContext<CatalogDbContext>(options => options.UseNpgsql(connectionString));
+services.AddScoped<IProductService, ProductService>();
+services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
+return services;
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode =
+StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(
+MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] =
+retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. " +
+$"Please wait {retryAfter} seconds.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("store-create", cfg =>
+{
+cfg.PermitLimit = builder.Environment.IsDevelopment() ? 50 : 10;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("store-update", cfg =>
+{
+cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
+builder.Services.AddHttpContextAccessor();
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"));
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddCoreKitControllers();
+builder.ValidateCoreKitConfiguration();
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
+var app = builder.Build();
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] = "DENY";
+context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+context.Response.Headers["X-XSS-Protection"] = "0";
+context.Response.Headers["Permissions-Policy"] =
+"camera=(), microphone=(), geolocation=(), interest-cohort=()";
+await next();
+});
+await app.PerformBootCheckAsync();
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
+app.MapControllers();
+app.Run();
+

@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Constants;
+﻿// CoreKit.IAM/Services/AuthService.cs
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
@@ -61,7 +62,6 @@ public class AuthService : IAuthService
             user.FailedLoginAttempts++;
             if (user.FailedLoginAttempts >= 5)
                 user.LockoutEnd = DateTime.UtcNow.AddMinutes(15);
-
             await _db.SaveChangesAsync(ct);
             throw new UnauthorizedAccessException("Invalid credentials.");
         }
@@ -73,7 +73,6 @@ public class AuthService : IAuthService
 
         var roles = BuildRoleList(user, tenantId);
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-
         var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
@@ -93,24 +92,31 @@ public class AuthService : IAuthService
         Guid? tenantId,
         CancellationToken ct = default)
     {
+        // FIX: Pre-flight check now only rejects clearly invalid tokens
+        // (not found, or already revoked). Expiry is NOT checked here.
+        // RotateAsync handles expiry separately so an expired-but-valid
+        // token does not trigger family revocation via the old code path
+        // of calling RotateAsync(token, string.Empty).
         var previewHash = _refreshTokenService.ComputeHash(request.RefreshToken);
         var preview = await _db.RefreshTokens
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.TokenHash == previewHash, ct);
 
-        if (preview == null || preview.IsRevoked || preview.ExpiresAtUtc <= DateTime.UtcNow)
+        if (preview == null)
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
+        // FIX: If already revoked, call RotateAsync to trigger reuse detection
+        // and family revocation. Do not call it for expired tokens.
+        if (preview.IsRevoked)
         {
-            // Even on an obviously invalid token attempt rotation to trigger family revocation
-            // if the token was reused (the rotate service handles that internally).
+            // This will detect reuse and revoke the family inside a transaction.
             await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
-            throw new UnauthorizedAccessException("Invalid or expired refresh token.");
+            throw new UnauthorizedAccessException(
+                "Refresh token reuse detected. All sessions have been revoked.");
         }
 
-        // BUG FIX: GetByIdAsync in UserRepository includes Roles → Role, but does NOT
-        // include RolePermissions → Permission. The cross-tenant check below accesses
-        // role.RolePermissions.Any(...) which would always be empty without the include,
-        // silently blocking platform admins from refreshing cross-tenant tokens.
-        // Load with the full include chain here instead of relying on the repo method.
+        // Let RotateAsync handle expiry check — it will throw cleanly without
+        // triggering family revocation.
         var user = await _db.Users
             .Include(u => u.Roles)
                 .ThenInclude(ur => ur.Role)
@@ -132,7 +138,8 @@ public class AuthService : IAuthService
             if (!hasPlatformAccess)
             {
                 var belongsToTenant = user.Roles.Any(x =>
-                    x.TenantId.HasValue && x.TenantId.Value == tenantId.Value);
+                    x.TenantId.HasValue &&
+                    x.TenantId.Value == tenantId.Value);
 
                 if (!belongsToTenant)
                     throw new UnauthorizedAccessException(
@@ -142,12 +149,13 @@ public class AuthService : IAuthService
 
         var roles = BuildRoleList(user, tenantId);
         var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
-
         var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
+        // RotateAsync will throw UnauthorizedAccessException if the token
+        // is expired — no family revocation occurs in that path.
         var (newRefreshToken, _) = await _refreshTokenService.RotateAsync(
             request.RefreshToken, newJwtId);
 
@@ -163,10 +171,6 @@ public class AuthService : IAuthService
         await _refreshTokenService.RevokeAsync(refreshToken);
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
     private List<string> BuildRoleList(User user, Guid? tenantId)
     {
         return user.Roles
@@ -176,22 +180,13 @@ public class AuthService : IAuthService
             .ToList();
     }
 
-    /// <summary>
-    /// Returns the list of store IDs the user is assigned to within the given tenant,
-    /// or null if no tenant context or no assignments exist (null = no store filter
-    /// in the JWT, which is fine for platform-level users).
-    /// </summary>
     private async Task<List<Guid>?> ResolveStoreIdsAsync(
         Guid userId,
         Guid? tenantId,
         CancellationToken ct)
     {
-        if (!tenantId.HasValue)
-            return null;
+        if (!tenantId.HasValue) return null;
 
-        // BUG FIX: original code returned null when count == 0, which is correct,
-        // but the null check was done after the query in both LoginAsync and RefreshAsync
-        // as duplicated inline code. Centralised here to a single private method.
         var storeIds = await _db.Set<UserStoreAssignment>()
             .AsNoTracking()
             .Where(x => x.UserId == userId && x.TenantId == tenantId.Value)

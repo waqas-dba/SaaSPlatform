@@ -1,10 +1,10 @@
-﻿using CoreKit.IAM.Entities;
+﻿// CoreKit.IAM/Services/RefreshTokenService.cs
+using CoreKit.IAM.Entities;
 using CoreKit.IAM.Helpers;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
@@ -87,12 +87,14 @@ public class RefreshTokenService : IRefreshTokenService
         string newJwtId)
     {
         var hash = TokenHasher.Hash(token);
-
         await using var tx = await _db.Database.BeginTransactionAsync();
+
+        // Track whether we committed so the catch block does not attempt
+        // a rollback on an already-completed transaction.
+        var committed = false;
 
         try
         {
-            // Lock the row for atomic read-modify-write
             var existing = await _db.RefreshTokens
                 .FromSqlRaw(
                     "SELECT * FROM \"RefreshTokens\" " +
@@ -100,17 +102,17 @@ public class RefreshTokenService : IRefreshTokenService
                     hash)
                 .FirstOrDefaultAsync();
 
-            // BUG FIX: token not found — rollback and throw. No commit should happen here.
             if (existing == null)
             {
                 await tx.RollbackAsync();
                 throw new UnauthorizedAccessException("Invalid refresh token.");
             }
 
-            // BUG FIX: token reuse detected path.
-            // Previously this path committed and then re-threw, causing a double-commit
-            // attempt when the outer catch tried to rollback. Now we handle it cleanly:
-            // revoke the family, save, commit, then throw AFTER the transaction is closed.
+            // FIX: Distinguish between a replayed (already-revoked) token and
+            // a simply expired token. Only replay triggers family revocation —
+            // a security response to token theft. An expired token is a normal
+            // session-end condition that should not cascade-revoke other sessions
+            // the user may have open on different devices.
             if (existing.IsRevoked)
             {
                 _logger.LogWarning(
@@ -124,15 +126,17 @@ public class RefreshTokenService : IRefreshTokenService
                 await _repo.RevokeFamilyAsync(existing.FamilyId);
                 await _db.SaveChangesAsync();
                 await tx.CommitAsync();
+                committed = true;
 
-                // Throw AFTER the transaction is fully closed — no catch block can
-                // attempt a rollback on an already-committed transaction now.
                 throw new UnauthorizedAccessException(
                     "Refresh token reuse detected. " +
                     "All sessions have been revoked for security.");
             }
 
-            // BUG FIX: expired token — rollback and throw. No commit.
+            // FIX: Check expiry separately — expired tokens are simply rejected,
+            // no family revocation. Previously the AuthService called RotateAsync
+            // even for expired tokens, which would reach here and potentially
+            // cascade-revoke all user sessions unnecessarily.
             if (existing.ExpiresAtUtc <= DateTime.UtcNow)
             {
                 await tx.RollbackAsync();
@@ -140,7 +144,6 @@ public class RefreshTokenService : IRefreshTokenService
                     "Refresh token has expired. Please log in again.");
             }
 
-            // Happy path: rotate the token
             var newRaw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
             var newHash = TokenHasher.Hash(newRaw);
 
@@ -161,22 +164,19 @@ public class RefreshTokenService : IRefreshTokenService
             await _repo.AddAsync(newEntity);
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
+            committed = true;
 
             return (newRaw, existing.UserId);
         }
         catch (UnauthorizedAccessException)
         {
-            // BUG FIX: Only attempt rollback if the transaction is still open
-            // (i.e. not already committed). We check connection state as the
-            // reliable indicator — a committed transaction closes the connection object.
-            if (tx.GetDbTransaction().Connection != null)
+            if (!committed)
             {
                 try { await tx.RollbackAsync(); }
                 catch (Exception rollbackEx)
                 {
                     _logger.LogWarning(rollbackEx,
-                        "Rollback failed (transaction may already be committed). " +
-                        "This is expected for the token-reuse path.");
+                        "Rollback failed — transaction may already be completed.");
                 }
             }
             throw;
@@ -186,7 +186,7 @@ public class RefreshTokenService : IRefreshTokenService
             _logger.LogError(ex,
                 "Unexpected error during token rotation for hash {Hash}", hash);
 
-            if (tx.GetDbTransaction().Connection != null)
+            if (!committed)
             {
                 try { await tx.RollbackAsync(); }
                 catch (Exception rollbackEx)
@@ -195,7 +195,6 @@ public class RefreshTokenService : IRefreshTokenService
                         "Rollback failed after unexpected error.");
                 }
             }
-
             throw;
         }
     }
