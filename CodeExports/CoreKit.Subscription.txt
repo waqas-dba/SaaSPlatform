@@ -1,0 +1,680 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\PlanConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Configuration;
+
+public class PlanConfiguration : IEntityTypeConfiguration<Plan>
+{
+    public void Configure(EntityTypeBuilder<Plan> builder)
+    {
+        builder.ToTable("SUB_Plans");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+        builder.Property(x => x.Code).IsRequired().HasMaxLength(50);
+        builder.HasIndex(x => x.Code).IsUnique();
+
+        builder.Property(x => x.MaxCategoryLevel).HasDefaultValue(1);
+        builder.Property(x => x.EnableVariants).HasDefaultValue(false);
+        builder.Property(x => x.EnableAddons).HasDefaultValue(false);
+        builder.Property(x => x.MaxVariantsPerProduct).IsRequired(false);
+        builder.Property(x => x.MaxAddonsPerProduct).IsRequired(false);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\TenantSubscriptionConfiguration.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Configuration;
+
+public class TenantSubscriptionConfiguration : IEntityTypeConfiguration<TenantSubscription>
+{
+    public void Configure(EntityTypeBuilder<TenantSubscription> builder)
+    {
+        builder.ToTable("SUB_TenantSubscriptions");
+
+        builder.HasKey(x => x.Id);
+
+        builder.HasIndex(x => new { x.TenantId, x.Status });
+
+        // Status stored as int for DB clarity and query performance
+        builder.Property(x => x.Status)
+            .HasConversion<int>()
+            .IsRequired();
+
+        builder.Property(x => x.StartDate).IsRequired();
+
+        builder.Property(x => x.PaymentReference)
+            .HasMaxLength(500);
+
+        builder.HasOne(x => x.Plan)
+            .WithMany(x => x.Subscriptions)
+            .HasForeignKey(x => x.PlanId)
+            .OnDelete(DeleteBehavior.Restrict); // Prevent accidental plan deletion with active subs
+
+        // BUG FIX: the original had HasQueryFilter(x => !x.IsDeleted) but
+        // TenantSubscription inherits AuditableEntity (via AuditableDbContext base),
+        // which already registers a global soft-delete filter through
+        // AuditableDbContext.OnModelCreating. Defining it again here causes EF to
+        // apply two conflicting query filters on the same entity, which throws at
+        // model-building time in EF Core 7+. Remove the manual filter entirely and
+        // let AuditableDbContext handle it.
+        //
+        // If you need to suppress the soft-delete filter in specific queries use:
+        //   .IgnoreQueryFilters()
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\Plan.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Subscription.Entities;
+
+public class Plan : AuditableEntity
+{
+    public string Name { get; set; } = default!;
+    public string Code { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal MonthlyPrice { get; set; }
+    public decimal YearlyPrice { get; set; }
+    public int? MaxStores { get; set; }
+    public int? MaxProducts { get; set; }
+    public int? MaxCategories { get; set; }
+    public bool CustomDomainEnabled { get; set; }
+    public bool ThemeCustomizationEnabled { get; set; }
+    public bool IsActive { get; set; } = true;
+    public int SortOrder { get; set; }
+
+    public int MaxCategoryLevel { get; set; } = 1;          // 0 = unlimited? default 1
+    public bool EnableVariants { get; set; } = false;
+    public bool EnableAddons { get; set; } = false;
+    public int? MaxVariantsPerProduct { get; set; }         // null = unlimited
+    public int? MaxAddonsPerProduct { get; set; }           // null = unlimited
+    public ICollection<TenantSubscription> Subscriptions { get; set; } = new List<TenantSubscription>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Entities\TenantSubscription.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Subscription.Entities;
+
+public class TenantSubscription : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+    public Guid PlanId { get; set; }
+    public Plan Plan { get; set; } = default!;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Active;
+    public string? PaymentReference { get; set; }
+}
+
+public enum SubscriptionStatus
+{
+    Active = 1,
+    Expired = 2,
+    Cancelled = 3,
+    Trial = 4
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Extensions\ServiceCollectionExtensions.cs
+==================================================
+
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+using CoreKit.Subscription.Repositories;
+using CoreKit.Subscription.Services;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace CoreKit.Subscription.Extensions;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddSubscriptionModule(
+        this IServiceCollection services,
+        string connectionString)
+    {
+        // BUG FIX: AuditableDbContext now requires ICurrentUser to stamp CreatedBy/UpdatedBy.
+        // Use AddDbContext overload that resolves ICurrentUser from the DI scope so audit
+        // fields are populated with the authenticated user's ID on every SaveChanges call.
+        services.AddDbContext<SubscriptionDbContext>((sp, options) =>
+        {
+            options.UseNpgsql(connectionString);
+        });
+
+        services.AddScoped<IPlanRepository, PlanRepository>();
+        services.AddScoped<ITenantSubscriptionRepository, TenantSubscriptionRepository>();
+        services.AddScoped<IPlanLimitProvider, PlanLimitProvider>();
+        services.AddScoped<IPlanService, PlanService>();
+        services.AddScoped<ISubscriptionManagementService, SubscriptionManagementService>();
+
+        return services;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\IPlanRepository.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Interfaces;
+
+public interface IPlanRepository
+{
+    Task<List<Plan>> GetAllAsync(CancellationToken ct = default);
+    Task<Plan?> GetByIdAsync(Guid planId, CancellationToken ct = default);
+    void Add(Plan plan);
+    void Update(Plan plan);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\IPlanService.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Interfaces;
+
+public interface IPlanService
+{
+    Task<List<Plan>> GetAllAsync();
+    Task<Plan> CreateAsync(string name, string code, string? description,
+        decimal monthlyPrice, decimal yearlyPrice,
+        int? maxStores, int? maxProducts, int? maxCategories,
+        bool customDomain, bool themeCustomization, int sortOrder);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\ISubscriptionManagementService.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Interfaces;
+
+public interface ISubscriptionManagementService
+{
+    Task AssignSubscriptionAsync(Guid tenantId, Guid planId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Interfaces\ITenantSubscriptionRepository.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+
+namespace CoreKit.Subscription.Interfaces;
+
+public interface ITenantSubscriptionRepository
+{
+    Task<TenantSubscription?> GetActiveSubscriptionAsync(Guid tenantId, CancellationToken ct = default);
+    void Add(TenantSubscription subscription);
+    void Update(TenantSubscription subscription);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\SubscriptionDbContext.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Configuration;
+
+namespace CoreKit.Subscription.Persistence;
+
+// BUG FIX: was inheriting plain DbContext — Plan and TenantSubscription both extend
+// AuditableEntity which expects CreatedAt/UpdatedAt/CreatedBy/UpdatedBy to be stamped
+// automatically. Without AuditableDbContext those fields are never set.
+public class SubscriptionDbContext : AuditableDbContext
+{
+    public SubscriptionDbContext(
+        DbContextOptions<SubscriptionDbContext> options,
+        ICurrentUser? currentUser = null)
+        : base(options, currentUser)
+    {
+    }
+
+    public DbSet<Plan> Plans => Set<Plan>();
+    public DbSet<TenantSubscription> TenantSubscriptions => Set<TenantSubscription>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // AuditableDbContext.OnModelCreating registers soft-delete query filters
+        // and the xmin row-version column — must call base first.
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfiguration(new PlanConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantSubscriptionConfiguration());
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\SubscriptionDbContextFactory.cs
+==================================================
+
+// SubscriptionDbContextFactory.cs
+
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+
+namespace CoreKit.Subscription;
+
+public class SubscriptionDbContextFactory
+    : IDesignTimeDbContextFactory<SubscriptionDbContext>
+{
+    public SubscriptionDbContext CreateDbContext(string[] args)
+    {
+        var optionsBuilder =
+            new DbContextOptionsBuilder<SubscriptionDbContext>();
+
+        optionsBuilder.UseNpgsql(
+            "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+
+        return new SubscriptionDbContext(optionsBuilder.Options);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Persistence\Seeders\SubscriptionSeeder.cs
+==================================================
+
+// CoreKit.Subscription/Persistence/Seeders/SubscriptionSeeder.cs
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Persistence;
+
+namespace CoreKit.Subscription.Persistence.Seeders;
+
+public class SubscriptionSeeder
+{
+    private readonly SubscriptionDbContext _db;
+
+    public SubscriptionSeeder(SubscriptionDbContext db) => _db = db;
+
+    public async Task SeedAsync()
+    {
+        if (await _db.Plans.AnyAsync()) return;
+
+        var plans = new List<Plan>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                Name = "Free",
+                Code = "free",
+                Description = "Basic store with limited features",
+                MonthlyPrice = 0,
+                YearlyPrice = 0,
+                MaxStores = 1,
+                MaxProducts = 50,
+                MaxCategories = 10,
+                CustomDomainEnabled = false,
+                ThemeCustomizationEnabled = false,
+                IsActive = true,
+                SortOrder = 1,
+                MaxCategoryLevel = 1,
+                EnableVariants = false,
+                EnableAddons = false,
+                MaxVariantsPerProduct = 0,
+                MaxAddonsPerProduct = 0
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                Name = "Basic",
+                Code = "basic",
+                Description = "For growing businesses",
+                MonthlyPrice = 2999,
+                YearlyPrice = 29990,
+                MaxStores = 3,
+                MaxProducts = 500,
+                MaxCategories = 50,
+                CustomDomainEnabled = false,
+                ThemeCustomizationEnabled = true,
+                IsActive = true,
+                SortOrder = 2,
+                MaxCategoryLevel = 2,
+                EnableVariants = true,
+                EnableAddons = true,
+                MaxVariantsPerProduct = 5,
+                MaxAddonsPerProduct = 10
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                Name = "Pro",
+                Code = "pro",
+                Description = "For established businesses",
+                MonthlyPrice = 7999,
+                YearlyPrice = 79990,
+                MaxStores = null,       // unlimited
+                MaxProducts = null,
+                MaxCategories = null,
+                CustomDomainEnabled = true,
+                ThemeCustomizationEnabled = true,
+                IsActive = true,
+                SortOrder = 3,
+                MaxCategoryLevel = 0,   // unlimited
+                EnableVariants = true,
+                EnableAddons = true,
+                MaxVariantsPerProduct = null, // unlimited
+                MaxAddonsPerProduct = null    // unlimited
+            }
+        };
+
+        _db.Plans.AddRange(plans);
+        await _db.SaveChangesAsync();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Repositories\PlanRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+
+namespace CoreKit.Subscription.Repositories;
+
+public class PlanRepository : IPlanRepository
+{
+    private readonly SubscriptionDbContext _db;
+    public PlanRepository(SubscriptionDbContext db) => _db = db;
+
+    public async Task<List<Plan>> GetAllAsync(CancellationToken ct = default)
+        => await _db.Plans.AsNoTracking().OrderBy(p => p.SortOrder).ToListAsync(ct);
+
+    public async Task<Plan?> GetByIdAsync(Guid planId, CancellationToken ct = default)
+        => await _db.Plans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+
+    public void Add(Plan plan) => _db.Plans.Add(plan);
+    public void Update(Plan plan) => _db.Plans.Update(plan);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Repositories\TenantSubscriptionRepository.cs
+==================================================
+
+using Microsoft.EntityFrameworkCore;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+
+namespace CoreKit.Subscription.Repositories;
+
+public class TenantSubscriptionRepository : ITenantSubscriptionRepository
+{
+    private readonly SubscriptionDbContext _db;
+    public TenantSubscriptionRepository(SubscriptionDbContext db) => _db = db;
+
+    public async Task<TenantSubscription?> GetActiveSubscriptionAsync(Guid tenantId, CancellationToken ct = default)
+        => await _db.TenantSubscriptions
+            .Include(ts => ts.Plan)
+            .FirstOrDefaultAsync(ts => ts.TenantId == tenantId
+                                       && ts.Status == SubscriptionStatus.Active
+                                       && ts.StartDate <= DateTime.UtcNow
+                                       && (ts.EndDate == null || ts.EndDate >= DateTime.UtcNow), ct);
+
+    public void Add(TenantSubscription subscription) => _db.TenantSubscriptions.Add(subscription);
+    public void Update(TenantSubscription subscription) => _db.TenantSubscriptions.Update(subscription);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanLimitProvider.cs
+==================================================
+
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Subscription.Services;
+
+public class PlanLimitProvider : IPlanLimitProvider
+{
+    private readonly SubscriptionDbContext _db;
+
+    public PlanLimitProvider(SubscriptionDbContext db) => _db = db;
+
+    public async Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxStores;
+    }
+
+    public async Task<int?> GetMaxProductsAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxProducts;
+    }
+
+    public async Task<int?> GetMaxCategoriesAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxCategories;
+    }
+
+    public async Task<bool> IsFeatureEnabledAsync(Guid tenantId, string featureCode, CancellationToken ct = default)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        if (plan == null) return false;
+        return featureCode switch
+        {
+            "custom_domain" => plan.CustomDomainEnabled,
+            "theme_customization" => plan.ThemeCustomizationEnabled,
+            _ => false
+        };
+    }
+
+    private async Task<Plan?> GetActivePlanAsync(Guid tenantId, CancellationToken ct)
+    {
+        return await _db.TenantSubscriptions
+            .Where(ts => ts.TenantId == tenantId
+                         && ts.Status == SubscriptionStatus.Active
+                         && ts.StartDate <= DateTime.UtcNow
+                         && (ts.EndDate == null || ts.EndDate >= DateTime.UtcNow))
+            .Select(ts => ts.Plan)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<int> GetMaxCategoryLevelAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxCategoryLevel ?? 1;
+    }
+
+    public async Task<bool> IsVariantsEnabledAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.EnableVariants ?? false;
+    }
+
+    public async Task<bool> IsAddonsEnabledAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.EnableAddons ?? false;
+    }
+
+    public async Task<int?> GetMaxVariantsPerProductAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxVariantsPerProduct;
+    }
+
+    public async Task<int?> GetMaxAddonsPerProductAsync(Guid tenantId, CancellationToken ct)
+    {
+        var plan = await GetActivePlanAsync(tenantId, ct);
+        return plan?.MaxAddonsPerProduct;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanService.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+
+namespace CoreKit.Subscription.Services;
+
+public class PlanService : IPlanService
+{
+    private readonly SubscriptionDbContext _db;
+    private readonly IPlanRepository _planRepo;
+
+    public PlanService(SubscriptionDbContext db, IPlanRepository planRepo)
+    {
+        _db = db;
+        _planRepo = planRepo;
+    }
+
+    public async Task<List<Plan>> GetAllAsync() => await _planRepo.GetAllAsync();
+
+    public async Task<Plan> CreateAsync(string name, string code, string? description,
+        decimal monthlyPrice, decimal yearlyPrice,
+        int? maxStores, int? maxProducts, int? maxCategories,
+        bool customDomain, bool themeCustomization, int sortOrder)
+    {
+        var plan = new Plan
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Code = code,
+            Description = description,
+            MonthlyPrice = monthlyPrice,
+            YearlyPrice = yearlyPrice,
+            MaxStores = maxStores,
+            MaxProducts = maxProducts,
+            MaxCategories = maxCategories,
+            CustomDomainEnabled = customDomain,
+            ThemeCustomizationEnabled = themeCustomization,
+            SortOrder = sortOrder,
+            IsActive = true
+        };
+        _planRepo.Add(plan);
+        await _db.SaveChangesAsync();
+        return plan;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\SubscriptionManagementService.cs
+==================================================
+
+using CoreKit.Subscription.Entities;
+using CoreKit.Subscription.Interfaces;
+using CoreKit.Subscription.Persistence;
+using Microsoft.EntityFrameworkCore; // BUG FIX: was missing — ToListAsync, Where, etc. are EF extensions
+
+namespace CoreKit.Subscription.Services;
+
+public class SubscriptionManagementService : ISubscriptionManagementService
+{
+    private readonly SubscriptionDbContext _db;
+    private readonly ITenantSubscriptionRepository _subscriptionRepo;
+
+    public SubscriptionManagementService(
+        SubscriptionDbContext db,
+        ITenantSubscriptionRepository subscriptionRepo)
+    {
+        _db = db;
+        _subscriptionRepo = subscriptionRepo;
+    }
+
+    public async Task AssignSubscriptionAsync(
+        Guid tenantId,
+        Guid planId,
+        DateTime? startDate = null,
+        DateTime? endDate = null)
+    {
+        // Cancel any currently active subscriptions for this tenant
+        var existingActive = await _db.TenantSubscriptions
+            .Where(ts => ts.TenantId == tenantId && ts.Status == SubscriptionStatus.Active)
+            .ToListAsync(); // BUG FIX: previously failed to compile / resolve without the using
+
+        foreach (var sub in existingActive)
+        {
+            sub.Status = SubscriptionStatus.Cancelled;
+            sub.EndDate = DateTime.UtcNow;
+        }
+
+        var subscription = new TenantSubscription
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            PlanId = planId,
+            StartDate = startDate ?? DateTime.UtcNow,
+            EndDate = endDate,
+            Status = SubscriptionStatus.Active
+        };
+
+        _subscriptionRepo.Add(subscription);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId)
+        => await _subscriptionRepo.GetActiveSubscriptionAsync(tenantId);
+}
+
+

@@ -1,5 +1,9 @@
-﻿using CoreKit.Catalog.Persistence;
-using CoreKit.Catalog.Persistence.Seeders;
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Seeder\Program.cs
+==================================================
+
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
@@ -53,10 +57,6 @@ builder.Services.AddDbContext<TenantDbContext>(options =>
 builder.Services.AddDbContext<SubscriptionDbContext>(options =>
     options.UseNpgsql(connStr));
 
-// ** NEW ** Catalog context
-builder.Services.AddDbContext<CatalogDbContext>(options =>
-    options.UseNpgsql(connStr));
-
 // ==========================================
 // IAM OPTIONS — NO BYPASS
 // ==========================================
@@ -85,8 +85,7 @@ builder.Services.AddScoped<UserRoleSeeder>();
 builder.Services.AddScoped<StoreTypeSeeder>();
 builder.Services.AddScoped<TenantSeeder>();
 builder.Services.AddScoped<SubscriptionSeeder>();
-builder.Services.AddScoped<AttributeTemplateSeeder>();   // ** NEW **
-builder.Services.AddScoped<IamBootstrap>();              // (optional, not used)
+builder.Services.AddScoped<IamBootstrap>();
 
 // ==========================================
 // BUILD HOST
@@ -110,7 +109,6 @@ try
     var iamDb = services.GetRequiredService<IamDbContext>();
     var tenantDb = services.GetRequiredService<TenantDbContext>();
     var subDb = services.GetRequiredService<SubscriptionDbContext>();
-    var catalogDb = services.GetRequiredService<CatalogDbContext>();   // ** NEW **
 
     var canConnect = await iamDb.Database.CanConnectAsync();
     if (!canConnect)
@@ -143,11 +141,6 @@ try
     logger.LogInformation("Applying Subscription migrations...");
     await subDb.Database.MigrateAsync();
     logger.LogInformation("Subscription migrations applied successfully.");
-
-    // ** NEW ** Apply Catalog migrations
-    logger.LogInformation("Applying Catalog migrations...");
-    await catalogDb.Database.MigrateAsync();
-    logger.LogInformation("Catalog migrations applied successfully.");
 
     // ==========================================
     // STEP 3: SEED STORE TYPES FIRST
@@ -219,18 +212,6 @@ try
     logger.LogInformation("User role assigned successfully.");
 
     // ==========================================
-    // STEP 7: CATALOG SEED DATA (attribute templates)
-    // ==========================================
-    Console.WriteLine();
-    Console.WriteLine("==============================================");
-    Console.WriteLine("  SEEDING CATALOG ATTRIBUTE TEMPLATES");
-    Console.WriteLine("==============================================");
-
-    var catalogSeeder = services.GetRequiredService<AttributeTemplateSeeder>();
-    await catalogSeeder.SeedAsync();
-    logger.LogInformation("Catalog attribute templates seeded successfully.");
-
-    // ==========================================
     // SUMMARY
     // ==========================================
     Console.WriteLine();
@@ -245,7 +226,6 @@ try
     Console.WriteLine("  ✓ Permissions (including platform.*)");
     Console.WriteLine("  ✓ PlatformAdmin role (all permissions)");
     Console.WriteLine("  ✓ Default admin user (phone: 0000000000)");
-    Console.WriteLine("  ✓ Catalog attribute templates (restaurant, grocery, ...)");
     Console.WriteLine();
     Console.WriteLine("IMPORTANT:");
     Console.WriteLine("  Set 'Seeder:AdminPassword' in your configuration");
@@ -276,3 +256,5 @@ catch (Exception ex)
     Console.WriteLine();
     throw;
 }
+
+

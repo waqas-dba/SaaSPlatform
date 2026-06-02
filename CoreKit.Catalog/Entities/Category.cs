@@ -1,4 +1,6 @@
-﻿using CoreKit.SharedKernel.Common;
+﻿// CoreKit.Catalog/Entities/Category.cs
+
+using CoreKit.SharedKernel.Common;
 
 namespace CoreKit.Catalog.Entities;
 
@@ -13,14 +15,14 @@ public class Category : AuditableEntity, ITenantScoped
     public ICollection<Category> SubCategories { get; set; } = new List<Category>();
 
     public int Level { get; set; } = 1;
-
     public string? StoreTypeCode { get; set; }
-
-    // Per‑store category (null = tenant‑level)
     public Guid? StoreId { get; set; }
-
     public Guid TenantId { get; set; }
 
     public ICollection<Product> Products { get; set; } = new List<Product>();
-    public ICollection<AttributeTemplate> AttributeTemplates { get; set; } = new List<AttributeTemplate>();
+
+    // Was ICollection<AttributeTemplate> — now correctly points to
+    // ProductAttributeTemplate, removing the dead duplicate entity.
+    public ICollection<ProductAttributeTemplate> AttributeTemplates { get; set; }
+        = new List<ProductAttributeTemplate>();
 }

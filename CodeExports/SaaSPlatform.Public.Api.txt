@@ -1,5 +1,9 @@
-using CoreKit.Catalog.Abstractions;
-using CoreKit.Catalog.Extensions;
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Program.cs
+==================================================
+
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -7,7 +11,6 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
-using SaaSPlatform.Public.Api.Services;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,7 +69,7 @@ var connStr = builder.Configuration.GetConnectionString("Postgres")
         "Connection string 'Postgres' is missing from configuration.");
 
 // ==========================================
-// IAM — NO BYPASS, PURE PERMISSION-BASED
+// IAM â€” NO BYPASS, PURE PERMISSION-BASED
 // ==========================================
 builder.Services.AddCoreKitIAM(
     connStr,
@@ -100,12 +103,6 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
 });
 
-builder.Services.AddCatalogModule(connStr, services =>
-{
-    // Provide a working IStoreInfoProvider using the Tenant module's repository.
-    // We'll add the implementation class in a moment.
-    services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
-});
 // ==========================================
 // BUILD APP
 // ==========================================
@@ -153,3 +150,66 @@ app.MapControllers();
 // RUN
 // ==========================================
 app.Run();
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs
+==================================================
+
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace SaaSPlatform.Public.Api.Controllers;
+
+[ApiController]
+[Route("api/auth")]
+//[EnableRateLimiting("login")]
+public class AuthController : ApiControllerBase
+{
+    private readonly IAuthService _authService;
+    private readonly ITenantContext _tenantContext;
+
+    public AuthController(
+        IAuthService authService,
+        ITenantContext tenantContext)
+    {
+        _authService = authService;
+        _tenantContext = tenantContext;
+    }
+
+    [HttpPost("login")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Login(LoginRequest request)
+    {
+        var result = await _authService.LoginAsync(request, _tenantContext.TenantId);
+        return Ok(result);
+    }
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+    {
+        var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
+        return Ok(result);
+    }
+
+    // LOW FIX — require authentication so only the token's owner can revoke it
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RefreshToken))
+            return BadRequest("Refresh token is required.");
+
+        await _authService.LogoutAsync(request.RefreshToken);
+        return Ok(new { message = "Logged out successfully" });
+    }
+}
+
+

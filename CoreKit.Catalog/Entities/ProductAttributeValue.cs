@@ -6,6 +6,6 @@ public class ProductAttributeValue
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = default!;
     public Guid TemplateId { get; set; }
-    public AttributeTemplate Template { get; set; } = default!;
+    public ProductAttributeTemplate Template { get; set; } = default!;
     public string Value { get; set; } = default!;
 }

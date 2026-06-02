@@ -45,7 +45,7 @@ public class PlatformAttributeTemplatesController : ApiControllerBase
         [FromBody] CreateAttributeGroupRequest request)
     {
         // Platform-only endpoint — force TenantId to null.
-        request = request with { TenantId = null };
+        request.TenantId = null;
         var group = await _groupService.CreateAsync(request);
         return CreatedResponse(group);
     }

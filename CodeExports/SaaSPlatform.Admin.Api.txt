@@ -1,0 +1,1351 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs
+==================================================
+
+using CoreKit.Catalog.Extensions;
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Subscription.Extensions;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using FluentValidation;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Validators;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ==========================================
+// RATE LIMITING
+// ==========================================
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (ctx, token) =>
+    {
+        ctx.HttpContext.Response.StatusCode =
+            StatusCodes.Status429TooManyRequests;
+        ctx.HttpContext.Response.ContentType = "application/json";
+
+        var retryAfter = ctx.Lease.TryGetMetadata(
+            MetadataName.RetryAfter, out var retryDelay)
+            ? (int)retryDelay.TotalSeconds
+            : 60;
+
+        ctx.HttpContext.Response.Headers["Retry-After"] =
+            retryAfter.ToString();
+
+        await ctx.HttpContext.Response.WriteAsync(
+            $"{{\"success\":false," +
+            $"\"errorCode\":\"RATE_LIMITED\"," +
+            $"\"message\":\"Too many requests. " +
+            $"Please wait {retryAfter} seconds.\"}}",
+            token);
+    };
+
+    options.AddFixedWindowLimiter("admin-operations", cfg =>
+    {
+        cfg.PermitLimit = 30;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    });
+});
+
+// ==========================================
+// VALIDATION
+// ==========================================
+builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
+
+// ==========================================
+// HTTP CONTEXT
+// ==========================================
+builder.Services.AddHttpContextAccessor();
+
+// ==========================================
+// DATABASE CONNECTION
+// ==========================================
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+    ?? throw new InvalidOperationException(
+        "Connection string 'Postgres' is missing from configuration.");
+
+// ==========================================
+// IAM â€” NO BYPASS, PURE PERMISSION-BASED
+// ==========================================
+builder.Services.AddCoreKitIAM(
+    connStr,
+    builder.Configuration.GetSection("Jwt"));
+
+// ==========================================
+// TENANT KIT
+// ==========================================
+builder.Services.AddTenantKit(connStr, options =>
+{
+    options.AutoApproveTenants = false;
+    options.AllowMultipleStores = true;
+    options.EnableLegalInfo = true;
+});
+
+// ==========================================
+// Subscription KIT
+// ==========================================
+
+builder.Services.AddSubscriptionModule(connStr);
+
+// ==========================================
+// CONTROLLERS
+// ==========================================
+builder.Services.AddCoreKitControllers();
+
+// ==========================================
+// STARTUP CONFIGURATION VALIDATION
+// ==========================================
+builder.ValidateCoreKitConfiguration();
+
+builder.Services.AddCatalogModule(connStr);
+
+// ==========================================
+// KESTREL
+// ==========================================
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
+});
+
+builder.Services.Configure<JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
+
+// ==========================================
+// BUILD APP
+// ==========================================
+var app = builder.Build();
+
+// ==========================================
+// SECURITY HEADERS
+// ==========================================
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    context.Response.Headers["X-XSS-Protection"] = "0"; // Deprecated, but some scanners still check
+    context.Response.Headers["Permissions-Policy"] =
+        "camera=(), microphone=(), geolocation=(), interest-cohort=()";
+
+    await next();
+});
+
+// ==========================================
+// BOOT CHECK
+// ==========================================
+await app.PerformBootCheckAsync();
+
+// ==========================================
+// MIDDLEWARE PIPELINE
+// ==========================================
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+
+// ==========================================
+// ENDPOINTS
+// ==========================================
+app.MapGet("/ping", () => "pong");
+app.MapControllers();
+
+// ==========================================
+// RUN
+// ==========================================
+app.Run();
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\AdminCategoriesController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/AdminCategoriesController.cs (or Tenant API)
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/categories")]
+[Authorize]
+public class AdminCategoriesController : ApiControllerBase
+{
+    private readonly ICategoryService _categoryService;
+
+    public AdminCategoriesController(ICategoryService categoryService)
+        => _categoryService = categoryService;
+
+    [HttpGet("tenant/{tenantId}")]
+    [RequiresPermission("catalog.categories.view")]
+    public async Task<IActionResult> GetByTenant(Guid tenantId, [FromQuery] Guid? storeId = null)
+    {
+        var categories = await _categoryService.GetByTenantAsync(tenantId, storeId);
+        return Ok(categories);
+    }
+
+    [HttpGet("{id}")]
+    [RequiresPermission("catalog.categories.view")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var category = await _categoryService.GetByIdAsync(id);
+        return category is null ? NotFound() : Ok(category);
+    }
+
+    [HttpPost]
+    [RequiresPermission("catalog.categories.create")]
+    public async Task<IActionResult> Create(CreateCategoryRequest request)
+    {
+        var category = await _categoryService.CreateAsync(request);
+        return CreatedResponse(category);
+    }
+
+    [HttpPut("{id}")]
+    [RequiresPermission("catalog.categories.update")]
+    public async Task<IActionResult> Update(Guid id, UpdateCategoryRequest request)
+    {
+        await _categoryService.UpdateAsync(id, request);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("{id}")]
+    [RequiresPermission("catalog.categories.delete")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        await _categoryService.DeleteAsync(id);
+        return DeletedResponse();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ImpersonationController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/impersonation")]
+[Authorize]
+public class ImpersonationController : ControllerBase
+{
+    private readonly IImpersonationService _impersonationService;
+    private readonly ICurrentUserService _currentUser;
+
+    public ImpersonationController(
+        IImpersonationService impersonationService,
+        ICurrentUserService currentUser)
+    {
+        _impersonationService = impersonationService;
+        _currentUser = currentUser;
+    }
+
+    [HttpPost("tenant/{tenantId}")]
+    [RequiresPermission(Permissions.Platform.CreateImpersonation)]
+    public async Task<IActionResult> ImpersonateTenant(
+        Guid tenantId,
+        [FromBody] ImpersonationRequest request)
+    {
+        if (_currentUser.UserId == null)
+            return Unauthorized();
+
+        var (token, expiresAt) = await _impersonationService.CreateImpersonationTokenAsync(
+            _currentUser.UserId.Value,
+            tenantId,
+            request.Reason);
+
+        return Ok(new
+        {
+            accessToken = token,
+            expiresAt,
+            tenantId,
+            message = $"Impersonation token created for tenant {tenantId}. " +
+                      $"Use this token with x-tenant-id header for tenant-scoped operations. " +
+                      $"Token expires at {expiresAt:O}."
+        });
+    }
+}
+
+public class ImpersonationRequest
+{
+    public string Reason { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PermissionsController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/permissions")]
+[Authorize]
+public class PermissionsController : ApiControllerBase
+{
+    private readonly IRoleRepository _roleRepo;
+    public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;
+
+    [HttpGet]
+    [RequiresPermission(Permissions.PermissionsManagement.View)]
+    public async Task<IActionResult> GetAll()
+    {
+        var perms = await _roleRepo.GetAllPermissionsAsync();
+        return Ok(perms.Select(p => new { p.Id, p.Name, p.PermissionModuleId }));
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PlansController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/plans")]
+[Authorize]
+public class PlansController : ApiControllerBase
+{
+    private readonly IPlanService _planService;
+
+    public PlansController(IPlanService planService) => _planService = planService;
+
+    [HttpGet]
+    [RequiresPermission(Permissions.Platform.ManageSystemSettings)]
+    public async Task<IActionResult> GetAll()
+    {
+        var plans = await _planService.GetAllAsync();
+        return Ok(plans.Select(p => new { p.Id, p.Name, p.Code, p.MonthlyPrice, p.MaxStores, p.MaxProducts, p.CustomDomainEnabled, p.ThemeCustomizationEnabled }));
+    }
+
+    [HttpPost]
+    [RequiresPermission(Permissions.Platform.ManageSystemSettings)]
+    public async Task<IActionResult> Create([FromBody] CreatePlanRequest request)
+    {
+        var plan = await _planService.CreateAsync(
+            request.Name, request.Code, request.Description,
+            request.MonthlyPrice, request.YearlyPrice,
+            request.MaxStores, request.MaxProducts, request.MaxCategories,
+            request.CustomDomainEnabled, request.ThemeCustomizationEnabled,
+            request.SortOrder);
+        return CreatedResponse(new { plan.Id, plan.Name });
+    }
+}
+
+public class CreatePlanRequest
+{
+    public string Name { get; set; } = default!;
+    public string Code { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal MonthlyPrice { get; set; }
+    public decimal YearlyPrice { get; set; }
+    public int? MaxStores { get; set; }
+    public int? MaxProducts { get; set; }
+    public int? MaxCategories { get; set; }
+    public bool CustomDomainEnabled { get; set; }
+    public bool ThemeCustomizationEnabled { get; set; }
+    public int SortOrder { get; set; } = 99;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PlatformAttributeTemplatesController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/PlatformAttributeTemplatesController.cs
+using CoreKit.Catalog.Constants;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+/// <summary>
+/// Platform admin manages the global base attribute templates.
+/// These are visible to all tenants as read-only defaults.
+/// </summary>
+[ApiController]
+[Route("api/admin/catalog/attribute-templates")]
+[Authorize]
+public class PlatformAttributeTemplatesController : ApiControllerBase
+{
+    private readonly IProductAttributeTemplateService _templateService;
+    private readonly IProductAttributeGroupService _groupService;
+
+    public PlatformAttributeTemplatesController(
+        IProductAttributeTemplateService templateService,
+        IProductAttributeGroupService groupService)
+    {
+        _templateService = templateService;
+        _groupService = groupService;
+    }
+
+    // ── Groups ────────────────────────────────────────────────────────────
+
+    [HttpGet("groups/{storeTypeCode}")]
+    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    public async Task<IActionResult> GetGroups(string storeTypeCode)
+    {
+        var groups = await _groupService.GetByStoreTypeAsync(storeTypeCode);
+        return OkResponse(groups);
+    }
+
+    [HttpPost("groups")]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> CreateGroup(
+        [FromBody] CreateAttributeGroupRequest request)
+    {
+        // Platform-only endpoint — force TenantId to null.
+        request = request with { TenantId = null };
+        var group = await _groupService.CreateAsync(request);
+        return CreatedResponse(group);
+    }
+
+    [HttpPut("groups/{groupId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> UpdateGroup(
+        Guid groupId,
+        [FromBody] UpdateGroupRequest request)
+    {
+        await _groupService.UpdateAsync(groupId, request.Name, request.SortOrder);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("groups/{groupId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> DeleteGroup(Guid groupId)
+    {
+        await _groupService.DeleteAsync(groupId);
+        return DeletedResponse();
+    }
+
+    // ── Templates ─────────────────────────────────────────────────────────
+
+    [HttpGet("{storeTypeCode}")]
+    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    public async Task<IActionResult> GetByStoreType(string storeTypeCode)
+    {
+        var templates =
+            await _templateService.GetPlatformTemplatesAsync(storeTypeCode);
+        return OkResponse(templates);
+    }
+
+    [HttpPost]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> Create(
+        [FromBody] CreateAttributeTemplateRequest request)
+    {
+        var template =
+            await _templateService.CreatePlatformTemplateAsync(request);
+        return CreatedResponse(template);
+    }
+
+    [HttpPut("{templateId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> Update(
+        Guid templateId,
+        [FromBody] UpdateAttributeTemplateRequest request)
+    {
+        await _templateService.UpdatePlatformTemplateAsync(templateId, request);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("{templateId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManagePlatform)]
+    public async Task<IActionResult> Delete(Guid templateId)
+    {
+        await _templateService.DeletePlatformTemplateAsync(templateId);
+        return DeletedResponse();
+    }
+}
+
+public record UpdateGroupRequest(string Name, int SortOrder);
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductAddonsController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/ProductAddonsController.cs
+
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Persistence;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace SaaSPlatform.Tenant.Api.Controllers;
+
+[ApiController]
+[Route("api/products/{productId}/addons")]
+[Authorize]
+public class ProductAddonsController : ApiControllerBase
+{
+    private readonly CatalogDbContext _db;
+
+    public ProductAddonsController(CatalogDbContext db) => _db = db;
+
+    [HttpGet]
+    [RequiresPermission("catalog.products.view")]
+    public async Task<IActionResult> GetAddons(Guid productId)
+    {
+        var addons = await _db.Addons
+            .Where(a => a.ProductId == productId)
+            .ToListAsync();
+
+        return Ok(addons);
+    }
+
+    [HttpPost]
+    [RequiresPermission("catalog.products.update")]
+    public async Task<IActionResult> Create(
+        Guid productId,
+        [FromBody] CreateAddonRequest request)
+    {
+        var product = await _db.Products.FindAsync(productId);
+        if (product is null) return NotFound();
+
+        var addon = new Addon
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            AdditionalPrice = request.AdditionalPrice,
+            AddonGroupId = null,   // was Guid.Empty — would cause FK violation
+            ProductId = productId
+        };
+
+        _db.Addons.Add(addon);
+        await _db.SaveChangesAsync();
+        return CreatedResponse(addon);
+    }
+
+    [HttpDelete("{addonId}")]
+    [RequiresPermission("catalog.products.update")]
+    public async Task<IActionResult> Delete(Guid addonId)
+    {
+        var addon = await _db.Addons.FindAsync(addonId);
+        if (addon is null) return NotFound();
+
+        _db.Addons.Remove(addon);
+        await _db.SaveChangesAsync();
+        return DeletedResponse();
+    }
+}
+
+public class CreateAddonRequest
+{
+    public string Name { get; set; } = default!;
+    public decimal AdditionalPrice { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductsController.cs
+==================================================
+
+// SaaSPlatform.Tenant.Api/Controllers/ProductsController.cs
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Helpers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Tenant.Api.Controllers;
+
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+    private readonly IProductService _productService;
+
+    public ProductsController(IProductService productService)
+        => _productService = productService;
+
+    [HttpPost]
+    [RequiresPermission("catalog.products.create")]
+    public async Task<IActionResult> Create(CreateProductRequest request)
+    {
+        var product = await _productService.CreateAsync(request);
+        return CreatedResponse(product);
+    }
+
+    [HttpGet("{id}")]
+    [RequiresPermission("catalog.products.view")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var product = await _productService.GetByIdAsync(id);
+        return product is null ? NotFound() : Ok(product);
+    }
+
+    [HttpGet("store/{storeId}")]
+    [RequiresPermission("catalog.products.view")]
+    public async Task<IActionResult> GetByStore(Guid storeId)
+    {
+        var products = await _productService.GetByStoreAsync(storeId);
+        return Ok(products);
+    }
+
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductVariantsController.cs
+==================================================
+
+// SaaSPlatform.Tenant.Api/Controllers/ProductVariantsController.cs
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Tenant.Api.Controllers;
+
+[ApiController]
+[Route("api/products/{productId}/variants")]
+[Authorize]
+public class ProductVariantsController : ApiControllerBase
+{
+    private readonly IProductVariantService _variantService;
+
+    public ProductVariantsController(IProductVariantService variantService)
+        => _variantService = variantService;
+
+    [HttpGet]
+    [RequiresPermission("catalog.products.view")]
+    public async Task<IActionResult> GetByProduct(Guid productId)
+    {
+        var variants = await _variantService.GetByProductAsync(productId);
+        return Ok(variants);
+    }
+
+    [HttpGet("{id}")]
+    [RequiresPermission("catalog.products.view")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var variant = await _variantService.GetByIdAsync(id);
+        return variant is null ? NotFound() : Ok(variant);
+    }
+
+    [HttpPost]
+    [RequiresPermission("catalog.products.update")]
+    public async Task<IActionResult> Create(Guid productId, CreateVariantRequest request)
+    {
+        var variant = await _variantService.CreateAsync(productId, request);
+        return CreatedResponse(variant);
+    }
+
+    [HttpPut("{id}")]
+    [RequiresPermission("catalog.products.update")]
+    public async Task<IActionResult> Update(Guid id, UpdateVariantRequest request)
+    {
+        await _variantService.UpdateAsync(id, request);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("{id}")]
+    [RequiresPermission("catalog.products.update")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        await _variantService.DeleteAsync(id);
+        return DeletedResponse();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[Route("api/admin/roles")]
+[Authorize]
+public class RolesController : ApiControllerBase
+{
+    private readonly IRoleManagementService _roleService;
+
+    public RolesController(IRoleManagementService roleService)
+        => _roleService = roleService;
+
+    [HttpPost]
+    [RequiresPermission(Permissions.Roles.Create)]
+    public async Task<IActionResult> Create(
+        [FromBody] CreateRoleRequest request)
+    {
+        var role = await _roleService.CreateRoleAsync(
+            request.Name, request.TenantId, request.Description);
+
+        return CreatedResponse(new { role.Id, role.Name });
+    }
+
+    [HttpPost("{roleId}/permissions")]
+    [RequiresPermission(Permissions.Roles.AssignPermission)]
+    public async Task<IActionResult> AssignPermission(
+        Guid roleId, [FromBody] AssignPermissionRequest request)
+    {
+        await _roleService.AssignPermissionAsync(
+            roleId, request.PermissionId);
+
+        return UpdatedResponse("Permission assigned successfully.");
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\SubscriptionController.cs
+==================================================
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/subscription")]
+[Authorize]
+public class SubscriptionController : ApiControllerBase
+{
+    private readonly IPlanService _planService;
+    private readonly ISubscriptionManagementService _subService;
+
+    public SubscriptionController(
+        IPlanService planService,
+        ISubscriptionManagementService subService)
+    {
+        _planService = planService;
+        _subService = subService;
+    }
+
+    [HttpGet("plans")]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> GetAllPlans()
+    {
+        var plans = await _planService.GetAllAsync();
+        return Ok(plans);
+    }
+
+    [HttpPost("assign")]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> AssignSubscription([FromBody] AssignSubscriptionRequest request)
+    {
+        await _subService.AssignSubscriptionAsync(
+            request.TenantId,
+            request.PlanId,
+            startDate: request.StartDate,
+            endDate: request.EndDate);
+
+        var active = await _subService.GetActiveSubscriptionForTenantAsync(request.TenantId);
+        return Ok(active);
+    }
+
+    [HttpGet("tenant/{tenantId}/active")]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> GetActiveSubscription(Guid tenantId)
+    {
+        var sub = await _subService.GetActiveSubscriptionForTenantAsync(tenantId);
+        if (sub is null)
+            return NotFound(new
+            {
+                success = false,
+                errorCode = "NOT_FOUND",
+                message = "No active subscription found."
+            });
+
+        return Ok(sub);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\SubscriptionsController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/SubscriptionsController.cs
+// SubscriptionController.cs (singular) has been deleted.
+// All subscription admin routes live here under /api/admin/subscriptions.
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/subscriptions")]
+[Authorize]
+public class SubscriptionsController : ApiControllerBase
+{
+    private readonly IPlanService _planService;
+    private readonly ISubscriptionManagementService _subscriptionService;
+
+    public SubscriptionsController(
+        IPlanService planService,
+        ISubscriptionManagementService subscriptionService)
+    {
+        _planService = planService;
+        _subscriptionService = subscriptionService;
+    }
+
+    [HttpGet("plans")]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> GetAllPlans()
+    {
+        var plans = await _planService.GetAllAsync();
+        return OkResponse(plans);
+    }
+
+    [HttpPost]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> Assign(
+        [FromBody] AssignSubscriptionRequest request)
+    {
+        await _subscriptionService.AssignSubscriptionAsync(
+            request.TenantId,
+            request.PlanId,
+            request.StartDate,
+            request.EndDate);
+
+        return CreatedResponse("Subscription assigned successfully.");
+    }
+
+    [HttpGet("{tenantId}")]
+    [RequiresPermission(Permissions.Platform.ManageBilling)]
+    public async Task<IActionResult> GetByTenant(Guid tenantId)
+    {
+        var sub = await _subscriptionService
+            .GetActiveSubscriptionForTenantAsync(tenantId);
+
+        if (sub is null)
+            return NotFound(new
+            {
+                success = false,
+                errorCode = "NOT_FOUND",
+                message = "No active subscription found."
+            });
+
+        return OkResponse(new
+        {
+            sub.PlanId,
+            sub.Plan.Name,
+            sub.StartDate,
+            sub.EndDate,
+            sub.Status
+        });
+    }
+}
+
+public class AssignSubscriptionRequest
+{
+    public Guid TenantId { get; set; }
+    public Guid PlanId { get; set; }
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantAttributeTemplatesController.cs
+==================================================
+
+// SaaSPlatform.Tenant.Api/Controllers/TenantAttributeTemplatesController.cs
+using CoreKit.Catalog.Constants;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Tenant.Api.Controllers;
+
+/// <summary>
+/// Tenant admin manages their scoped attribute customisations:
+///   - Override platform templates (tenant-scoped copy, original untouched).
+///   - Add custom attributes not present in the base template.
+///   - Assign templates to specific stores or tenant-wide.
+///   - View the resolved (effective) attribute list for a store.
+/// </summary>
+[ApiController]
+[Route("api/tenant/catalog/attribute-templates")]
+[Authorize]
+public class TenantAttributeTemplatesController : ApiControllerBase
+{
+    private readonly IProductAttributeTemplateService _templateService;
+    private readonly IProductAttributeGroupService _groupService;
+    private readonly ICurrentUserService _currentUser;
+    private readonly ITenantContext _tenantContext;
+
+    public TenantAttributeTemplatesController(
+        IProductAttributeTemplateService templateService,
+        IProductAttributeGroupService groupService,
+        ICurrentUserService currentUser,
+        ITenantContext tenantContext)
+    {
+        _templateService = templateService;
+        _groupService = groupService;
+        _currentUser = currentUser;
+        _tenantContext = tenantContext;
+    }
+
+    // ── View platform base templates ──────────────────────────────────────
+
+    [HttpGet("platform/{storeTypeCode}")]
+    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    public async Task<IActionResult> GetPlatformTemplates(string storeTypeCode)
+    {
+        var templates =
+            await _templateService.GetPlatformTemplatesAsync(storeTypeCode);
+        return OkResponse(templates);
+    }
+
+    // ── Tenant-scoped templates ───────────────────────────────────────────
+
+    [HttpGet("{storeTypeCode}")]
+    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    public async Task<IActionResult> GetTenantTemplates(string storeTypeCode)
+    {
+        var tenantId = RequireTenantId();
+        var templates = await _templateService.GetTenantTemplatesAsync(
+            tenantId, storeTypeCode);
+        return OkResponse(templates);
+    }
+
+    /// <summary>
+    /// Creates a tenant-scoped override of an existing platform template.
+    /// Only the fields included in the request body are changed;
+    /// the rest are copied from the platform template.
+    /// </summary>
+    [HttpPost("override")]
+    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    public async Task<IActionResult> OverridePlatformTemplate(
+        [FromBody] OverrideAttributeTemplateRequest request)
+    {
+        request = request with { TenantId = RequireTenantId() };
+        var template =
+            await _templateService.OverridePlatformTemplateAsync(request);
+        return CreatedResponse(template);
+    }
+
+    /// <summary>
+    /// Creates a brand-new custom attribute that has no platform equivalent.
+    /// </summary>
+    [HttpPost("custom")]
+    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    public async Task<IActionResult> CreateCustomTemplate(
+        [FromBody] CreateAttributeTemplateRequest request)
+    {
+        request = request with { TenantId = RequireTenantId() };
+        var template =
+            await _templateService.CreateTenantTemplateAsync(request);
+        return CreatedResponse(template);
+    }
+
+    [HttpPut("{templateId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    public async Task<IActionResult> UpdateTenantTemplate(
+        Guid templateId,
+        [FromBody] UpdateAttributeTemplateRequest request)
+    {
+        await _templateService.UpdateTenantTemplateAsync(
+            templateId, RequireTenantId(), request);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("{templateId}")]
+    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    public async Task<IActionResult> DeleteTenantTemplate(Guid templateId)
+    {
+        await _templateService.DeleteTenantTemplateAsync(
+            templateId, RequireTenantId());
+        return DeletedResponse();
+    }
+
+    // ── Groups ────────────────────────────────────────────────────────────
+
+    [HttpPost("groups")]
+    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    public async Task<IActionResult> CreateGroup(
+        [FromBody] CreateAttributeGroupRequest request)
+    {
+        request = request with { TenantId = RequireTenantId() };
+        var group = await _groupService.CreateAsync(request);
+        return CreatedResponse(group);
+    }
+
+    // ── Assignment ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Assigns a template to a store (StoreId set) or to all stores
+    /// of this tenant for the given store type (StoreId = null).
+    /// </summary>
+    [HttpPost("assign")]
+    [RequiresPermission(CatalogPermissions.TemplatesAssign)]
+    public async Task<IActionResult> AssignTemplate(
+        [FromBody] AssignTemplateRequest request)
+    {
+        request = request with { TenantId = RequireTenantId() };
+        await _templateService.AssignTemplateAsync(request);
+        return OkResponse("Template assigned successfully.");
+    }
+
+    [HttpDelete("assign")]
+    [RequiresPermission(CatalogPermissions.TemplatesAssign)]
+    public async Task<IActionResult> UnassignTemplate(
+        [FromBody] UnassignTemplateRequest request)
+    {
+        await _templateService.UnassignTemplateAsync(
+            RequireTenantId(), request.StoreId, request.TemplateId);
+        return DeletedResponse();
+    }
+
+    // ── Resolved view ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the fully-resolved attribute list for a store,
+    /// with all three precedence layers applied.
+    /// Use this to render the product creation form.
+    /// </summary>
+    [HttpGet("resolved/{storeId}/{storeTypeCode}")]
+    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    public async Task<IActionResult> GetResolved(
+        Guid storeId,
+        string storeTypeCode)
+    {
+        var resolved = await _templateService.GetResolvedAttributesAsync(
+            storeId, RequireTenantId(), storeTypeCode);
+        return OkResponse(resolved);
+    }
+
+    // ── Store-level toggle ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Store manager toggles IsRequired / IsVisible for an attribute
+    /// on their specific store.
+    /// </summary>
+    [HttpPost("store-override")]
+    [RequiresPermission(CatalogPermissions.TemplatesToggleStore)]
+    public async Task<IActionResult> SetStoreOverride(
+        [FromBody] StoreAttributeOverrideRequest request)
+    {
+        await _templateService.SetStoreAttributeOverrideAsync(request);
+        return OkResponse("Store attribute override saved.");
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────
+
+    private Guid RequireTenantId() =>
+        _tenantContext.TenantId
+        ?? throw new UnauthorizedAccessException("Tenant context is missing.");
+}
+
+public record UnassignTemplateRequest(Guid? StoreId, Guid TemplateId);
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/TenantsController.cs
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[ApiController]
+[Route("api/admin/tenants")]
+public class TenantsController : ApiControllerBase
+{
+    private readonly ITenantService _tenantService;
+
+    public TenantsController(ITenantService tenantService)
+        => _tenantService = tenantService;
+
+    // Fix #10: Apply the "login" rate limit policy (5 req/min) to the anonymous
+    // registration endpoint to prevent spam/abuse.
+    // If you want a separate, stricter policy for registration, add one in Program.cs:
+    //   options.AddFixedWindowLimiter("tenant_register", cfg => {
+    //       cfg.PermitLimit = 3; cfg.Window = TimeSpan.FromMinutes(10);
+    //   });
+    // and reference it here instead.
+    [HttpPost("register")]
+    [AllowAnonymous]
+    //[EnableRateLimiting("login")]
+    public async Task<IActionResult> Register(TenantRegistrationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest(new
+            {
+                success = false,
+                errorCode = "VALIDATION_ERROR",
+                message = "Tenant name is required."
+            });
+
+        var result = await _tenantService.RegisterAsync(request);
+        return Ok(result);
+    }
+
+    [HttpPost("{tenantId}/approve")]
+    [Authorize]
+    [RequiresPermission(Permissions.Tenants.Approve)]
+    public async Task<IActionResult> Approve(Guid tenantId)
+    {
+        await _tenantService.ApproveAsync(tenantId);
+        return Ok(new
+        {
+            tenantId,
+            status = "Approved",
+            message = "Tenant approved successfully"
+        });
+    }
+
+    [HttpGet]
+    [Authorize]
+    [RequiresPermission(Permissions.Tenants.View)]
+    public async Task<IActionResult> GetAll()
+    {
+        var tenants = await _tenantService.GetAllAsync();
+        return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\UsersController.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Controllers/UsersController.cs
+
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
+
+namespace SaaSPlatform.Admin.Api.Controllers;
+
+[Route("api/admin/users")]
+[Authorize]
+public class UsersController : ApiControllerBase
+{
+    private readonly IUserManagementService _userService;
+    private readonly ICurrentUserService _currentUser;
+
+    public UsersController(
+        IUserManagementService userService,
+        ICurrentUserService currentUser)
+    {
+        _userService = userService;
+        _currentUser = currentUser;
+    }
+
+    [HttpGet]
+    [RequiresPermission(Permissions.Platform.ViewAllUsers)]
+    public async Task<IActionResult> GetAll()
+    {
+        var users = await _userService.GetAllUsersAsync();
+        return Ok(users);
+    }
+
+    [HttpPost]
+    [RequiresPermission(Permissions.Platform.ManageAnyUser)]
+    public async Task<IActionResult> Create(
+        [FromBody] SaaSPlatform.Admin.Api.Models.CreateUserRequest request)
+    {
+        var user = await _userService.CreateUserAsync(
+            request.Name,
+            request.Phone,
+            request.Email,
+            request.Password,
+            request.TenantId);
+
+        return CreatedResponse(
+            new { user.Id, user.Name, user.Phone },
+            "Created successfully.");
+    }
+
+    [HttpPost("{userId}/roles")]
+    [RequiresPermission(Permissions.Users.AssignRole)]
+    public async Task<IActionResult> AssignRole(
+        Guid userId,
+        [FromBody] AssignRoleWithTenantRequest request)
+    {
+        // Resolve the authorization flag here in the HTTP layer — this is the
+        // only place that has access to the JWT claims. The service itself no
+        // longer depends on ICurrentUserService so it stays testable.
+        var isPlatformAdmin = _currentUser.HasPermission(
+            Permissions.Platform.ManageAnyUser);
+
+        await _userService.AssignRoleAsync(
+            userId,
+            request.RoleId,
+            request.TenantId,
+            callerIsPlatformAdmin: isPlatformAdmin);
+
+        return UpdatedResponse("Role assigned successfully.");
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\AssignPermissionRequest.cs
+==================================================
+
+namespace SaaSPlatform.Admin.Api.Models;
+
+public class AssignPermissionRequest
+{
+    public Guid PermissionId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\CreateRoleRequest.cs
+==================================================
+
+namespace SaaSPlatform.Admin.Api.Models;
+
+public class CreateRoleRequest
+{
+    public string Name { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+    public string? Description { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\CreateUserRequest.cs
+==================================================
+
+namespace SaaSPlatform.Admin.Api.Models;
+
+public class CreateUserRequest
+{
+    public string Name { get; set; } = default!;
+    public string Phone { get; set; } = default!;
+    public string? Email { get; set; }
+    public string Password { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Validator\AdminCreateUserRequestValidator.cs
+==================================================
+
+// SaaSPlatform.Admin.Api/Validators/AdminCreateUserRequestValidator.cs
+using FluentValidation;
+using SaaSPlatform.Admin.Api.Models;
+
+namespace SaaSPlatform.Admin.Api.Validators;
+
+public class AdminCreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+{
+    public AdminCreateUserRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Phone).NotEmpty().Matches(@"^\+?[\d\s\-]{7,15}$");
+        RuleFor(x => x.Password)
+            .NotEmpty()
+            .MinimumLength(8).WithMessage("Password must be at least 8 characters.")
+            .Matches("[A-Z]").WithMessage("Must contain uppercase.")
+            .Matches("[a-z]").WithMessage("Must contain lowercase.")
+            .Matches("[0-9]").WithMessage("Must contain a digit.")
+            .Matches("[^a-zA-Z0-9]").WithMessage("Must contain a special character.");
+    }
+}
+
+

@@ -1,11 +1,14 @@
-﻿// SaaSPlatform.Tenant.Api/Controllers/ProductAddonsController.cs
-using CoreKit.Catalog.Entities;
-using CoreKit.Catalog.Persistence;
+﻿// SaaSPlatform.Admin.Api/Controllers/ProductAddonsController.cs
+using CoreKit.Catalog.Interfaces;
 using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
 using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
@@ -14,47 +17,77 @@ namespace SaaSPlatform.Tenant.Api.Controllers;
 [Authorize]
 public class ProductAddonsController : ApiControllerBase
 {
-    private readonly CatalogDbContext _db;
+    private readonly IAddonService _addonService;
+    private readonly IProductService _productService;
+    private readonly IStoreService _storeService;
+    private readonly ICurrentUserService _currentUser;
+    private readonly ITenantContext _tenantContext;
 
-    public ProductAddonsController(CatalogDbContext db) => _db = db;
+    public ProductAddonsController(
+        IAddonService addonService,
+        IProductService productService,
+        IStoreService storeService,
+        ICurrentUserService currentUser,
+        ITenantContext tenantContext)
+    {
+        _addonService = addonService;
+        _productService = productService;
+        _storeService = storeService;
+        _currentUser = currentUser;
+        _tenantContext = tenantContext;
+    }
 
     [HttpGet]
     [RequiresPermission("catalog.products.view")]
     public async Task<IActionResult> GetAddons(Guid productId)
     {
-        var addons = await _db.Addons.Where(a => a.ProductId == productId).ToListAsync();
+        if (!await HasAccessToProductAsync(productId))
+            return Forbid();
+
+        var addons = await _addonService.GetByProductAsync(productId);
         return Ok(addons);
     }
 
     [HttpPost]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> Create(Guid productId, [FromBody] CreateAddonRequest request)
+    [EnableRateLimiting("product-update")]
+    public async Task<IActionResult> Create(
+        Guid productId,
+        [FromBody] CreateAddonRequest request)
     {
-        var product = await _db.Products.FindAsync(productId);
-        if (product is null) return NotFound();
+        if (!await HasAccessToProductAsync(productId))
+            return Forbid();
 
-        var addon = new Addon
-        {
-            Id = Guid.NewGuid(),
-            Name = request.Name,
-            AdditionalPrice = request.AdditionalPrice,
-            AddonGroupId = Guid.Empty, // ad-hoc, not in group
-            ProductId = productId
-        };
-        _db.Addons.Add(addon);
-        await _db.SaveChangesAsync();
+        var addon = await _addonService.CreateAdHocAsync(
+            productId, request.Name, request.AdditionalPrice);
         return CreatedResponse(addon);
     }
 
     [HttpDelete("{addonId}")]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> Delete(Guid addonId)
+    public async Task<IActionResult> Delete(Guid productId, Guid addonId)
     {
-        var addon = await _db.Addons.FindAsync(addonId);
-        if (addon is null) return NotFound();
-        _db.Addons.Remove(addon);
-        await _db.SaveChangesAsync();
+        // Ensure the caller owns the product before modifying its addons
+        if (!await HasAccessToProductAsync(productId))
+            return Forbid();
+
+        await _addonService.DeleteAsync(addonId);
         return DeletedResponse();
+    }
+
+    private async Task<bool> HasAccessToProductAsync(Guid productId)
+    {
+        // Platform users with cross‑store permissions bypass the tenant check.
+        if (_currentUser.HasPermission(Permissions.Platform.ViewAllStores) ||
+            _currentUser.HasPermission(Permissions.Store.ViewAll))
+            return true;
+
+        var product = await _productService.GetByIdAsync(productId);
+        if (product == null) return false;
+
+        // Tenant‑scoped users must own the product's store.
+        var store = await _storeService.GetByIdAsync(product.StoreId);
+        return store != null && store.TenantId == _tenantContext.TenantId;
     }
 }
 

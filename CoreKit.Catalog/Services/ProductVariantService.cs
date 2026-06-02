@@ -1,4 +1,5 @@
 ﻿// CoreKit.Catalog/Services/ProductVariantService.cs
+
 using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
@@ -13,9 +14,6 @@ public class ProductVariantService : IProductVariantService
     private readonly CatalogDbContext _db;
     private readonly IStoreInfoProvider _storeInfoProvider;
 
-    // FIX: Inject IStoreInfoProvider instead of querying
-    // CoreKit.Tenant.Entities.Store directly from CatalogDbContext.
-    // The cross-module dependency is now explicit and swappable.
     public ProductVariantService(
         CatalogDbContext db,
         IStoreInfoProvider storeInfoProvider)
@@ -28,7 +26,8 @@ public class ProductVariantService : IProductVariantService
     {
         return await _db.ProductVariants
             .Where(v => v.ProductId == productId)
-            .Include(v => v.AttributeValues).ThenInclude(av => av.Template)
+            .Include(v => v.AttributeValues)
+                .ThenInclude(av => av.Template)
             .Select(v => MapToDto(v))
             .ToListAsync();
     }
@@ -36,7 +35,8 @@ public class ProductVariantService : IProductVariantService
     public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
     {
         var variant = await _db.ProductVariants
-            .Include(v => v.AttributeValues).ThenInclude(av => av.Template)
+            .Include(v => v.AttributeValues)
+                .ThenInclude(av => av.Template)
             .FirstOrDefaultAsync(v => v.Id == id);
 
         return variant is null ? null : MapToDto(variant);
@@ -50,7 +50,6 @@ public class ProductVariantService : IProductVariantService
             .FirstOrDefaultAsync(p => p.Id == productId)
             ?? throw new KeyNotFoundException("Product not found.");
 
-        // FIX: Use IStoreInfoProvider instead of _db.Set<Store>()
         var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
             ?? throw new KeyNotFoundException("Store not found.");
 
@@ -64,12 +63,8 @@ public class ProductVariantService : IProductVariantService
 
         foreach (var attr in request.Attributes)
         {
-            var template = await _db.VariantAttributeTemplates
-                .FirstOrDefaultAsync(t =>
-                    t.Name == attr.Name &&
-                    t.StoreTypeCode == storeInfo.StoreTypeCode)
-                ?? throw new InvalidOperationException(
-                    $"Variant attribute '{attr.Name}' not defined.");
+            var template = await ResolveVariantTemplateAsync(
+                attr, storeInfo.StoreTypeCode);
 
             variant.AttributeValues.Add(new VariantAttributeValue
             {
@@ -82,9 +77,12 @@ public class ProductVariantService : IProductVariantService
         _db.ProductVariants.Add(variant);
         await _db.SaveChangesAsync();
 
+        // Reload navigations so Template names are available for MapToDto.
         await _db.Entry(variant)
-            .Collection(v => v.AttributeValues).Query()
-            .Include(av => av.Template).LoadAsync();
+            .Collection(v => v.AttributeValues)
+            .Query()
+            .Include(av => av.Template)
+            .LoadAsync();
 
         return MapToDto(variant);
     }
@@ -101,30 +99,29 @@ public class ProductVariantService : IProductVariantService
 
         if (request.Attributes is not null)
         {
-            // FIX: Remove from DbSet before clearing the in-memory collection.
-            // Clearing the collection first discards EF's change tracking
-            // references, so the subsequent RemoveRange has nothing to act on.
-            // Correct order: remove from DbSet → clear collection → add new.
-            _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
-            await _db.SaveChangesAsync(); // flush deletes before re-adding
+            // Remove from the DbSet first so EF tracks the deletes, then clear
+            // the in-memory collection, then add the replacements.
+            // Guard the flush: if the collection is empty there is nothing to
+            // delete and the round-trip to the DB would be wasted.
+            if (variant.AttributeValues.Any())
+            {
+                _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
+                await _db.SaveChangesAsync();
+            }
+
             variant.AttributeValues.Clear();
 
             var product = await _db.Products
                 .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
                 ?? throw new KeyNotFoundException("Product not found.");
 
-            // FIX: Use IStoreInfoProvider instead of _db.Set<Store>()
             var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
                 ?? throw new KeyNotFoundException("Store not found.");
 
             foreach (var attr in request.Attributes)
             {
-                var template = await _db.VariantAttributeTemplates
-                    .FirstOrDefaultAsync(t =>
-                        t.Name == attr.Name &&
-                        t.StoreTypeCode == storeInfo.StoreTypeCode)
-                    ?? throw new InvalidOperationException(
-                        $"Variant attribute '{attr.Name}' not defined.");
+                var template = await ResolveVariantTemplateAsync(
+                    attr, storeInfo.StoreTypeCode);
 
                 variant.AttributeValues.Add(new VariantAttributeValue
                 {
@@ -147,19 +144,38 @@ public class ProductVariantService : IProductVariantService
         await _db.SaveChangesAsync();
     }
 
-    private static ProductVariantDto MapToDto(ProductVariant variant)
+    // Prefers TemplateId; falls back to Name+StoreTypeCode for legacy callers.
+    private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
+        VariantAttributeItem attr,
+        string storeTypeCode)
     {
-        return new ProductVariantDto
+        if (attr.TemplateId.HasValue)
         {
-            Id = variant.Id,
-            Sku = variant.Sku,
-            Price = variant.Price,
-            IsActive = variant.IsActive,
-            Attributes = variant.AttributeValues.Select(av => new VariantAttributeValueDto
-            {
-                Name = av.Template.Name,
-                Value = av.Value
-            }).ToList()
-        };
+            return await _db.VariantAttributeTemplates
+                .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
+                ?? throw new InvalidOperationException(
+                    $"Variant attribute template '{attr.TemplateId}' not found.");
+        }
+
+        return await _db.VariantAttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Name == attr.Name &&
+                t.StoreTypeCode == storeTypeCode)
+            ?? throw new InvalidOperationException(
+                $"Variant attribute '{attr.Name}' not defined " +
+                $"for store type '{storeTypeCode}'.");
     }
+
+    private static ProductVariantDto MapToDto(ProductVariant variant) => new()
+    {
+        Id = variant.Id,
+        Sku = variant.Sku,
+        Price = variant.Price,
+        IsActive = variant.IsActive,
+        Attributes = variant.AttributeValues.Select(av => new VariantAttributeValueDto
+        {
+            Name = av.Template.Name,
+            Value = av.Value
+        }).ToList()
+    };
 }

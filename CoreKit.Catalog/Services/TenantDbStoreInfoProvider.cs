@@ -15,7 +15,7 @@ namespace CoreKit.Catalog.Services;
 /// rather than scattered across ProductService and ProductVariantService.
 /// Replace with an HTTP client or message-based lookup when splitting databases.
 /// </summary>
-internal sealed class TenantDbStoreInfoProvider : IStoreInfoProvider
+public sealed class TenantDbStoreInfoProvider : IStoreInfoProvider
 {
     private readonly CatalogDbContext _db;
 

@@ -15,7 +15,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddCatalogModule(
         this IServiceCollection services,
         string connectionString,
-        Action<IServiceCollection>? configureStoreInfo = null)
+        Action<IServiceCollection> configureStoreInfo)
     {
         services.AddDbContext<CatalogDbContext>(options =>
             options.UseNpgsql(connectionString));
@@ -23,17 +23,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductVariantService, ProductVariantService>();
-
-        // Attribute template system.
         services.AddScoped<IProductAttributeTemplateService,
-            ProductAttributeTemplateService>();
+                           ProductAttributeTemplateService>();
         services.AddScoped<IProductAttributeGroupService,
-            ProductAttributeGroupService>();
+                           ProductAttributeGroupService>();
+        services.AddScoped<IAddonService, AddonService>();
 
-        if (configureStoreInfo != null)
-            configureStoreInfo(services);
-        else
-            services.AddScoped<IStoreInfoProvider, TenantDbStoreInfoProvider>();
+        // The host MUST supply a working IStoreInfoProvider (e.g., TenantDbStoreInfoProvider
+        // or an HTTP client). No fallback is provided because the default was broken.
+        configureStoreInfo(services);
 
         services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
 

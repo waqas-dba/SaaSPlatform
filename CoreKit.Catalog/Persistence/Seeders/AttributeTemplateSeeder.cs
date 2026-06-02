@@ -19,8 +19,7 @@ public sealed class AttributeTemplateSeeder
     public async Task SeedAsync(CancellationToken ct = default)
     {
         // Skip if platform templates already exist.
-        if (await _db.AttributeTemplates.AnyAsync(
-                t => t.TenantId == null, ct))
+        if (await _db.AttributeTemplates.AnyAsync(t => t.TenantId == null, ct))
             return;
 
         var groups = BuildGroups();

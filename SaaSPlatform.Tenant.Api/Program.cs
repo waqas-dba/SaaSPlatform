@@ -1,3 +1,5 @@
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Extensions;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -5,6 +7,7 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Services;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +51,13 @@ builder.Services.AddRateLimiter(options =>
         cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
         cfg.Window = TimeSpan.FromMinutes(1);
     });
+
+    // NEW: protect product creation
+    options.AddFixedWindowLimiter("product-create", cfg =>
+    {
+        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    });
 });
 
 // ==========================================
@@ -77,6 +87,15 @@ builder.Services.AddTenantKit(connStr, options =>
     options.AutoApproveTenants = false;
     options.AllowMultipleStores = true;
     options.EnableLegalInfo = true;
+});
+
+// ==========================================
+// CATALOG MODULE — MANDATORY IStoreInfoProvider
+// ==========================================
+builder.Services.AddCatalogModule(connStr, services =>
+{
+    // Use the Tenant DB to resolve store info safely
+    services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
 // ==========================================
@@ -119,15 +138,15 @@ app.Use(async (context, next) =>
 });
 
 // ==========================================
-// BOOT CHECK
+// BOOT CHECK — STILL NEEDS REPLACEMENT WITH HEALTH CHECKS
 // ==========================================
 await app.PerformBootCheckAsync();
 
 // ==========================================
 // MIDDLEWARE PIPELINE
 // ==========================================
+app.UseMiddleware<ExceptionMiddleware>();        // outermost error handler
 app.UseMiddleware<RequestTracingMiddleware>();
-app.UseMiddleware<ExceptionMiddleware>();
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();

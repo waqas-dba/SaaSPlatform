@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Constants;
+﻿// CoreKit.IAM/Persistence/Seeders/PermissionSeeder.cs
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,24 +13,46 @@ public sealed class PermissionSeeder
 
     public async Task SeedAsync()
     {
-        // Ensure the IAM module exists (idempotent)
-        var iamModule = await _db.PermissionModules
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(m => m.Code == "iam");
+        // ── Ensure every required module exists (idempotent) ──────────────
+        var moduleMap = new Dictionary<string, PermissionModule>();
 
-        if (iamModule == null)
+        foreach (var permissionName in Permissions.All)
         {
-            iamModule = new PermissionModule
+            // Determine module code from permission prefix
+            var moduleCode = GetModuleCode(permissionName);
+
+            if (!moduleMap.ContainsKey(moduleCode))
             {
-                Id = Guid.Parse("30000000-0000-0000-0000-000000000004"),
-                Name = "IAM",
-                Code = "iam"
-            };
-            _db.PermissionModules.Add(iamModule);
-            await _db.SaveChangesAsync();
+                var module = await _db.PermissionModules
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(m => m.Code == moduleCode);
+
+                if (module == null)
+                {
+                    module = new PermissionModule
+                    {
+                        Id = moduleCode switch
+                        {
+                            "iam" => Guid.Parse("30000000-0000-0000-0000-000000000004"),
+                            "catalog" => Guid.Parse("30000000-0000-0000-0000-000000000005"),
+                            _ => Guid.NewGuid()
+                        },
+                        Name = moduleCode switch
+                        {
+                            "iam" => "IAM",
+                            "catalog" => "Catalog",
+                            _ => moduleCode
+                        },
+                        Code = moduleCode
+                    };
+                    _db.PermissionModules.Add(module);
+                    await _db.SaveChangesAsync();   // ensure module exists before permissions
+                }
+                moduleMap[moduleCode] = module;
+            }
         }
 
-        // Seed every permission defined in Permissions constants
+        // ── Seed permissions under the correct module ────────────────────
         foreach (var permissionName in Permissions.All)
         {
             var exists = await _db.Permissions
@@ -38,16 +61,26 @@ public sealed class PermissionSeeder
 
             if (exists) continue;
 
+            var module = moduleMap[GetModuleCode(permissionName)];
+
             _db.Permissions.Add(new Permission
             {
                 Id = Guid.NewGuid(),
                 Name = permissionName,
-                PermissionModuleId = iamModule.Id
+                PermissionModuleId = module.Id
             });
         }
 
-
-
         await _db.SaveChangesAsync();
+    }
+
+    // ── Simple prefix → module code mapping ──────────────────────────────
+    private static string GetModuleCode(string permissionName)
+    {
+        // Catalog module permissions
+        if (permissionName.StartsWith("catalog.")) return "catalog";
+
+        // All other permissions (including platform.*) belong to IAM for now
+        return "iam";
     }
 }

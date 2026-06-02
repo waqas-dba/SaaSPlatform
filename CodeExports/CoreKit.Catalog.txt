@@ -1,0 +1,3568 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Abstractions\IStoreInfoProvider.cs
+==================================================
+
+// CoreKit.Catalog/Abstractions/IStoreInfoProvider.cs
+namespace CoreKit.Catalog.Abstractions;
+
+/// <summary>
+/// Provides minimal store information needed by the Catalog module
+/// without taking a hard dependency on CoreKit.Tenant entities or DbContext.
+/// Implement this in the host application (or Tenant module) and register
+/// it via AddCatalogModule so Catalog never queries Tenant tables directly.
+/// </summary>
+public interface IStoreInfoProvider
+{
+    /// <summary>
+    /// Returns lightweight store info for plan-limit and variant-attribute
+    /// resolution. Returns null if the store does not exist.
+    /// </summary>
+    Task<StoreInfo?> GetStoreInfoAsync(Guid storeId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Lightweight projection of a Store — only the fields Catalog needs.
+/// </summary>
+public sealed class StoreInfo
+{
+    public Guid Id { get; init; }
+    public Guid TenantId { get; init; }
+
+    // The store-type code is required to resolve VariantAttributeTemplates,
+    // which are scoped per store type (e.g. "restaurant", "clothing").
+    public string StoreTypeCode { get; init; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\AddonConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/AddonConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class AddonConfiguration : IEntityTypeConfiguration<Addon>
+{
+    public void Configure(EntityTypeBuilder<Addon> builder)
+    {
+        builder.ToTable("Catalog_Addons");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.Name)
+            .IsRequired()
+            .HasMaxLength(200);
+
+        builder.Property(x => x.AdditionalPrice)
+            .HasColumnType("decimal(18,2)")
+            .IsRequired();
+
+        // FIX: AddonGroupId is now nullable so ad-hoc addons (ProductId set,
+        // AddonGroupId null) and group addons (AddonGroupId set, ProductId null)
+        // are both valid without needing Guid.Empty as a sentinel.
+        builder.Property(x => x.AddonGroupId)
+            .IsRequired(false);
+
+        builder.HasOne(x => x.AddonGroup)
+            .WithMany(x => x.Addons)
+            .HasForeignKey(x => x.AddonGroupId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired(false);
+
+        builder.HasOne(x => x.Product)
+            .WithMany(x => x.AdHocAddons)
+            .HasForeignKey(x => x.ProductId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired(false);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\CategoryConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/CategoryConfiguration.cs
+
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+{
+    public void Configure(EntityTypeBuilder<Category> builder)
+    {
+        builder.ToTable("Catalog_Categories");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+        builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Slug })
+               .IsUnique()
+               .HasFilter("\"StoreId\" IS NOT NULL");
+
+        builder.HasIndex(x => new { x.TenantId, x.Slug })
+               .IsUnique()
+               .HasFilter("\"StoreId\" IS NULL");
+
+        builder.Property(x => x.IconUrl).HasMaxLength(2000);
+
+        builder.HasOne(x => x.ParentCategory)
+               .WithMany(x => x.SubCategories)
+               .HasForeignKey(x => x.ParentCategoryId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(x => x.Level).HasDefaultValue(1);
+        builder.Property(x => x.StoreTypeCode).HasMaxLength(50);
+
+        builder.HasMany(x => x.Products)
+               .WithOne(x => x.Category)
+               .HasForeignKey(x => x.CategoryId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        // Shadow FK on ProductAttributeTemplate — keeps the template entity
+        // free of a back-navigation to Category while still enforcing the
+        // cascade. No back-nav on ProductAttributeTemplate is needed because
+        // template resolution always goes through the service layer.
+        builder.HasMany(x => x.AttributeTemplates)
+               .WithOne()
+               .HasForeignKey("CategoryId")
+               .OnDelete(DeleteBehavior.Cascade)
+               .IsRequired(false);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductAttributeGroupConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/ProductAttributeGroupConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class ProductAttributeGroupConfiguration
+    : IEntityTypeConfiguration<ProductAttributeGroup>
+{
+    public void Configure(EntityTypeBuilder<ProductAttributeGroup> builder)
+    {
+        builder.ToTable("Catalog_AttributeGroups");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.Name)
+            .IsRequired()
+            .HasMaxLength(200);
+
+        builder.Property(x => x.StoreTypeCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+        // Unique group name per store type per tenant (null = platform).
+        builder.HasIndex(x => new { x.StoreTypeCode, x.TenantId, x.Name })
+            .IsUnique();
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductAttributeTemplateConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/ProductAttributeTemplateConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class ProductAttributeTemplateConfiguration
+    : IEntityTypeConfiguration<ProductAttributeTemplate>
+{
+    public void Configure(EntityTypeBuilder<ProductAttributeTemplate> builder)
+    {
+        builder.ToTable("Catalog_AttributeTemplates");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.Name)
+            .IsRequired()
+            .HasMaxLength(200);
+
+        builder.Property(x => x.StoreTypeCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+        builder.Property(x => x.OptionsJson)
+            .HasMaxLength(2000);
+
+        builder.Property(x => x.IsVisible)
+            .HasDefaultValue(true);
+
+        // Unique attribute name per store type per tenant scope.
+        // Platform templates:  TenantId IS NULL
+        // Tenant templates:    TenantId IS NOT NULL
+        builder.HasIndex(x => new { x.StoreTypeCode, x.TenantId, x.Name })
+            .IsUnique()
+            .HasFilter("\"TenantId\" IS NOT NULL")
+            .HasDatabaseName("IX_AttrTemplate_StoreType_Tenant_Name");
+
+        builder.HasIndex(x => new { x.StoreTypeCode, x.Name })
+            .IsUnique()
+            .HasFilter("\"TenantId\" IS NULL")
+            .HasDatabaseName("IX_AttrTemplate_StoreType_Name_Global");
+
+        // Self-referencing override link.
+        builder.HasOne(x => x.OverridesTemplate)
+            .WithMany()
+            .HasForeignKey(x => x.OverridesTemplateId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired(false);
+
+        // Group membership.
+        builder.HasOne(x => x.Group)
+            .WithMany(g => g.Attributes)
+            .HasForeignKey(x => x.GroupId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .IsRequired(false);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/ProductConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+    public void Configure(EntityTypeBuilder<Product> builder)
+    {
+        builder.ToTable("Catalog_Products");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+        builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+        builder.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
+        builder.Property(x => x.Description).HasMaxLength(2000);
+        builder.Property(x => x.BasePrice).HasColumnType("decimal(18,2)").IsRequired();
+        builder.HasOne(x => x.Category).WithMany(x => x.Products).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.AddonGroup).WithMany(x => x.Products).HasForeignKey(x => x.AddonGroupId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasMany(x => x.Images).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(x => x.AttributeValues).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(x => x.Variants).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(x => x.AdHocAddons).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\StoreAttributeOverrideConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/StoreAttributeOverrideConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class StoreAttributeOverrideConfiguration
+    : IEntityTypeConfiguration<StoreAttributeOverride>
+{
+    public void Configure(EntityTypeBuilder<StoreAttributeOverride> builder)
+    {
+        builder.ToTable("Catalog_StoreAttributeOverrides");
+        builder.HasKey(x => x.Id);
+
+        // One override record per store per template.
+        builder.HasIndex(x => new { x.StoreId, x.TemplateId })
+            .IsUnique();
+
+        builder.HasOne(x => x.Template)
+            .WithMany(t => t.StoreOverrides)
+            .HasForeignKey(x => x.TemplateId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\TenantTemplateAssignmentConfiguration.cs
+==================================================
+
+// CoreKit.Catalog/Configuration/TenantTemplateAssignmentConfiguration.cs
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Catalog.Configuration;
+
+public class TenantTemplateAssignmentConfiguration
+    : IEntityTypeConfiguration<TenantTemplateAssignment>
+{
+    public void Configure(EntityTypeBuilder<TenantTemplateAssignment> builder)
+    {
+        builder.ToTable("Catalog_TenantTemplateAssignments");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.StoreTypeCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+        // One assignment per tenant+store+template combination.
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.TemplateId })
+            .IsUnique()
+            .HasFilter("\"StoreId\" IS NOT NULL")
+            .HasDatabaseName("IX_TTA_Tenant_Store_Template");
+
+        builder.HasIndex(x => new { x.TenantId, x.TemplateId })
+            .IsUnique()
+            .HasFilter("\"StoreId\" IS NULL")
+            .HasDatabaseName("IX_TTA_Tenant_Template_Global");
+
+        builder.HasOne(x => x.Template)
+            .WithMany()
+            .HasForeignKey(x => x.TemplateId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Addon.cs
+==================================================
+
+// CoreKit.Catalog/Entities/Addon.cs
+namespace CoreKit.Catalog.Entities;
+
+public class Addon
+{
+    public Guid Id { get; set; }
+
+    // FIX: Made nullable. Ad-hoc addons (attached directly to a product)
+    // do not belong to any AddonGroup. Previously Guid.Empty was stored as
+    // a sentinel value which either violated a FK constraint or silently
+    // created orphaned records depending on whether the FK was enforced.
+    public Guid? AddonGroupId { get; set; }
+    public AddonGroup? AddonGroup { get; set; }
+
+    public string Name { get; set; } = default!;
+    public decimal AdditionalPrice { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    public Guid? ProductId { get; set; }
+    public Product? Product { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\AddonGroup.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Catalog.Entities;
+
+public class AddonGroup : AuditableEntity, ITenantScoped
+{
+    public string Name { get; set; } = default!;
+    public string? StoreTypeCode { get; set; }
+    public Guid TenantId { get; set; }
+
+    public ICollection<Addon> Addons { get; set; } = new List<Addon>();
+    public ICollection<Product> Products { get; set; } = new List<Product>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Category.cs
+==================================================
+
+// CoreKit.Catalog/Entities/Category.cs
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Catalog.Entities;
+
+public class Category : AuditableEntity, ITenantScoped
+{
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? IconUrl { get; set; }
+
+    public Guid? ParentCategoryId { get; set; }
+    public Category? ParentCategory { get; set; }
+    public ICollection<Category> SubCategories { get; set; } = new List<Category>();
+
+    public int Level { get; set; } = 1;
+    public string? StoreTypeCode { get; set; }
+    public Guid? StoreId { get; set; }
+    public Guid TenantId { get; set; }
+
+    public ICollection<Product> Products { get; set; } = new List<Product>();
+
+    // Was ICollection<AttributeTemplate> — now correctly points to
+    // ProductAttributeTemplate, removing the dead duplicate entity.
+    public ICollection<ProductAttributeTemplate> AttributeTemplates { get; set; }
+        = new List<ProductAttributeTemplate>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Product.cs
+==================================================
+
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Catalog.Entities;
+
+public class Product : AuditableEntity, ITenantScoped, IStoreScoped
+{
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal BasePrice { get; set; }
+
+    public Guid CategoryId { get; set; }
+    public Category Category { get; set; } = default!;
+
+    public Guid StoreId { get; set; }
+    public Guid TenantId { get; set; }
+
+    public bool TrackInventory { get; set; } = false;
+    public bool IsActive { get; set; } = true;
+
+    public Guid? AddonGroupId { get; set; }
+    public AddonGroup? AddonGroup { get; set; }
+
+    public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+    public ICollection<ProductAttributeValue> AttributeValues { get; set; } = new List<ProductAttributeValue>();
+    public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
+    public ICollection<Addon> AdHocAddons { get; set; } = new List<Addon>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeGroup.cs
+==================================================
+
+// CoreKit.Catalog/Entities/ProductAttributeGroup.cs
+namespace CoreKit.Catalog.Entities;
+
+/// <summary>
+/// A named section that groups related attributes together on a product form.
+/// e.g. "Nutritional Info", "Sizing", "Technical Specs".
+/// Groups are owned by a template and ordered by SortOrder.
+/// When StoreTypeCode is set and TenantId is null  → platform-level group.
+/// When TenantId is set                            → tenant-scoped group.
+/// </summary>
+public class ProductAttributeGroup
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Display label shown on the product form.</summary>
+    public string Name { get; set; } = default!;
+
+    public int SortOrder { get; set; }
+
+    // Scope — mirrors the same pattern used on ProductAttributeTemplate.
+    public string StoreTypeCode { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+
+    public ICollection<ProductAttributeTemplate> Attributes { get; set; }
+        = new List<ProductAttributeTemplate>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeTemplate.cs
+==================================================
+
+// CoreKit.Catalog/Entities/ProductAttributeTemplate.cs
+namespace CoreKit.Catalog.Entities;
+
+/// <summary>
+/// Defines a single attribute field that can appear on a product of a given
+/// store type (e.g. "Spice Level" for restaurants, "Size" for clothing).
+///
+/// Scope rules
+/// ───────────
+/// TenantId = null  → platform base template  (read-only for tenants)
+/// TenantId = set   → tenant-scoped template  (override or custom addition)
+///
+/// Override rules
+/// ──────────────
+/// OverridesTemplateId = null  → original attribute (platform or tenant custom)
+/// OverridesTemplateId = set   → this row is a tenant-scoped override of a
+///                               platform attribute; the platform row is
+///                               untouched and still used for all other tenants.
+/// </summary>
+public class ProductAttributeTemplate
+{
+    public Guid Id { get; set; }
+
+    public string Name { get; set; } = default!;
+
+    /// <summary>
+    /// The store type this attribute belongs to, e.g. "restaurant", "clothing".
+    /// Matches StoreType.Code from CoreKit.Tenant.
+    /// </summary>
+    public string StoreTypeCode { get; set; } = default!;
+
+    public AttributeFieldType FieldType { get; set; }
+
+    /// <summary>
+    /// JSON array of allowed values for Select fields, null for others.
+    /// e.g. ["Small","Medium","Large"]
+    /// </summary>
+    public string? OptionsJson { get; set; }
+
+    /// <summary>Platform default: is this attribute required?</summary>
+    public bool IsRequired { get; set; }
+
+    /// <summary>Platform default: is this attribute visible?</summary>
+    public bool IsVisible { get; set; } = true;
+
+    public int SortOrder { get; set; }
+
+    // ── Scope ──────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Null = platform base template visible to all tenants.
+    /// Set  = tenant-scoped (custom addition or override).
+    /// </summary>
+    public Guid? TenantId { get; set; }
+
+    // ── Override link ──────────────────────────────────────────────────────
+    /// <summary>
+    /// When a tenant overrides a platform attribute, we create a new row with
+    /// TenantId set and OverridesTemplateId pointing to the platform row.
+    /// The platform row is never modified.
+    /// </summary>
+    public Guid? OverridesTemplateId { get; set; }
+    public ProductAttributeTemplate? OverridesTemplate { get; set; }
+
+    // ── Group ──────────────────────────────────────────────────────────────
+    public Guid? GroupId { get; set; }
+    public ProductAttributeGroup? Group { get; set; }
+
+    // ── Store-level toggle (applied via StoreAttributeOverride) ────────────
+    public ICollection<StoreAttributeOverride> StoreOverrides { get; set; }
+        = new List<StoreAttributeOverride>();
+
+    public ICollection<ProductAttributeValue> ProductAttributeValues { get; set; }
+        = new List<ProductAttributeValue>();
+}
+
+public enum AttributeFieldType
+{
+    Text = 1,
+    Number = 2,
+    Boolean = 3,
+    Select = 4
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeValue.cs
+==================================================
+
+namespace CoreKit.Catalog.Entities;
+
+public class ProductAttributeValue
+{
+    public Guid Id { get; set; }
+    public Guid ProductId { get; set; }
+    public Product Product { get; set; } = default!;
+    public Guid TemplateId { get; set; }
+    public ProductAttributeTemplate Template { get; set; } = default!;
+    public string Value { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductImage.cs
+==================================================
+
+namespace CoreKit.Catalog.Entities;
+
+public class ProductImage
+{
+    public Guid Id { get; set; }
+    public Guid ProductId { get; set; }
+    public Product Product { get; set; } = default!;
+    public string ImageUrl { get; set; } = default!;
+    public bool IsPrimary { get; set; }
+    public int SortOrder { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductVariant.cs
+==================================================
+
+namespace CoreKit.Catalog.Entities;
+
+public class ProductVariant
+{
+    public Guid Id { get; set; }
+    public Guid ProductId { get; set; }
+    public Product Product { get; set; } = default!;
+    public string Sku { get; set; } = default!;
+    public decimal Price { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    public ICollection<VariantAttributeValue> AttributeValues { get; set; } = new List<VariantAttributeValue>();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\StoreAttributeOverride.cs
+==================================================
+
+// CoreKit.Catalog/Entities/StoreAttributeOverride.cs
+namespace CoreKit.Catalog.Entities;
+
+/// <summary>
+/// Lets a store manager toggle IsRequired / IsVisible for a specific
+/// ProductAttributeTemplate on their store without touching the template itself.
+///
+/// Precedence (highest → lowest):
+///   1. StoreAttributeOverride  (store-level toggle)
+///   2. Tenant-scoped template  (TenantId set, OverridesTemplateId set)
+///   3. Platform base template  (TenantId null)
+/// </summary>
+public class StoreAttributeOverride
+{
+    public Guid Id { get; set; }
+
+    public Guid StoreId { get; set; }
+
+    public Guid TemplateId { get; set; }
+    public ProductAttributeTemplate Template { get; set; } = default!;
+
+    /// <summary>
+    /// Null = inherit from template.
+    /// Set  = store-level override.
+    /// </summary>
+    public bool? IsRequired { get; set; }
+    public bool? IsVisible { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\TenantTemplateAssignment.cs
+==================================================
+
+// CoreKit.Catalog/Entities/TenantTemplateAssignment.cs
+namespace CoreKit.Catalog.Entities;
+
+/// <summary>
+/// Records that a tenant has explicitly assigned a template (platform or their
+/// own custom) to one of their stores.
+/// When StoreId is null the assignment applies to all stores of that tenant
+/// for the given store type (tenant-wide default).
+/// When StoreId is set it applies only to that specific store.
+/// </summary>
+public class TenantTemplateAssignment
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    /// <summary>Null = tenant-wide default; set = store-specific.</summary>
+    public Guid? StoreId { get; set; }
+
+    public Guid TemplateId { get; set; }
+    public ProductAttributeTemplate Template { get; set; } = default!;
+
+    public string StoreTypeCode { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeTemplate.cs
+==================================================
+
+namespace CoreKit.Catalog.Entities;
+
+public class VariantAttributeTemplate
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public string? OptionsJson { get; set; }
+    public string StoreTypeCode { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeValue.cs
+==================================================
+
+namespace CoreKit.Catalog.Entities;
+
+public class VariantAttributeValue
+{
+    public Guid Id { get; set; }
+    public Guid VariantId { get; set; }
+    public ProductVariant Variant { get; set; } = default!;
+    public Guid TemplateId { get; set; }
+    public VariantAttributeTemplate Template { get; set; } = default!;
+    public string Value { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Extensions\ServiceCollectionExtensions.cs
+==================================================
+
+// CoreKit.Catalog/Extensions/ServiceCollectionExtensions.cs
+
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Catalog.Services;
+using CoreKit.Catalog.Validators;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace CoreKit.Catalog.Extensions;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddCatalogModule(
+        this IServiceCollection services,
+        string connectionString,
+        Action<IServiceCollection>? configureStoreInfo = null)
+    {
+        services.AddDbContext<CatalogDbContext>(options =>
+            options.UseNpgsql(connectionString));
+
+        services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<IProductService, ProductService>();
+        services.AddScoped<IProductVariantService, ProductVariantService>();
+        services.AddScoped<IProductAttributeTemplateService,
+                           ProductAttributeTemplateService>();
+        services.AddScoped<IProductAttributeGroupService,
+                           ProductAttributeGroupService>();
+
+        // Allow host to supply a custom IStoreInfoProvider (e.g. an HTTP client
+        // calling a remote store service). If none is supplied the default
+        // TenantDbStoreInfoProvider is used, which reads from the same Postgres
+        // database via CatalogDbContext + the Tenant schema.
+        if (configureStoreInfo != null)
+            configureStoreInfo(services);
+        else
+            services.AddScoped<IStoreInfoProvider, TenantDbStoreInfoProvider>();
+
+        services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
+
+        return services;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\ICategoryService.cs
+==================================================
+
+// CoreKit.Catalog/Interfaces/ICategoryService.cs
+using CoreKit.Catalog.Models;
+
+namespace CoreKit.Catalog.Interfaces;
+
+public interface ICategoryService
+{
+    Task<List<CategoryDto>> GetByTenantAsync(Guid tenantId, Guid? storeId = null);
+    Task<CategoryDto?> GetByIdAsync(Guid id);
+    Task<CategoryDto> CreateAsync(CreateCategoryRequest request);
+    Task UpdateAsync(Guid id, UpdateCategoryRequest request);
+    Task DeleteAsync(Guid id);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductAttributeGroupService.cs
+==================================================
+
+// CoreKit.Catalog/Interfaces/IProductAttributeGroupService.cs
+using CoreKit.Catalog.Models;
+
+namespace CoreKit.Catalog.Interfaces;
+
+public interface IProductAttributeGroupService
+{
+    Task<ProductAttributeGroupDto> CreateAsync(CreateAttributeGroupRequest request);
+    Task UpdateAsync(Guid groupId, string newName, int sortOrder);
+    Task DeleteAsync(Guid groupId);
+    Task<List<ProductAttributeGroupDto>> GetByStoreTypeAsync(
+        string storeTypeCode,
+        Guid? tenantId = null);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductAttributeTemplateService.cs
+==================================================
+
+// CoreKit.Catalog/Interfaces/IProductAttributeTemplateService.cs
+using CoreKit.Catalog.Models;
+
+namespace CoreKit.Catalog.Interfaces;
+
+public interface IProductAttributeTemplateService
+{
+    // ── Platform admin operations ─────────────────────────────────────────
+
+    /// <summary>Creates a platform-level base template (TenantId = null).</summary>
+    Task<ProductAttributeTemplateDto> CreatePlatformTemplateAsync(
+        CreateAttributeTemplateRequest request);
+
+    /// <summary>Updates a platform-level template.</summary>
+    Task UpdatePlatformTemplateAsync(
+        Guid templateId,
+        UpdateAttributeTemplateRequest request);
+
+    /// <summary>Deletes a platform-level template and all tenant overrides of it.</summary>
+    Task DeletePlatformTemplateAsync(Guid templateId);
+
+    // ── Tenant admin operations ───────────────────────────────────────────
+
+    /// <summary>
+    /// Creates a tenant-scoped override of a platform template.
+    /// The platform row is never modified.
+    /// Only the fields provided in the request are changed; the rest
+    /// are copied from the platform template.
+    /// </summary>
+    Task<ProductAttributeTemplateDto> OverridePlatformTemplateAsync(
+        OverrideAttributeTemplateRequest request);
+
+    /// <summary>
+    /// Creates a net-new custom attribute for the tenant
+    /// (no platform template equivalent).
+    /// </summary>
+    Task<ProductAttributeTemplateDto> CreateTenantTemplateAsync(
+        CreateAttributeTemplateRequest request);
+
+    /// <summary>Updates a tenant-scoped template or override.</summary>
+    Task UpdateTenantTemplateAsync(
+        Guid templateId,
+        Guid tenantId,
+        UpdateAttributeTemplateRequest request);
+
+    /// <summary>Deletes a tenant-scoped template or override.</summary>
+    Task DeleteTenantTemplateAsync(Guid templateId, Guid tenantId);
+
+    // ── Assignment ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Assigns a template to a store (or tenant-wide if StoreId is null).
+    /// </summary>
+    Task AssignTemplateAsync(AssignTemplateRequest request);
+
+    /// <summary>Removes a template assignment.</summary>
+    Task UnassignTemplateAsync(
+        Guid tenantId,
+        Guid? storeId,
+        Guid templateId);
+
+    // ── Store-level toggle ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Store manager sets IsRequired / IsVisible for an attribute on
+    /// their store. Creates the override row if it does not exist.
+    /// </summary>
+    Task SetStoreAttributeOverrideAsync(StoreAttributeOverrideRequest request);
+
+    // ── Queries ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns all platform base templates for a store type,
+    /// grouped by their group (ungrouped attributes are in a null-group bucket).
+    /// </summary>
+    Task<List<ProductAttributeGroupDto>> GetPlatformTemplatesAsync(
+        string storeTypeCode);
+
+    /// <summary>
+    /// Returns the effective (resolved) attribute list for a specific store,
+    /// applying all three precedence layers in order:
+    ///   1. Platform base template
+    ///   2. Tenant override / custom attributes
+    ///   3. Store-level toggles
+    /// </summary>
+    Task<List<ResolvedAttributeDto>> GetResolvedAttributesAsync(
+        Guid storeId,
+        Guid tenantId,
+        string storeTypeCode);
+
+    /// <summary>
+    /// Returns the tenant's own templates (overrides + custom)
+    /// for a given store type.
+    /// </summary>
+    Task<List<ProductAttributeTemplateDto>> GetTenantTemplatesAsync(
+        Guid tenantId,
+        string storeTypeCode);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductService.cs
+==================================================
+
+// CoreKit.Catalog/Interfaces/IProductService.cs
+using CoreKit.Catalog.Models;
+
+namespace CoreKit.Catalog.Interfaces;
+
+public interface IProductService
+{
+    Task<ProductDto> CreateAsync(CreateProductRequest request);
+    Task<ProductDto?> GetByIdAsync(Guid id);
+    Task<List<ProductDto>> GetByStoreAsync(Guid storeId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductVariantService.cs
+==================================================
+
+// CoreKit.Catalog/Interfaces/IProductVariantService.cs
+using CoreKit.Catalog.Models;
+
+namespace CoreKit.Catalog.Interfaces;
+
+public interface IProductVariantService
+{
+    Task<List<ProductVariantDto>> GetByProductAsync(Guid productId);
+    Task<ProductVariantDto?> GetByIdAsync(Guid id);
+    Task<ProductVariantDto> CreateAsync(Guid productId, CreateVariantRequest request);
+    Task UpdateAsync(Guid id, UpdateVariantRequest request);
+    Task DeleteAsync(Guid id);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddonDto.cs
+==================================================
+
+// AddonDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class AddonDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public decimal AdditionalPrice { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddonGroupDto.cs
+==================================================
+
+// AddonGroupDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class AddonGroupDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public List<AddonDto> Addons { get; set; } = new();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AssignTemplateRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/AssignTemplateRequest.cs
+namespace CoreKit.Catalog.Models;
+
+/// <summary>
+/// Tenant admin assigns a template (platform or custom) to a store.
+/// StoreId = null  → applies to all stores of that tenant for the store type.
+/// StoreId = set   → applies only to that store.
+/// </summary>
+public class AssignTemplateRequest
+{
+    public Guid TenantId { get; set; }
+    public Guid? StoreId { get; set; }
+    public Guid TemplateId { get; set; }
+    public string StoreTypeCode { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AttributeValueItem.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Catalog.Models
+{
+    public class AttributeValueItem
+    {
+        public Guid TemplateId { get; set; }
+        public string Value { get; set; } = default!;
+    }
+
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CatalogPermissions.cs
+==================================================
+
+// CoreKit.Catalog/Constants/CatalogPermissions.cs
+namespace CoreKit.Catalog.Constants;
+
+/// <summary>
+/// All permission strings for the Catalog module.
+/// Register these in your IAM PermissionSeeder alongside the IAM permissions.
+/// </summary>
+public static class CatalogPermissions
+{
+    // ── Products ─────────────────────────────────────────────────────────
+    public const string ProductsView = "catalog.products.view";
+    public const string ProductsCreate = "catalog.products.create";
+    public const string ProductsUpdate = "catalog.products.update";
+    public const string ProductsDelete = "catalog.products.delete";
+
+    // ── Categories ───────────────────────────────────────────────────────
+    public const string CategoriesView = "catalog.categories.view";
+    public const string CategoriesCreate = "catalog.categories.create";
+    public const string CategoriesUpdate = "catalog.categories.update";
+    public const string CategoriesDelete = "catalog.categories.delete";
+
+    // ── Attribute Templates — Platform admin ─────────────────────────────
+    /// <summary>
+    /// Create / edit / delete platform-level base templates and groups.
+    /// Intended for PlatformAdmin role only.
+    /// </summary>
+    public const string TemplatesManagePlatform = "catalog.templates.manage.platform";
+
+    // ── Attribute Templates — Tenant admin ───────────────────────────────
+    /// <summary>
+    /// Create tenant-scoped overrides and custom attributes,
+    /// assign templates to stores.
+    /// </summary>
+    public const string TemplatesManageTenant = "catalog.templates.manage.tenant";
+
+    /// <summary>
+    /// Assign / unassign templates to specific stores within the tenant.
+    /// </summary>
+    public const string TemplatesAssign = "catalog.templates.assign";
+
+    // ── Attribute Templates — Store manager ──────────────────────────────
+    /// <summary>
+    /// Toggle IsRequired / IsVisible for attributes on a specific store.
+    /// </summary>
+    public const string TemplatesToggleStore = "catalog.templates.toggle.store";
+
+    // ── View (all roles that can see the resolved template for a store) ──
+    public const string TemplatesView = "catalog.templates.view";
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CategoryDto.cs
+==================================================
+
+// CoreKit.Catalog/Models/CategoryDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class CategoryDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? IconUrl { get; set; }
+    public Guid? ParentCategoryId { get; set; }
+    public int Level { get; set; }
+    public string? StoreTypeCode { get; set; }
+    public Guid? StoreId { get; set; }
+    public Guid TenantId { get; set; }
+    public List<CategoryDto> SubCategories { get; set; } = new();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateAddonItem.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Catalog.Models
+{
+    public class CreateAddonItem
+    {
+        public string Name { get; set; } = default!;
+        public decimal AdditionalPrice { get; set; }
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateAttributeGroupRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/CreateAttributeGroupRequest.cs
+namespace CoreKit.Catalog.Models;
+
+public class CreateAttributeGroupRequest
+{
+    public string Name { get; set; } = default!;
+    public string StoreTypeCode { get; set; } = default!;
+    public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Null = platform group (requires catalog.templates.manage.platform).
+    /// Set  = tenant group   (requires catalog.templates.manage.tenant).
+    /// </summary>
+    public Guid? TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateAttributeTemplateRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/CreateAttributeTemplateRequest.cs
+using CoreKit.Catalog.Entities;
+
+namespace CoreKit.Catalog.Models;
+
+public class CreateAttributeTemplateRequest
+{
+    public string Name { get; set; } = default!;
+    public string StoreTypeCode { get; set; } = default!;
+    public AttributeFieldType FieldType { get; set; }
+    public string? OptionsJson { get; set; }
+    public bool IsRequired { get; set; }
+    public bool IsVisible { get; set; } = true;
+    public int SortOrder { get; set; }
+    public Guid? TenantId { get; set; }
+    public Guid? GroupId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateCategoryRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/CreateCategoryRequest.cs
+namespace CoreKit.Catalog.Models;
+
+public class CreateCategoryRequest
+{
+    public string Name { get; set; } = default!;
+    public string? IconUrl { get; set; }
+    public Guid? ParentCategoryId { get; set; }
+    public string? StoreTypeCode { get; set; }
+    public Guid? StoreId { get; set; }
+    public Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateImageItem.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Catalog.Models
+{
+    public class CreateImageItem
+    {
+        public string ImageUrl { get; set; } = default!;
+        public bool IsPrimary { get; set; }
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateProductRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/CreateProductRequest.cs
+namespace CoreKit.Catalog.Models;
+
+public class CreateProductRequest
+{
+    public string Name { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal BasePrice { get; set; }
+    public Guid CategoryId { get; set; }
+    public Guid StoreId { get; set; }
+    public bool TrackInventory { get; set; } = false;
+
+    public Guid? AddonGroupId { get; set; }
+    public List<CreateAddonItem> Addons { get; set; } = new();
+    public List<CreateVariantItem> Variants { get; set; } = new();
+    public List<AttributeValueItem> Attributes { get; set; } = new();
+    public List<CreateImageItem> Images { get; set; } = new();
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateVariantItem.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Catalog.Models
+{
+    public class CreateVariantItem
+    {
+        public string Sku { get; set; } = default!;
+        public decimal Price { get; set; }
+        public List<VariantAttributeItem> Attributes { get; set; } = new();
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\CreateVariantRequest.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Catalog.Models;
+
+public class CreateVariantRequest
+{
+    public string Sku { get; set; } = default!;
+    public decimal Price { get; set; }
+    public List<VariantAttributeItem> Attributes { get; set; } = new();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\OverrideAttributeTemplateRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/OverrideAttributeTemplateRequest.cs
+namespace CoreKit.Catalog.Models;
+
+/// <summary>
+/// Sent by a tenant admin to create a tenant-scoped override of a
+/// platform attribute template. The platform row is never modified.
+/// </summary>
+public class OverrideAttributeTemplateRequest
+{
+    /// <summary>The platform template being overridden.</summary>
+    public Guid PlatformTemplateId { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    /// <summary>Only the fields the tenant wants to change.</summary>
+    public string? Name { get; set; }
+    public string? OptionsJson { get; set; }
+    public bool? IsRequired { get; set; }
+    public bool? IsVisible { get; set; }
+    public int? SortOrder { get; set; }
+    public Guid? GroupId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductAttributeGroupDto.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/ProductAttributeGroupDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class ProductAttributeGroupDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public string StoreTypeCode { get; set; } = default!;
+    public int SortOrder { get; set; }
+    public Guid? TenantId { get; set; }
+    public List<ProductAttributeTemplateDto> Attributes { get; set; } = new();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductAttributeTemplateDto.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/ProductAttributeTemplateDto.cs
+using CoreKit.Catalog.Entities;
+
+namespace CoreKit.Catalog.Models;
+
+public class ProductAttributeTemplateDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public string StoreTypeCode { get; set; } = default!;
+    public AttributeFieldType FieldType { get; set; }
+    public string? OptionsJson { get; set; }
+    public bool IsRequired { get; set; }
+    public bool IsVisible { get; set; }
+    public int SortOrder { get; set; }
+    public Guid? TenantId { get; set; }
+    public Guid? GroupId { get; set; }
+    public string? GroupName { get; set; }
+    public Guid? OverridesTemplateId { get; set; }
+
+    /// <summary>
+    /// Indicates the source of this attribute as seen by the current tenant:
+    /// "platform"  → unmodified base template
+    /// "override"  → tenant has a scoped override of a platform template
+    /// "custom"    → tenant-created, no platform equivalent
+    /// </summary>
+    public string Source { get; set; } = "platform";
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductAttributeValueDto.cs
+==================================================
+
+// ProductAttributeValueDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class ProductAttributeValueDto
+{
+    public Guid Id { get; set; }
+    public string TemplateName { get; set; } = default!;
+    public string Value { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductDto.cs
+==================================================
+
+// ProductDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class ProductDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public string Slug { get; set; } = default!;
+    public string? Description { get; set; }
+    public decimal BasePrice { get; set; }
+    public Guid CategoryId { get; set; }
+    public string CategoryName { get; set; } = default!;
+    public Guid StoreId { get; set; }
+    public Guid TenantId { get; set; }
+    public bool TrackInventory { get; set; }
+    public bool IsActive { get; set; }
+    public Guid? AddonGroupId { get; set; }
+    public List<ProductImageDto> Images { get; set; } = new();
+    public List<ProductAttributeValueDto> AttributeValues { get; set; } = new();
+    public List<ProductVariantDto> Variants { get; set; } = new();
+    public List<AddonDto> Addons { get; set; } = new();
+    public AddonGroupDto? AddonGroup { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductImageDto.cs
+==================================================
+
+// ProductImageDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class ProductImageDto
+{
+    public Guid Id { get; set; }
+    public string ImageUrl { get; set; } = default!;
+    public bool IsPrimary { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductVariantDto.cs
+==================================================
+
+// ProductVariantDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class ProductVariantDto
+{
+    public Guid Id { get; set; }
+    public string Sku { get; set; } = default!;
+    public decimal Price { get; set; }
+    public bool IsActive { get; set; }
+    public List<VariantAttributeValueDto> Attributes { get; set; } = new();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ResolvedAttributeDto.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/ResolvedAttributeDto.cs
+using CoreKit.Catalog.Entities;
+
+namespace CoreKit.Catalog.Models;
+
+/// <summary>
+/// The fully-resolved view of an attribute for a specific store,
+/// with all three precedence layers applied:
+///   1. Platform base template
+///   2. Tenant-scoped override / custom attribute
+///   3. Store-level toggle
+/// This is what the product creation form should render.
+/// </summary>
+public class ResolvedAttributeDto
+{
+    public Guid TemplateId { get; set; }
+    public string Name { get; set; } = default!;
+    public string StoreTypeCode { get; set; } = default!;
+    public AttributeFieldType FieldType { get; set; }
+    public string? OptionsJson { get; set; }
+    public bool IsRequired { get; set; }
+    public bool IsVisible { get; set; }
+    public int SortOrder { get; set; }
+    public Guid? GroupId { get; set; }
+    public string? GroupName { get; set; }
+
+    /// <summary>
+    /// "platform" | "tenant-override" | "tenant-custom"
+    /// </summary>
+    public string Source { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\StoreAttributeOverrideRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/StoreAttributeOverrideRequest.cs
+namespace CoreKit.Catalog.Models;
+
+/// <summary>
+/// Store manager toggles IsRequired / IsVisible for an attribute
+/// on their specific store without touching the template definition.
+/// </summary>
+public class StoreAttributeOverrideRequest
+{
+    public Guid StoreId { get; set; }
+    public Guid TemplateId { get; set; }
+    public bool? IsRequired { get; set; }
+    public bool? IsVisible { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateAttributeTemplateRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/AttributeTemplate/UpdateAttributeTemplateRequest.cs
+namespace CoreKit.Catalog.Models;
+
+public class UpdateAttributeTemplateRequest
+{
+    public string? Name { get; set; }
+    public string? OptionsJson { get; set; }
+    public bool? IsRequired { get; set; }
+    public bool? IsVisible { get; set; }
+    public int? SortOrder { get; set; }
+    public Guid? GroupId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateCategoryRequest.cs
+==================================================
+
+namespace CoreKit.Catalog.Models;
+
+public class UpdateCategoryRequest
+{
+    public string? Name { get; set; }
+    public string? IconUrl { get; set; }
+    public string? StoreTypeCode { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateProductRequest.cs
+==================================================
+
+namespace CoreKit.Catalog.Models;
+
+public class UpdateProductRequest
+{
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public decimal? BasePrice { get; set; }
+    public Guid? AddonGroupId { get; set; }
+    public bool? IsActive { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateVariantRequest.cs
+==================================================
+
+// CoreKit.Catalog/Models/UpdateVariantRequest.cs
+namespace CoreKit.Catalog.Models;
+
+public class UpdateVariantRequest
+{
+    public string? Sku { get; set; }
+    public decimal? Price { get; set; }
+    public List<VariantAttributeItem>? Attributes { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\VariantAttributeItem.cs
+==================================================
+
+// CoreKit.Catalog/Models/VariantAttributeItem.cs
+
+namespace CoreKit.Catalog.Models;
+
+public class VariantAttributeItem
+{
+    /// <summary>
+    /// Preferred: resolve by ID. Falls back to Name+StoreTypeCode if null.
+    /// </summary>
+    public Guid? TemplateId { get; set; }   // ← new
+
+    public string Name { get; set; } = default!;
+    public string Value { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\VariantAttributeValueDto.cs
+==================================================
+
+// VariantAttributeValueDto.cs
+namespace CoreKit.Catalog.Models;
+
+public class VariantAttributeValueDto
+{
+    public string Name { get; set; } = default!;
+    public string Value { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Persistence\CatalogDbContext.cs
+==================================================
+
+// CoreKit.Catalog/Persistence/CatalogDbContext.cs
+
+using CoreKit.Catalog.Configuration;
+using CoreKit.Catalog.Entities;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Persistence;
+
+public class CatalogDbContext : AuditableDbContext
+{
+    public CatalogDbContext(
+        DbContextOptions<CatalogDbContext> options,
+        ICurrentUser? currentUser = null)
+        : base(options, currentUser) { }
+
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+
+    public DbSet<VariantAttributeTemplate> VariantAttributeTemplates
+        => Set<VariantAttributeTemplate>();
+
+    public DbSet<VariantAttributeValue> VariantAttributeValues
+        => Set<VariantAttributeValue>();
+
+    public DbSet<AddonGroup> AddonGroups => Set<AddonGroup>();
+    public DbSet<Addon> Addons => Set<Addon>();
+
+    public DbSet<ProductAttributeGroup> AttributeGroups
+        => Set<ProductAttributeGroup>();
+
+    // Single DbSet for the one true attribute-template entity.
+    // The old AttributeTemplate entity has been deleted.
+    public DbSet<ProductAttributeTemplate> AttributeTemplates
+        => Set<ProductAttributeTemplate>();
+
+    public DbSet<ProductAttributeValue> ProductAttributeValues
+        => Set<ProductAttributeValue>();
+
+    public DbSet<StoreAttributeOverride> StoreAttributeOverrides
+        => Set<StoreAttributeOverride>();
+
+    public DbSet<TenantTemplateAssignment> TenantTemplateAssignments
+        => Set<TenantTemplateAssignment>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(CatalogDbContext).Assembly);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Persistence\Seeders\AttributeTemplateSeeder.cs
+==================================================
+
+// CoreKit.Catalog/Persistence/Seeders/AttributeTemplateSeeder.cs
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Persistence.Seeders;
+
+/// <summary>
+/// Seeds the platform-level base attribute templates for every store type.
+/// Run once at startup or as part of the migration pipeline.
+/// All rows have TenantId = null (platform scope).
+/// </summary>
+public sealed class AttributeTemplateSeeder
+{
+    private readonly CatalogDbContext _db;
+
+    public AttributeTemplateSeeder(CatalogDbContext db) => _db = db;
+
+    public async Task SeedAsync(CancellationToken ct = default)
+    {
+        // Skip if platform templates already exist.
+        if (await _db.AttributeTemplates.AnyAsync(
+                t => t.TenantId == null, ct))
+            return;
+
+        var groups = BuildGroups();
+        _db.AttributeGroups.AddRange(groups.Values.SelectMany(v => v));
+
+        var templates = BuildTemplates(groups);
+        _db.AttributeTemplates.AddRange(templates);
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // ── Groups per store type ─────────────────────────────────────────────
+
+    private static Dictionary<string, List<ProductAttributeGroup>> BuildGroups() =>
+        new()
+        {
+            ["restaurant"] = new()
+            {
+                G("restaurant", "Basic Info",       1),
+                G("restaurant", "Nutritional Info", 2),
+                G("restaurant", "Serving",          3)
+            },
+            ["grocery"] = new()
+            {
+                G("grocery", "Product Info",   1),
+                G("grocery", "Nutrition",      2),
+                G("grocery", "Storage",        3)
+            },
+            ["clothing"] = new()
+            {
+                G("clothing", "Sizing",        1),
+                G("clothing", "Material",      2),
+                G("clothing", "Care",          3)
+            },
+            ["pharmacy"] = new()
+            {
+                G("pharmacy", "Drug Info",     1),
+                G("pharmacy", "Dosage",        2),
+                G("pharmacy", "Storage",       3)
+            },
+            ["electronics"] = new()
+            {
+                G("electronics", "Specs",      1),
+                G("electronics", "Connectivity",2),
+                G("electronics", "Warranty",   3)
+            },
+            ["hotel"] = new()
+            {
+                G("hotel", "Room Info",        1),
+                G("hotel", "Amenities",        2),
+                G("hotel", "Policies",         3)
+            },
+            ["salon"] = new()
+            {
+                G("salon", "Service Info",     1),
+                G("salon", "Requirements",     2)
+            },
+            ["bakery"] = new()
+            {
+                G("bakery", "Product Info",    1),
+                G("bakery", "Allergens",       2)
+            },
+            ["cafe"] = new()
+            {
+                G("cafe", "Drink Info",        1),
+                G("cafe", "Customisation",     2)
+            },
+            ["bookstore"] = new()
+            {
+                G("bookstore", "Book Details", 1),
+                G("bookstore", "Publishing",   2)
+            }
+        };
+
+    // ── Templates per store type ──────────────────────────────────────────
+
+    private static List<ProductAttributeTemplate> BuildTemplates(
+        Dictionary<string, List<ProductAttributeGroup>> groups)
+    {
+        var all = new List<ProductAttributeTemplate>();
+
+        all.AddRange(Restaurant(groups["restaurant"]));
+        all.AddRange(Grocery(groups["grocery"]));
+        all.AddRange(Clothing(groups["clothing"]));
+        all.AddRange(Pharmacy(groups["pharmacy"]));
+        all.AddRange(Electronics(groups["electronics"]));
+        all.AddRange(Hotel(groups["hotel"]));
+        all.AddRange(Salon(groups["salon"]));
+        all.AddRange(Bakery(groups["bakery"]));
+        all.AddRange(Cafe(groups["cafe"]));
+        all.AddRange(Bookstore(groups["bookstore"]));
+
+        return all;
+    }
+
+    private static List<ProductAttributeTemplate> Restaurant(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("restaurant", "Spice Level",
+            AttributeFieldType.Select,
+            "[\"Mild\",\"Medium\",\"Hot\",\"Extra Hot\"]",
+            isRequired: false, g[0], 1),
+        T("restaurant", "Is Vegetarian",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 2),
+        T("restaurant", "Is Vegan",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 3),
+        T("restaurant", "Is Halal",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 4),
+        T("restaurant", "Cuisine Type",
+            AttributeFieldType.Select,
+            "[\"Italian\",\"Chinese\",\"Pakistani\",\"Fast Food\",\"Continental\",\"Other\"]",
+            isRequired: true, g[0], 5),
+        T("restaurant", "Calories",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[1], 1),
+        T("restaurant", "Allergens",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 2),
+        T("restaurant", "Serving Size",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[2], 1),
+        T("restaurant", "Preparation Time (mins)",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[2], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Grocery(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("grocery", "Brand",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 1),
+        T("grocery", "Weight (g)",
+            AttributeFieldType.Number, null,
+            isRequired: true, g[0], 2),
+        T("grocery", "Barcode",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 3),
+        T("grocery", "Is Organic",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 4),
+        T("grocery", "Calories per 100g",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[1], 1),
+        T("grocery", "Ingredients",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 2),
+        T("grocery", "Allergens",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 3),
+        T("grocery", "Storage Temperature",
+            AttributeFieldType.Select,
+            "[\"Ambient\",\"Chilled\",\"Frozen\"]",
+            isRequired: true, g[2], 1),
+        T("grocery", "Expiry Type",
+            AttributeFieldType.Select,
+            "[\"Best Before\",\"Use By\"]",
+            isRequired: false, g[2], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Clothing(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("clothing", "Size",
+            AttributeFieldType.Select,
+            "[\"XS\",\"S\",\"M\",\"L\",\"XL\",\"XXL\"]",
+            isRequired: true, g[0], 1),
+        T("clothing", "Size Guide URL",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 2),
+        T("clothing", "Fabric",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[1], 1),
+        T("clothing", "Color",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[1], 2),
+        T("clothing", "Gender",
+            AttributeFieldType.Select,
+            "[\"Men\",\"Women\",\"Unisex\",\"Kids\"]",
+            isRequired: true, g[1], 3),
+        T("clothing", "Wash Instructions",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[2], 1),
+        T("clothing", "Dry Clean Only",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[2], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Pharmacy(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("pharmacy", "Generic Name",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 1),
+        T("pharmacy", "Manufacturer",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 2),
+        T("pharmacy", "Requires Prescription",
+            AttributeFieldType.Boolean, null,
+            isRequired: true, g[0], 3),
+        T("pharmacy", "Drug Class",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 4),
+        T("pharmacy", "Dosage Form",
+            AttributeFieldType.Select,
+            "[\"Tablet\",\"Capsule\",\"Syrup\",\"Injection\",\"Cream\",\"Drops\"]",
+            isRequired: true, g[1], 1),
+        T("pharmacy", "Strength (mg)",
+            AttributeFieldType.Number, null,
+            isRequired: true, g[1], 2),
+        T("pharmacy", "Dosage Instructions",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 3),
+        T("pharmacy", "Storage Condition",
+            AttributeFieldType.Select,
+            "[\"Below 25°C\",\"Refrigerate 2-8°C\",\"Protect from Light\"]",
+            isRequired: true, g[2], 1)
+    };
+
+    private static List<ProductAttributeTemplate> Electronics(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("electronics", "Brand",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 1),
+        T("electronics", "Model Number",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 2),
+        T("electronics", "Color",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 3),
+        T("electronics", "Power (W)",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[0], 4),
+        T("electronics", "Bluetooth",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 1),
+        T("electronics", "WiFi",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 2),
+        T("electronics", "Ports",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 3),
+        T("electronics", "Warranty (months)",
+            AttributeFieldType.Number, null,
+            isRequired: true, g[2], 1),
+        T("electronics", "Warranty Type",
+            AttributeFieldType.Select,
+            "[\"Local\",\"International\",\"Brand\",\"Seller\"]",
+            isRequired: false, g[2], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Hotel(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("hotel", "Room Type",
+            AttributeFieldType.Select,
+            "[\"Single\",\"Double\",\"Suite\",\"Deluxe\",\"Family\"]",
+            isRequired: true, g[0], 1),
+        T("hotel", "Max Occupancy",
+            AttributeFieldType.Number, null,
+            isRequired: true, g[0], 2),
+        T("hotel", "Floor",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[0], 3),
+        T("hotel", "Bed Type",
+            AttributeFieldType.Select,
+            "[\"Single\",\"Double\",\"King\",\"Twin\"]",
+            isRequired: true, g[0], 4),
+        T("hotel", "Air Conditioning",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 1),
+        T("hotel", "Free WiFi",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 2),
+        T("hotel", "Breakfast Included",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 3),
+        T("hotel", "Cancellation Policy",
+            AttributeFieldType.Select,
+            "[\"Free Cancellation\",\"Non-Refundable\",\"Partial Refund\"]",
+            isRequired: true, g[2], 1),
+        T("hotel", "Check-in Time",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[2], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Salon(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("salon", "Service Category",
+            AttributeFieldType.Select,
+            "[\"Hair\",\"Skin\",\"Nails\",\"Makeup\",\"Spa\"]",
+            isRequired: true, g[0], 1),
+        T("salon", "Duration (mins)",
+            AttributeFieldType.Number, null,
+            isRequired: true, g[0], 2),
+        T("salon", "Gender",
+            AttributeFieldType.Select,
+            "[\"Men\",\"Women\",\"Unisex\"]",
+            isRequired: true, g[0], 3),
+        T("salon", "Products Used",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[0], 4),
+        T("salon", "Patch Test Required",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 1),
+        T("salon", "Minimum Age",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[1], 2)
+    };
+
+    private static List<ProductAttributeTemplate> Bakery(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("bakery", "Is Gluten Free",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 1),
+        T("bakery", "Is Sugar Free",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 2),
+        T("bakery", "Weight (g)",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[0], 3),
+        T("bakery", "Shelf Life (days)",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[0], 4),
+        T("bakery", "Contains Nuts",
+            AttributeFieldType.Boolean, null,
+            isRequired: true, g[1], 1),
+        T("bakery", "Contains Dairy",
+            AttributeFieldType.Boolean, null,
+            isRequired: true, g[1], 2),
+        T("bakery", "Contains Eggs",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[1], 3)
+    };
+
+    private static List<ProductAttributeTemplate> Cafe(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("cafe", "Drink Type",
+            AttributeFieldType.Select,
+            "[\"Coffee\",\"Tea\",\"Juice\",\"Smoothie\",\"Shake\",\"Other\"]",
+            isRequired: true, g[0], 1),
+        T("cafe", "Is Hot",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 2),
+        T("cafe", "Caffeine Free",
+            AttributeFieldType.Boolean, null,
+            isRequired: false, g[0], 3),
+        T("cafe", "Milk Options",
+            AttributeFieldType.Select,
+            "[\"Full Fat\",\"Skimmed\",\"Oat\",\"Soy\",\"Almond\",\"None\"]",
+            isRequired: false, g[1], 1),
+        T("cafe", "Sugar Options",
+            AttributeFieldType.Select,
+            "[\"Regular\",\"Low\",\"None\",\"Sweetener\"]",
+            isRequired: false, g[1], 2),
+        T("cafe", "Size Options",
+            AttributeFieldType.Select,
+            "[\"Small\",\"Medium\",\"Large\"]",
+            isRequired: false, g[1], 3)
+    };
+
+    private static List<ProductAttributeTemplate> Bookstore(
+        List<ProductAttributeGroup> g) =>
+    new()
+    {
+        T("bookstore", "Author",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 1),
+        T("bookstore", "Genre",
+            AttributeFieldType.Select,
+            "[\"Fiction\",\"Non-Fiction\",\"Science\",\"History\",\"Biography\",\"Children\",\"Other\"]",
+            isRequired: true, g[0], 2),
+        T("bookstore", "Language",
+            AttributeFieldType.Text, null,
+            isRequired: true, g[0], 3),
+        T("bookstore", "Pages",
+            AttributeFieldType.Number, null,
+            isRequired: false, g[0], 4),
+        T("bookstore", "Format",
+            AttributeFieldType.Select,
+            "[\"Hardcover\",\"Paperback\",\"eBook\",\"Audiobook\"]",
+            isRequired: true, g[0], 5),
+        T("bookstore", "ISBN",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 1),
+        T("bookstore", "Publisher",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 2),
+        T("bookstore", "Edition",
+            AttributeFieldType.Text, null,
+            isRequired: false, g[1], 3)
+    };
+
+    // ── Factory helpers ───────────────────────────────────────────────────
+
+    private static ProductAttributeGroup G(
+        string storeTypeCode, string name, int sortOrder) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            StoreTypeCode = storeTypeCode,
+            SortOrder = sortOrder,
+            TenantId = null
+        };
+
+    private static ProductAttributeTemplate T(
+        string storeTypeCode,
+        string name,
+        AttributeFieldType fieldType,
+        string? optionsJson,
+        bool isRequired,
+        ProductAttributeGroup group,
+        int sortOrder) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            StoreTypeCode = storeTypeCode,
+            FieldType = fieldType,
+            OptionsJson = optionsJson,
+            IsRequired = isRequired,
+            IsVisible = true,
+            SortOrder = sortOrder,
+            TenantId = null,
+            GroupId = group.Id
+        };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\CategoryService.cs
+==================================================
+
+// CoreKit.Catalog/Services/CategoryService.cs
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+public class CategoryService : ICategoryService
+{
+    private readonly CatalogDbContext _db;
+    private readonly IPlanLimitProvider? _planLimit;
+
+    public CategoryService(CatalogDbContext db, IPlanLimitProvider? planLimit = null)
+    {
+        _db = db;
+        _planLimit = planLimit;
+    }
+
+    public async Task<List<CategoryDto>> GetByTenantAsync(
+        Guid tenantId,
+        Guid? storeId = null)
+    {
+        var query = _db.Categories
+            .Where(c => c.TenantId == tenantId &&
+                        (storeId == null || c.StoreId == storeId))
+            .Include(c => c.SubCategories);
+
+        return await query
+            .Select(c => MapToDto(c))
+            .ToListAsync();
+    }
+
+    public async Task<CategoryDto?> GetByIdAsync(Guid id)
+    {
+        var category = await _db.Categories
+            .Include(c => c.SubCategories)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        return category is null ? null : MapToDto(category);
+    }
+
+    public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request)
+    {
+        // Enforce plan-level category depth limit before resolving parent.
+        if (_planLimit is not null && request.ParentCategoryId.HasValue)
+        {
+            var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(request.TenantId);
+            if (maxLevel > 0)
+            {
+                var parentLevel = await _db.Categories
+                    .Where(c => c.Id == request.ParentCategoryId.Value)
+                    .Select(c => c.Level)
+                    .FirstOrDefaultAsync();
+
+                if (parentLevel >= maxLevel)
+                    throw new ForbiddenException(
+                        $"Category depth limited to {maxLevel} level(s) by your subscription.");
+            }
+        }
+
+        // FIX: Removed dead Level = 2 assignment that was immediately
+        // overwritten by the parent lookup below. The level is now set
+        // in exactly one place: parent.Level + 1 (or 1 for root categories).
+        int level = 1;
+
+        if (request.ParentCategoryId.HasValue)
+        {
+            var parent = await _db.Categories.FindAsync(request.ParentCategoryId.Value)
+                ?? throw new KeyNotFoundException("Parent category not found.");
+
+            level = parent.Level + 1;
+        }
+
+        var category = new Category
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            Slug = SlugHelper.Generate(request.Name),
+            IconUrl = request.IconUrl,
+            ParentCategoryId = request.ParentCategoryId,
+            StoreTypeCode = request.StoreTypeCode,
+            StoreId = request.StoreId,
+            TenantId = request.TenantId,
+            Level = level
+        };
+
+        _db.Categories.Add(category);
+        await _db.SaveChangesAsync();
+
+        return MapToDto(category);
+    }
+
+    public async Task UpdateAsync(Guid id, UpdateCategoryRequest request)
+    {
+        var category = await _db.Categories.FindAsync(id)
+            ?? throw new KeyNotFoundException("Category not found.");
+
+        if (request.Name is not null)
+        {
+            category.Name = request.Name;
+            category.Slug = SlugHelper.Generate(request.Name);
+        }
+
+        if (request.IconUrl is not null) category.IconUrl = request.IconUrl;
+        if (request.StoreTypeCode is not null) category.StoreTypeCode = request.StoreTypeCode;
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(Guid id)
+    {
+        var category = await _db.Categories
+            .Include(c => c.SubCategories)
+            .FirstOrDefaultAsync(c => c.Id == id)
+            ?? throw new KeyNotFoundException("Category not found.");
+
+        if (category.SubCategories.Any())
+            throw new InvalidOperationException(
+                "Cannot delete a category with subcategories.");
+
+        _db.Categories.Remove(category);
+        await _db.SaveChangesAsync();
+    }
+
+    private static CategoryDto MapToDto(Category category)
+    {
+        return new CategoryDto
+        {
+            Id = category.Id,
+            Name = category.Name,
+            Slug = category.Slug,
+            IconUrl = category.IconUrl,
+            ParentCategoryId = category.ParentCategoryId,
+            Level = category.Level,
+            StoreTypeCode = category.StoreTypeCode,
+            StoreId = category.StoreId,
+            TenantId = category.TenantId,
+            SubCategories = category.SubCategories.Select(c => new CategoryDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Slug = c.Slug,
+                Level = c.Level
+            }).ToList()
+        };
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductAttributeGroupService.cs
+==================================================
+
+// CoreKit.Catalog/Services/ProductAttributeGroupService.cs
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+public class ProductAttributeGroupService : IProductAttributeGroupService
+{
+    private readonly CatalogDbContext _db;
+
+    public ProductAttributeGroupService(CatalogDbContext db) => _db = db;
+
+    public async Task<ProductAttributeGroupDto> CreateAsync(
+        CreateAttributeGroupRequest request)
+    {
+        var exists = await _db.AttributeGroups.AnyAsync(g =>
+            g.StoreTypeCode == request.StoreTypeCode &&
+            g.TenantId == request.TenantId &&
+            g.Name == request.Name);
+
+        if (exists)
+            throw new InvalidOperationException(
+                "An attribute group with this name already exists for the store type.");
+
+        var group = new ProductAttributeGroup
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            StoreTypeCode = request.StoreTypeCode,
+            SortOrder = request.SortOrder,
+            TenantId = request.TenantId
+        };
+
+        _db.AttributeGroups.Add(group);
+        await _db.SaveChangesAsync();
+
+        return MapToDto(group);
+    }
+
+    public async Task UpdateAsync(Guid groupId, string newName, int sortOrder)
+    {
+        var group = await _db.AttributeGroups.FindAsync(groupId)
+            ?? throw new KeyNotFoundException("Attribute group not found.");
+
+        group.Name = newName;
+        group.SortOrder = sortOrder;
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(Guid groupId)
+    {
+        var group = await _db.AttributeGroups
+            .Include(g => g.Attributes)
+            .FirstOrDefaultAsync(g => g.Id == groupId)
+            ?? throw new KeyNotFoundException("Attribute group not found.");
+
+        // Detach attributes from the group rather than deleting them.
+        foreach (var attr in group.Attributes)
+            attr.GroupId = null;
+
+        _db.AttributeGroups.Remove(group);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<List<ProductAttributeGroupDto>> GetByStoreTypeAsync(
+        string storeTypeCode,
+        Guid? tenantId = null)
+    {
+        return await _db.AttributeGroups
+            .Where(g =>
+                g.StoreTypeCode == storeTypeCode &&
+                g.TenantId == tenantId)
+            .Include(g => g.Attributes)
+            .OrderBy(g => g.SortOrder)
+            .Select(g => MapToDto(g))
+            .ToListAsync();
+    }
+
+    private static ProductAttributeGroupDto MapToDto(ProductAttributeGroup g) =>
+        new()
+        {
+            Id = g.Id,
+            Name = g.Name,
+            StoreTypeCode = g.StoreTypeCode,
+            SortOrder = g.SortOrder,
+            TenantId = g.TenantId,
+            Attributes = g.Attributes
+                .OrderBy(a => a.SortOrder)
+                .Select(MapAttrToDto)
+                .ToList()
+        };
+
+    private static ProductAttributeTemplateDto MapAttrToDto(
+        ProductAttributeTemplate a) =>
+        new()
+        {
+            Id = a.Id,
+            Name = a.Name,
+            StoreTypeCode = a.StoreTypeCode,
+            FieldType = a.FieldType,
+            OptionsJson = a.OptionsJson,
+            IsRequired = a.IsRequired,
+            IsVisible = a.IsVisible,
+            SortOrder = a.SortOrder,
+            TenantId = a.TenantId,
+            GroupId = a.GroupId,
+            OverridesTemplateId = a.OverridesTemplateId,
+            Source = a.TenantId == null
+                ? "platform"
+                : a.OverridesTemplateId != null
+                    ? "override"
+                    : "custom"
+        };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductAttributeTemplateService.cs
+==================================================
+
+// CoreKit.Catalog/Services/ProductAttributeTemplateService.cs
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+public class ProductAttributeTemplateService : IProductAttributeTemplateService
+{
+    private readonly CatalogDbContext _db;
+
+    public ProductAttributeTemplateService(CatalogDbContext db) => _db = db;
+
+    // ── Platform admin ────────────────────────────────────────────────────
+
+    public async Task<ProductAttributeTemplateDto> CreatePlatformTemplateAsync(
+        CreateAttributeTemplateRequest request)
+    {
+        // Platform templates must have TenantId = null.
+        if (request.TenantId != null)
+            throw new InvalidOperationException(
+                "Platform templates must not have a TenantId. " +
+                "Use CreateTenantTemplateAsync for tenant-scoped attributes.");
+
+        await EnsureUniqueNameAsync(request.StoreTypeCode, null, request.Name);
+
+        var template = BuildTemplate(request, tenantId: null, overridesId: null);
+        _db.AttributeTemplates.Add(template);
+        await _db.SaveChangesAsync();
+
+        return await MapToDtoAsync(template);
+    }
+
+    public async Task UpdatePlatformTemplateAsync(
+        Guid templateId,
+        UpdateAttributeTemplateRequest request)
+    {
+        var template = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t => t.Id == templateId && t.TenantId == null)
+            ?? throw new KeyNotFoundException("Platform template not found.");
+
+        ApplyUpdate(template, request);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeletePlatformTemplateAsync(Guid templateId)
+    {
+        var template = await _db.AttributeTemplates
+            .Include(t => t.StoreOverrides)
+            .FirstOrDefaultAsync(t => t.Id == templateId && t.TenantId == null)
+            ?? throw new KeyNotFoundException("Platform template not found.");
+
+        // Remove all tenant overrides that point to this platform template.
+        var tenantOverrides = await _db.AttributeTemplates
+            .Where(t => t.OverridesTemplateId == templateId)
+            .ToListAsync();
+
+        _db.AttributeTemplates.RemoveRange(tenantOverrides);
+        _db.AttributeTemplates.Remove(template);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Tenant admin ──────────────────────────────────────────────────────
+
+    public async Task<ProductAttributeTemplateDto> OverridePlatformTemplateAsync(
+        OverrideAttributeTemplateRequest request)
+    {
+        // Load the platform template being overridden.
+        var platform = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Id == request.PlatformTemplateId &&
+                t.TenantId == null)
+            ?? throw new KeyNotFoundException("Platform template not found.");
+
+        // A tenant can only have one override per platform template.
+        var existingOverride = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.OverridesTemplateId == request.PlatformTemplateId &&
+                t.TenantId == request.TenantId);
+
+        if (existingOverride != null)
+            throw new InvalidOperationException(
+                "An override for this platform template already exists. " +
+                "Use UpdateTenantTemplateAsync to modify it.");
+
+        // Build the override row, copying from platform then applying deltas.
+        var overrideTemplate = new ProductAttributeTemplate
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name ?? platform.Name,
+            StoreTypeCode = platform.StoreTypeCode,
+            FieldType = platform.FieldType,
+            OptionsJson = request.OptionsJson ?? platform.OptionsJson,
+            IsRequired = request.IsRequired ?? platform.IsRequired,
+            IsVisible = request.IsVisible ?? platform.IsVisible,
+            SortOrder = request.SortOrder ?? platform.SortOrder,
+            TenantId = request.TenantId,
+            OverridesTemplateId = platform.Id,
+            GroupId = request.GroupId ?? platform.GroupId
+        };
+
+        _db.AttributeTemplates.Add(overrideTemplate);
+        await _db.SaveChangesAsync();
+
+        return await MapToDtoAsync(overrideTemplate);
+    }
+
+    public async Task<ProductAttributeTemplateDto> CreateTenantTemplateAsync(
+        CreateAttributeTemplateRequest request)
+    {
+        if (request.TenantId == null)
+            throw new InvalidOperationException(
+                "TenantId is required for tenant-scoped templates.");
+
+        await EnsureUniqueNameAsync(
+            request.StoreTypeCode, request.TenantId, request.Name);
+
+        var template = BuildTemplate(request, request.TenantId, overridesId: null);
+        _db.AttributeTemplates.Add(template);
+        await _db.SaveChangesAsync();
+
+        return await MapToDtoAsync(template);
+    }
+
+    public async Task UpdateTenantTemplateAsync(
+        Guid templateId,
+        Guid tenantId,
+        UpdateAttributeTemplateRequest request)
+    {
+        var template = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Id == templateId &&
+                t.TenantId == tenantId)
+            ?? throw new KeyNotFoundException("Tenant template not found.");
+
+        ApplyUpdate(template, request);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteTenantTemplateAsync(Guid templateId, Guid tenantId)
+    {
+        var template = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Id == templateId &&
+                t.TenantId == tenantId)
+            ?? throw new KeyNotFoundException("Tenant template not found.");
+
+        _db.AttributeTemplates.Remove(template);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Assignment ────────────────────────────────────────────────────────
+
+    public async Task AssignTemplateAsync(AssignTemplateRequest request)
+    {
+        // Verify the template exists and is accessible to this tenant.
+        var template = await _db.AttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Id == request.TemplateId &&
+                (t.TenantId == null || t.TenantId == request.TenantId))
+            ?? throw new KeyNotFoundException(
+                "Template not found or not accessible to this tenant.");
+
+        var alreadyAssigned = await _db.TenantTemplateAssignments
+            .AnyAsync(a =>
+                a.TenantId == request.TenantId &&
+                a.StoreId == request.StoreId &&
+                a.TemplateId == request.TemplateId);
+
+        if (alreadyAssigned) return;
+
+        _db.TenantTemplateAssignments.Add(new TenantTemplateAssignment
+        {
+            Id = Guid.NewGuid(),
+            TenantId = request.TenantId,
+            StoreId = request.StoreId,
+            TemplateId = request.TemplateId,
+            StoreTypeCode = request.StoreTypeCode
+        });
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task UnassignTemplateAsync(
+        Guid tenantId,
+        Guid? storeId,
+        Guid templateId)
+    {
+        var assignment = await _db.TenantTemplateAssignments
+            .FirstOrDefaultAsync(a =>
+                a.TenantId == tenantId &&
+                a.StoreId == storeId &&
+                a.TemplateId == templateId)
+            ?? throw new KeyNotFoundException("Assignment not found.");
+
+        _db.TenantTemplateAssignments.Remove(assignment);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Store-level toggle ────────────────────────────────────────────────
+
+    public async Task SetStoreAttributeOverrideAsync(
+        StoreAttributeOverrideRequest request)
+    {
+        var existing = await _db.StoreAttributeOverrides
+            .FirstOrDefaultAsync(o =>
+                o.StoreId == request.StoreId &&
+                o.TemplateId == request.TemplateId);
+
+        if (existing != null)
+        {
+            if (request.IsRequired.HasValue)
+                existing.IsRequired = request.IsRequired;
+            if (request.IsVisible.HasValue)
+                existing.IsVisible = request.IsVisible;
+        }
+        else
+        {
+            _db.StoreAttributeOverrides.Add(new StoreAttributeOverride
+            {
+                Id = Guid.NewGuid(),
+                StoreId = request.StoreId,
+                TemplateId = request.TemplateId,
+                IsRequired = request.IsRequired,
+                IsVisible = request.IsVisible
+            });
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Queries ───────────────────────────────────────────────────────────
+
+    public async Task<List<ProductAttributeGroupDto>> GetPlatformTemplatesAsync(
+        string storeTypeCode)
+    {
+        // Load all platform templates for the store type, including ungrouped.
+        var templates = await _db.AttributeTemplates
+            .Where(t =>
+                t.StoreTypeCode == storeTypeCode &&
+                t.TenantId == null)
+            .Include(t => t.Group)
+            .OrderBy(t => t.SortOrder)
+            .ToListAsync();
+
+        return GroupTemplates(templates);
+    }
+
+    public async Task<List<ProductAttributeTemplateDto>> GetTenantTemplatesAsync(
+        Guid tenantId,
+        string storeTypeCode)
+    {
+        return await _db.AttributeTemplates
+            .Where(t =>
+                t.StoreTypeCode == storeTypeCode &&
+                t.TenantId == tenantId)
+            .Include(t => t.Group)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new ProductAttributeTemplateDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                StoreTypeCode = t.StoreTypeCode,
+                FieldType = t.FieldType,
+                OptionsJson = t.OptionsJson,
+                IsRequired = t.IsRequired,
+                IsVisible = t.IsVisible,
+                SortOrder = t.SortOrder,
+                TenantId = t.TenantId,
+                GroupId = t.GroupId,
+                GroupName = t.Group != null ? t.Group.Name : null,
+                OverridesTemplateId = t.OverridesTemplateId,
+                Source = t.OverridesTemplateId != null ? "override" : "custom"
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<ResolvedAttributeDto>> GetResolvedAttributesAsync(
+        Guid storeId,
+        Guid tenantId,
+        string storeTypeCode)
+    {
+        // Step 1 — Load all platform base templates for this store type.
+        var platformTemplates = await _db.AttributeTemplates
+            .Where(t =>
+                t.StoreTypeCode == storeTypeCode &&
+                t.TenantId == null)
+            .Include(t => t.Group)
+            .ToListAsync();
+
+        // Step 2 — Load all tenant overrides and custom attributes.
+        var tenantTemplates = await _db.AttributeTemplates
+            .Where(t =>
+                t.StoreTypeCode == storeTypeCode &&
+                t.TenantId == tenantId)
+            .Include(t => t.Group)
+            .ToListAsync();
+
+        // Step 3 — Load store-level toggles for this store.
+        var storeOverrides = await _db.StoreAttributeOverrides
+            .Where(o => o.StoreId == storeId)
+            .ToListAsync();
+
+        // Step 4 — Load what the tenant has explicitly assigned to this store
+        // (store-specific) or tenant-wide (StoreId = null).
+        var assignments = await _db.TenantTemplateAssignments
+            .Where(a =>
+                a.TenantId == tenantId &&
+                a.StoreTypeCode == storeTypeCode &&
+                (a.StoreId == storeId || a.StoreId == null))
+            .ToListAsync();
+
+        var assignedTemplateIds = assignments
+            .Select(a => a.TemplateId)
+            .ToHashSet();
+
+        // Step 5 — Build the effective attribute list.
+        //
+        // For each platform template:
+        //   a) Check if there is a tenant override → use override values.
+        //   b) Check if there is a store-level toggle → apply on top.
+        //   c) If the tenant has explicit assignments and this template is not
+        //      in the assigned set, skip it (tenant opted out).
+        //
+        // Then append tenant-custom attributes (no platform equivalent)
+        // that are in the assignment set or if there are no assignments at all
+        // (meaning the tenant hasn't configured anything and wants all defaults).
+
+        var hasExplicitAssignments = assignedTemplateIds.Count > 0;
+
+        // Index tenant templates by what they override for O(1) lookup.
+        var overrideByPlatformId = tenantTemplates
+            .Where(t => t.OverridesTemplateId != null)
+            .ToDictionary(t => t.OverridesTemplateId!.Value);
+
+        var storeOverrideByTemplateId = storeOverrides
+            .ToDictionary(o => o.TemplateId);
+
+        var resolved = new List<ResolvedAttributeDto>();
+
+        foreach (var platform in platformTemplates)
+        {
+            // Determine effective template row (platform or tenant override).
+            var effectiveRow = overrideByPlatformId.TryGetValue(
+                platform.Id, out var tenantOverride)
+                ? tenantOverride
+                : platform;
+
+            // If tenant has explicit assignments and this template
+            // (using the effective row id) is not assigned, skip it.
+            if (hasExplicitAssignments &&
+                !assignedTemplateIds.Contains(effectiveRow.Id) &&
+                !assignedTemplateIds.Contains(platform.Id))
+                continue;
+
+            // Apply store-level toggle on top.
+            var storeToggle = storeOverrideByTemplateId.TryGetValue(
+                effectiveRow.Id, out var toggleRow)
+                ? toggleRow
+                : null;
+
+            resolved.Add(new ResolvedAttributeDto
+            {
+                TemplateId = effectiveRow.Id,
+                Name = effectiveRow.Name,
+                StoreTypeCode = storeTypeCode,
+                FieldType = effectiveRow.FieldType,
+                OptionsJson = effectiveRow.OptionsJson,
+                IsRequired = storeToggle?.IsRequired ?? effectiveRow.IsRequired,
+                IsVisible = storeToggle?.IsVisible ?? effectiveRow.IsVisible,
+                SortOrder = effectiveRow.SortOrder,
+                GroupId = effectiveRow.GroupId,
+                GroupName = effectiveRow.Group?.Name,
+                Source = tenantOverride != null
+                    ? "tenant-override"
+                    : "platform"
+            });
+        }
+
+        // Append tenant-custom attributes (OverridesTemplateId = null).
+        var customAttributes = tenantTemplates
+            .Where(t => t.OverridesTemplateId == null);
+
+        foreach (var custom in customAttributes)
+        {
+            if (hasExplicitAssignments &&
+                !assignedTemplateIds.Contains(custom.Id))
+                continue;
+
+            var storeToggle = storeOverrideByTemplateId.TryGetValue(
+                custom.Id, out var toggleRow)
+                ? toggleRow
+                : null;
+
+            resolved.Add(new ResolvedAttributeDto
+            {
+                TemplateId = custom.Id,
+                Name = custom.Name,
+                StoreTypeCode = storeTypeCode,
+                FieldType = custom.FieldType,
+                OptionsJson = custom.OptionsJson,
+                IsRequired = storeToggle?.IsRequired ?? custom.IsRequired,
+                IsVisible = storeToggle?.IsVisible ?? custom.IsVisible,
+                SortOrder = custom.SortOrder,
+                GroupId = custom.GroupId,
+                GroupName = custom.Group?.Name,
+                Source = "tenant-custom"
+            });
+        }
+
+        return resolved
+            .OrderBy(r => r.GroupId == null ? 1 : 0) // grouped first
+            .ThenBy(r => r.GroupName)
+            .ThenBy(r => r.SortOrder)
+            .ToList();
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    private async Task EnsureUniqueNameAsync(
+        string storeTypeCode,
+        Guid? tenantId,
+        string name)
+    {
+        var exists = await _db.AttributeTemplates.AnyAsync(t =>
+            t.StoreTypeCode == storeTypeCode &&
+            t.TenantId == tenantId &&
+            t.Name == name);
+
+        if (exists)
+            throw new InvalidOperationException(
+                $"An attribute named '{name}' already exists " +
+                $"for store type '{storeTypeCode}' " +
+                $"in this scope.");
+    }
+
+    private static ProductAttributeTemplate BuildTemplate(
+        CreateAttributeTemplateRequest r,
+        Guid? tenantId,
+        Guid? overridesId) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Name = r.Name,
+            StoreTypeCode = r.StoreTypeCode,
+            FieldType = r.FieldType,
+            OptionsJson = r.OptionsJson,
+            IsRequired = r.IsRequired,
+            IsVisible = r.IsVisible,
+            SortOrder = r.SortOrder,
+            TenantId = tenantId,
+            OverridesTemplateId = overridesId,
+            GroupId = r.GroupId
+        };
+
+    private static void ApplyUpdate(
+        ProductAttributeTemplate t,
+        UpdateAttributeTemplateRequest r)
+    {
+        if (r.Name != null) t.Name = r.Name;
+        if (r.OptionsJson != null) t.OptionsJson = r.OptionsJson;
+        if (r.IsRequired.HasValue) t.IsRequired = r.IsRequired.Value;
+        if (r.IsVisible.HasValue) t.IsVisible = r.IsVisible.Value;
+        if (r.SortOrder.HasValue) t.SortOrder = r.SortOrder.Value;
+        if (r.GroupId.HasValue) t.GroupId = r.GroupId.Value;
+    }
+
+    private async Task<ProductAttributeTemplateDto> MapToDtoAsync(
+        ProductAttributeTemplate t)
+    {
+        string? groupName = null;
+        if (t.GroupId.HasValue)
+        {
+            groupName = await _db.AttributeGroups
+                .Where(g => g.Id == t.GroupId.Value)
+                .Select(g => g.Name)
+                .FirstOrDefaultAsync();
+        }
+
+        return new ProductAttributeTemplateDto
+        {
+            Id = t.Id,
+            Name = t.Name,
+            StoreTypeCode = t.StoreTypeCode,
+            FieldType = t.FieldType,
+            OptionsJson = t.OptionsJson,
+            IsRequired = t.IsRequired,
+            IsVisible = t.IsVisible,
+            SortOrder = t.SortOrder,
+            TenantId = t.TenantId,
+            GroupId = t.GroupId,
+            GroupName = groupName,
+            OverridesTemplateId = t.OverridesTemplateId,
+            Source = t.TenantId == null
+                ? "platform"
+                : t.OverridesTemplateId != null
+                    ? "override"
+                    : "custom"
+        };
+    }
+
+    private static List<ProductAttributeGroupDto> GroupTemplates(
+        List<ProductAttributeTemplate> templates)
+    {
+        var groups = templates
+            .Where(t => t.Group != null)
+            .GroupBy(t => t.Group!)
+            .Select(g => new ProductAttributeGroupDto
+            {
+                Id = g.Key.Id,
+                Name = g.Key.Name,
+                StoreTypeCode = g.Key.StoreTypeCode,
+                SortOrder = g.Key.SortOrder,
+                Attributes = g
+                    .OrderBy(t => t.SortOrder)
+                    .Select(t => new ProductAttributeTemplateDto
+                    {
+                        Id = t.Id,
+                        Name = t.Name,
+                        StoreTypeCode = t.StoreTypeCode,
+                        FieldType = t.FieldType,
+                        OptionsJson = t.OptionsJson,
+                        IsRequired = t.IsRequired,
+                        IsVisible = t.IsVisible,
+                        SortOrder = t.SortOrder,
+                        GroupId = t.GroupId,
+                        GroupName = t.Group?.Name,
+                        Source = "platform"
+                    }).ToList()
+            })
+            .OrderBy(g => g.SortOrder)
+            .ToList();
+
+        // Ungrouped attributes in a synthetic group.
+        var ungrouped = templates
+            .Where(t => t.GroupId == null)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new ProductAttributeTemplateDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                StoreTypeCode = t.StoreTypeCode,
+                FieldType = t.FieldType,
+                OptionsJson = t.OptionsJson,
+                IsRequired = t.IsRequired,
+                IsVisible = t.IsVisible,
+                SortOrder = t.SortOrder,
+                Source = "platform"
+            }).ToList();
+
+        if (ungrouped.Any())
+        {
+            groups.Add(new ProductAttributeGroupDto
+            {
+                Id = Guid.Empty,
+                Name = "General",
+                SortOrder = int.MaxValue,
+                Attributes = ungrouped
+            });
+        }
+
+        return groups;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductService.cs
+==================================================
+
+// CoreKit.Catalog/Services/ProductService.cs
+
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Abstractions;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+public class ProductService : IProductService
+{
+    private readonly CatalogDbContext _db;
+    private readonly IStoreInfoProvider _storeInfoProvider;
+    private readonly IPlanLimitProvider? _planLimit;
+
+    public ProductService(
+        CatalogDbContext db,
+        IStoreInfoProvider storeInfoProvider,
+        IPlanLimitProvider? planLimit = null)
+    {
+        _db = db;
+        _storeInfoProvider = storeInfoProvider;
+        _planLimit = planLimit;
+    }
+
+    public async Task<ProductDto> CreateAsync(CreateProductRequest request)
+    {
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId)
+            ?? throw new KeyNotFoundException("Store not found.");
+
+        if (_planLimit != null)
+        {
+            if (request.Variants.Any())
+            {
+                if (!await _planLimit.IsVariantsEnabledAsync(storeInfo.TenantId))
+                    throw new ForbiddenException(
+                        "Your plan does not include product variants.");
+
+                var maxVariants = await _planLimit
+                    .GetMaxVariantsPerProductAsync(storeInfo.TenantId);
+                if (maxVariants.HasValue && request.Variants.Count > maxVariants.Value)
+                    throw new InvalidOperationException(
+                        $"Maximum {maxVariants.Value} variants per product.");
+            }
+
+            if (request.Addons.Any())
+            {
+                if (!await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId))
+                    throw new ForbiddenException(
+                        "Your plan does not include add-ons.");
+
+                var maxAddons = await _planLimit
+                    .GetMaxAddonsPerProductAsync(storeInfo.TenantId);
+                if (maxAddons.HasValue && request.Addons.Count > maxAddons.Value)
+                    throw new InvalidOperationException(
+                        $"Maximum {maxAddons.Value} add-ons per product.");
+            }
+
+            var maxProducts = await _planLimit.GetMaxProductsAsync(storeInfo.TenantId);
+            if (maxProducts.HasValue)
+            {
+                var currentCount = await _db.Products
+                    .CountAsync(p => p.StoreId == storeInfo.Id);
+                if (currentCount >= maxProducts.Value)
+                    throw new InvalidOperationException(
+                        "Product limit reached. Upgrade your plan.");
+            }
+        }
+
+        var product = new Product
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            Slug = SlugHelper.Generate(request.Name),
+            Description = request.Description,
+            BasePrice = request.BasePrice,
+            CategoryId = request.CategoryId,
+            StoreId = request.StoreId,
+            TenantId = storeInfo.TenantId,
+            TrackInventory = request.TrackInventory
+        };
+
+        _db.Products.Add(product);
+
+        foreach (var attr in request.Attributes)
+        {
+            product.AttributeValues.Add(new ProductAttributeValue
+            {
+                Id = Guid.NewGuid(),
+                TemplateId = attr.TemplateId,
+                Value = attr.Value
+            });
+        }
+
+        foreach (var varItem in request.Variants)
+        {
+            var variant = new ProductVariant
+            {
+                Id = Guid.NewGuid(),
+                Sku = varItem.Sku,
+                Price = varItem.Price
+            };
+
+            foreach (var vAttr in varItem.Attributes)
+            {
+                var template = await ResolveVariantTemplateAsync(
+                    vAttr, storeInfo.StoreTypeCode);
+
+                variant.AttributeValues.Add(new VariantAttributeValue
+                {
+                    Id = Guid.NewGuid(),
+                    TemplateId = template.Id,
+                    Value = vAttr.Value
+                });
+            }
+
+            product.Variants.Add(variant);
+        }
+
+        if (request.AddonGroupId.HasValue)
+        {
+            product.AddonGroupId = request.AddonGroupId.Value;
+        }
+        else
+        {
+            foreach (var addonItem in request.Addons)
+            {
+                product.AdHocAddons.Add(new Addon
+                {
+                    Id = Guid.NewGuid(),
+                    Name = addonItem.Name,
+                    AdditionalPrice = addonItem.AdditionalPrice,
+                    AddonGroupId = null
+                });
+            }
+        }
+
+        foreach (var img in request.Images)
+        {
+            product.Images.Add(new ProductImage
+            {
+                Id = Guid.NewGuid(),
+                ImageUrl = img.ImageUrl,
+                IsPrimary = img.IsPrimary
+            });
+        }
+
+        await _db.SaveChangesAsync();
+
+        // Re-fetch with all navigations so MapToDto never hits null refs.
+        return await GetByIdAsync(product.Id)
+            ?? throw new InvalidOperationException(
+                "Product was saved but could not be retrieved.");
+    }
+
+    public async Task<ProductDto?> GetByIdAsync(Guid id)
+    {
+        var product = await _db.Products
+            .Include(p => p.Category)
+            .Include(p => p.Images)
+            .Include(p => p.AttributeValues)
+                .ThenInclude(av => av.Template)
+            .Include(p => p.Variants)
+                .ThenInclude(v => v.AttributeValues)
+                .ThenInclude(va => va.Template)
+            .Include(p => p.AdHocAddons)
+            .Include(p => p.AddonGroup)
+                .ThenInclude(ag => ag!.Addons)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        return product is null ? null : MapToDto(product);
+    }
+
+    public async Task<List<ProductDto>> GetByStoreAsync(Guid storeId)
+    {
+        var products = await _db.Products
+            .Where(p => p.StoreId == storeId)
+            .Include(p => p.Category)
+            .Include(p => p.Images)
+            .Include(p => p.Variants)
+                .ThenInclude(v => v.AttributeValues)
+                .ThenInclude(va => va.Template)
+            .ToListAsync();
+
+        return products.Select(MapToDto).ToList();
+    }
+
+    // Prefers TemplateId; falls back to Name+StoreTypeCode for legacy callers.
+    private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
+        VariantAttributeItem attr,
+        string storeTypeCode)
+    {
+        if (attr.TemplateId.HasValue)
+        {
+            return await _db.VariantAttributeTemplates
+                .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
+                ?? throw new InvalidOperationException(
+                    $"Variant attribute template '{attr.TemplateId}' not found.");
+        }
+
+        return await _db.VariantAttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Name == attr.Name &&
+                t.StoreTypeCode == storeTypeCode)
+            ?? throw new InvalidOperationException(
+                $"Variant attribute '{attr.Name}' not defined " +
+                $"for store type '{storeTypeCode}'.");
+    }
+
+    private static ProductDto MapToDto(Product product) => new()
+    {
+        Id = product.Id,
+        Name = product.Name,
+        Slug = product.Slug,
+        Description = product.Description,
+        BasePrice = product.BasePrice,
+        CategoryId = product.CategoryId,
+        CategoryName = product.Category?.Name ?? string.Empty,
+        StoreId = product.StoreId,
+        TenantId = product.TenantId,
+        TrackInventory = product.TrackInventory,
+        IsActive = product.IsActive,
+        AddonGroupId = product.AddonGroupId,
+
+        Images = product.Images.Select(i => new ProductImageDto
+        {
+            Id = i.Id,
+            ImageUrl = i.ImageUrl,
+            IsPrimary = i.IsPrimary
+        }).ToList(),
+
+        AttributeValues = product.AttributeValues.Select(av => new ProductAttributeValueDto
+        {
+            Id = av.Id,
+            TemplateName = av.Template.Name,
+            Value = av.Value
+        }).ToList(),
+
+        Variants = product.Variants.Select(v => new ProductVariantDto
+        {
+            Id = v.Id,
+            Sku = v.Sku,
+            Price = v.Price,
+            IsActive = v.IsActive,
+            Attributes = v.AttributeValues.Select(va => new VariantAttributeValueDto
+            {
+                Name = va.Template.Name,
+                Value = va.Value
+            }).ToList()
+        }).ToList(),
+
+        Addons = product.AdHocAddons.Select(a => new AddonDto
+        {
+            Id = a.Id,
+            Name = a.Name,
+            AdditionalPrice = a.AdditionalPrice
+        }).ToList(),
+
+        AddonGroup = product.AddonGroup is null ? null : new AddonGroupDto
+        {
+            Id = product.AddonGroup.Id,
+            Name = product.AddonGroup.Name,
+            Addons = product.AddonGroup.Addons.Select(a => new AddonDto
+            {
+                Id = a.Id,
+                Name = a.Name,
+                AdditionalPrice = a.AdditionalPrice
+            }).ToList()
+        }
+    };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductVariantService.cs
+==================================================
+
+// CoreKit.Catalog/Services/ProductVariantService.cs
+
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+public class ProductVariantService : IProductVariantService
+{
+    private readonly CatalogDbContext _db;
+    private readonly IStoreInfoProvider _storeInfoProvider;
+
+    public ProductVariantService(
+        CatalogDbContext db,
+        IStoreInfoProvider storeInfoProvider)
+    {
+        _db = db;
+        _storeInfoProvider = storeInfoProvider;
+    }
+
+    public async Task<List<ProductVariantDto>> GetByProductAsync(Guid productId)
+    {
+        return await _db.ProductVariants
+            .Where(v => v.ProductId == productId)
+            .Include(v => v.AttributeValues)
+                .ThenInclude(av => av.Template)
+            .Select(v => MapToDto(v))
+            .ToListAsync();
+    }
+
+    public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
+    {
+        var variant = await _db.ProductVariants
+            .Include(v => v.AttributeValues)
+                .ThenInclude(av => av.Template)
+            .FirstOrDefaultAsync(v => v.Id == id);
+
+        return variant is null ? null : MapToDto(variant);
+    }
+
+    public async Task<ProductVariantDto> CreateAsync(
+        Guid productId,
+        CreateVariantRequest request)
+    {
+        var product = await _db.Products
+            .FirstOrDefaultAsync(p => p.Id == productId)
+            ?? throw new KeyNotFoundException("Product not found.");
+
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
+            ?? throw new KeyNotFoundException("Store not found.");
+
+        var variant = new ProductVariant
+        {
+            Id = Guid.NewGuid(),
+            ProductId = productId,
+            Sku = request.Sku,
+            Price = request.Price
+        };
+
+        foreach (var attr in request.Attributes)
+        {
+            var template = await ResolveVariantTemplateAsync(
+                attr, storeInfo.StoreTypeCode);
+
+            variant.AttributeValues.Add(new VariantAttributeValue
+            {
+                Id = Guid.NewGuid(),
+                TemplateId = template.Id,
+                Value = attr.Value
+            });
+        }
+
+        _db.ProductVariants.Add(variant);
+        await _db.SaveChangesAsync();
+
+        // Reload navigations so Template names are available for MapToDto.
+        await _db.Entry(variant)
+            .Collection(v => v.AttributeValues)
+            .Query()
+            .Include(av => av.Template)
+            .LoadAsync();
+
+        return MapToDto(variant);
+    }
+
+    public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
+    {
+        var variant = await _db.ProductVariants
+            .Include(v => v.AttributeValues)
+            .FirstOrDefaultAsync(v => v.Id == id)
+            ?? throw new KeyNotFoundException("Variant not found.");
+
+        if (request.Sku is not null) variant.Sku = request.Sku;
+        if (request.Price.HasValue) variant.Price = request.Price.Value;
+
+        if (request.Attributes is not null)
+        {
+            // Remove from the DbSet first so EF tracks the deletes, then clear
+            // the in-memory collection, then add the replacements.
+            // Guard the flush: if the collection is empty there is nothing to
+            // delete and the round-trip to the DB would be wasted.
+            if (variant.AttributeValues.Any())
+            {
+                _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
+                await _db.SaveChangesAsync();
+            }
+
+            variant.AttributeValues.Clear();
+
+            var product = await _db.Products
+                .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
+                ?? throw new KeyNotFoundException("Product not found.");
+
+            var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
+                ?? throw new KeyNotFoundException("Store not found.");
+
+            foreach (var attr in request.Attributes)
+            {
+                var template = await ResolveVariantTemplateAsync(
+                    attr, storeInfo.StoreTypeCode);
+
+                variant.AttributeValues.Add(new VariantAttributeValue
+                {
+                    Id = Guid.NewGuid(),
+                    TemplateId = template.Id,
+                    Value = attr.Value
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(Guid id)
+    {
+        var variant = await _db.ProductVariants.FindAsync(id)
+            ?? throw new KeyNotFoundException("Variant not found.");
+
+        _db.ProductVariants.Remove(variant);
+        await _db.SaveChangesAsync();
+    }
+
+    // Prefers TemplateId; falls back to Name+StoreTypeCode for legacy callers.
+    private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
+        VariantAttributeItem attr,
+        string storeTypeCode)
+    {
+        if (attr.TemplateId.HasValue)
+        {
+            return await _db.VariantAttributeTemplates
+                .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
+                ?? throw new InvalidOperationException(
+                    $"Variant attribute template '{attr.TemplateId}' not found.");
+        }
+
+        return await _db.VariantAttributeTemplates
+            .FirstOrDefaultAsync(t =>
+                t.Name == attr.Name &&
+                t.StoreTypeCode == storeTypeCode)
+            ?? throw new InvalidOperationException(
+                $"Variant attribute '{attr.Name}' not defined " +
+                $"for store type '{storeTypeCode}'.");
+    }
+
+    private static ProductVariantDto MapToDto(ProductVariant variant) => new()
+    {
+        Id = variant.Id,
+        Sku = variant.Sku,
+        Price = variant.Price,
+        IsActive = variant.IsActive,
+        Attributes = variant.AttributeValues.Select(av => new VariantAttributeValueDto
+        {
+            Name = av.Template.Name,
+            Value = av.Value
+        }).ToList()
+    };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\TenantDbStoreInfoProvider.cs
+==================================================
+
+// CoreKit.Catalog/Services/TenantDbStoreInfoProvider.cs
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Catalog.Services;
+
+/// <summary>
+/// Default IStoreInfoProvider that resolves store info by querying
+/// the Tenant Store table via CatalogDbContext's ability to access
+/// shared tables in the same PostgreSQL database.
+///
+/// This keeps the cross-module dependency explicit and in one place
+/// rather than scattered across ProductService and ProductVariantService.
+/// Replace with an HTTP client or message-based lookup when splitting databases.
+/// </summary>
+internal sealed class TenantDbStoreInfoProvider : IStoreInfoProvider
+{
+    private readonly CatalogDbContext _db;
+
+    public TenantDbStoreInfoProvider(CatalogDbContext db) => _db = db;
+
+    public async Task<StoreInfo?> GetStoreInfoAsync(
+        Guid storeId,
+        CancellationToken ct = default)
+    {
+        return await _db.Set<Store>()
+            .Where(s => s.Id == storeId)
+            .Select(s => new StoreInfo
+            {
+                Id = s.Id,
+                TenantId = s.TenantId,
+                StoreTypeCode = s.StoreType.Code
+            })
+            .FirstOrDefaultAsync(ct);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Validators\CreateProductRequestValidator.cs
+==================================================
+
+// CoreKit.Catalog/Validators/CreateProductRequestValidator.cs
+using CoreKit.Catalog.Models;
+using FluentValidation;
+
+namespace CoreKit.Catalog.Validators;
+
+public class CreateProductRequestValidator : AbstractValidator<CreateProductRequest>
+{
+    public CreateProductRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.BasePrice).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.CategoryId).NotEmpty();
+        RuleFor(x => x.StoreId).NotEmpty();
+    }
+}
+
+

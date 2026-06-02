@@ -1,4 +1,6 @@
+using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Extensions;
+using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -9,6 +11,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Services;
 using SaaSPlatform.Admin.Api.Validators;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -100,7 +103,12 @@ builder.Services.AddCoreKitControllers();
 // ==========================================
 builder.ValidateCoreKitConfiguration();
 
-builder.Services.AddCatalogModule(connStr);
+builder.Services.AddCatalogModule(connStr, services =>
+{
+    // Provide a working IStoreInfoProvider using the Tenant module's repository.
+    // We'll add the implementation class in a moment.
+    services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
+});
 
 // ==========================================
 // KESTREL

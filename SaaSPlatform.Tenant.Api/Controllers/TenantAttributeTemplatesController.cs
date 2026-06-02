@@ -12,11 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
 /// <summary>
-/// Tenant admin manages their scoped attribute customisations:
-///   - Override platform templates (tenant-scoped copy, original untouched).
-///   - Add custom attributes not present in the base template.
-///   - Assign templates to specific stores or tenant-wide.
-///   - View the resolved (effective) attribute list for a store.
+/// Tenant admin manages their scoped attribute customisations.
 /// </summary>
 [ApiController]
 [Route("api/tenant/catalog/attribute-templates")]
@@ -63,31 +59,23 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return OkResponse(templates);
     }
 
-    /// <summary>
-    /// Creates a tenant-scoped override of an existing platform template.
-    /// Only the fields included in the request body are changed;
-    /// the rest are copied from the platform template.
-    /// </summary>
     [HttpPost("override")]
     [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
     public async Task<IActionResult> OverridePlatformTemplate(
         [FromBody] OverrideAttributeTemplateRequest request)
     {
-        request = request with { TenantId = RequireTenantId() };
+        request.TenantId = RequireTenantId();
         var template =
             await _templateService.OverridePlatformTemplateAsync(request);
         return CreatedResponse(template);
     }
 
-    /// <summary>
-    /// Creates a brand-new custom attribute that has no platform equivalent.
-    /// </summary>
     [HttpPost("custom")]
     [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
     public async Task<IActionResult> CreateCustomTemplate(
         [FromBody] CreateAttributeTemplateRequest request)
     {
-        request = request with { TenantId = RequireTenantId() };
+        request.TenantId = RequireTenantId();
         var template =
             await _templateService.CreateTenantTemplateAsync(request);
         return CreatedResponse(template);
@@ -120,23 +108,19 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     public async Task<IActionResult> CreateGroup(
         [FromBody] CreateAttributeGroupRequest request)
     {
-        request = request with { TenantId = RequireTenantId() };
+        request.TenantId = RequireTenantId();
         var group = await _groupService.CreateAsync(request);
         return CreatedResponse(group);
     }
 
     // ── Assignment ────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Assigns a template to a store (StoreId set) or to all stores
-    /// of this tenant for the given store type (StoreId = null).
-    /// </summary>
     [HttpPost("assign")]
     [RequiresPermission(CatalogPermissions.TemplatesAssign)]
     public async Task<IActionResult> AssignTemplate(
         [FromBody] AssignTemplateRequest request)
     {
-        request = request with { TenantId = RequireTenantId() };
+        request.TenantId = RequireTenantId();
         await _templateService.AssignTemplateAsync(request);
         return OkResponse("Template assigned successfully.");
     }
@@ -153,11 +137,6 @@ public class TenantAttributeTemplatesController : ApiControllerBase
 
     // ── Resolved view ─────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns the fully-resolved attribute list for a store,
-    /// with all three precedence layers applied.
-    /// Use this to render the product creation form.
-    /// </summary>
     [HttpGet("resolved/{storeId}/{storeTypeCode}")]
     [RequiresPermission(CatalogPermissions.TemplatesView)]
     public async Task<IActionResult> GetResolved(
@@ -171,10 +150,6 @@ public class TenantAttributeTemplatesController : ApiControllerBase
 
     // ── Store-level toggle ────────────────────────────────────────────────
 
-    /// <summary>
-    /// Store manager toggles IsRequired / IsVisible for an attribute
-    /// on their specific store.
-    /// </summary>
     [HttpPost("store-override")]
     [RequiresPermission(CatalogPermissions.TemplatesToggleStore)]
     public async Task<IActionResult> SetStoreOverride(

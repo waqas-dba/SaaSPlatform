@@ -22,6 +22,7 @@ public class ProductsController : ApiControllerBase
     [RequiresPermission("catalog.products.create")]
     public async Task<IActionResult> Create(CreateProductRequest request)
     {
+
         var product = await _productService.CreateAsync(request);
         return CreatedResponse(product);
     }
