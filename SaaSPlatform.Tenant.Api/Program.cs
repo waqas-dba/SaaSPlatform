@@ -1,5 +1,6 @@
 using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Extensions;
+using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -7,21 +8,17 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
-using SaaSPlatform.Admin.Api.Services;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ==========================================
-// RATE LIMITING
-// ==========================================
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
     options.OnRejected = async (ctx, token) =>
     {
-        ctx.HttpContext.Response.StatusCode =
-            StatusCodes.Status429TooManyRequests;
+        ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         ctx.HttpContext.Response.ContentType = "application/json";
 
         var retryAfter = ctx.Lease.TryGetMetadata(
@@ -29,8 +26,7 @@ builder.Services.AddRateLimiter(options =>
             ? (int)retryDelay.TotalSeconds
             : 60;
 
-        ctx.HttpContext.Response.Headers["Retry-After"] =
-            retryAfter.ToString();
+        ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
 
         await ctx.HttpContext.Response.WriteAsync(
             $"{{\"success\":false," +
@@ -52,36 +48,29 @@ builder.Services.AddRateLimiter(options =>
         cfg.Window = TimeSpan.FromMinutes(1);
     });
 
-    // NEW: protect product creation
     options.AddFixedWindowLimiter("product-create", cfg =>
     {
         cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
         cfg.Window = TimeSpan.FromMinutes(1);
     });
+
+    options.AddFixedWindowLimiter("product-update", cfg =>
+    {
+        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 200 : 60;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    });
 });
 
-// ==========================================
-// HTTP CONTEXT
-// ==========================================
 builder.Services.AddHttpContextAccessor();
 
-// ==========================================
-// DATABASE CONNECTION
-// ==========================================
 var connStr = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "Connection string 'Postgres' is missing from configuration.");
 
-// ==========================================
-// IAM — NO BYPASS, PURE PERMISSION-BASED
-// ==========================================
 builder.Services.AddCoreKitIAM(
     connStr,
     builder.Configuration.GetSection("Jwt"));
 
-// ==========================================
-// TENANT KIT
-// ==========================================
 builder.Services.AddTenantKit(connStr, options =>
 {
     options.AutoApproveTenants = false;
@@ -89,41 +78,23 @@ builder.Services.AddTenantKit(connStr, options =>
     options.EnableLegalInfo = true;
 });
 
-// ==========================================
-// CATALOG MODULE — MANDATORY IStoreInfoProvider
-// ==========================================
+// Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
+// No per-project copy needed — fixes the duplication across all three API projects.
 builder.Services.AddCatalogModule(connStr, services =>
 {
-    // Use the Tenant DB to resolve store info safely
     services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
-// ==========================================
-// CONTROLLERS
-// ==========================================
 builder.Services.AddCoreKitControllers();
-
-// ==========================================
-// STARTUP CONFIGURATION VALIDATION
-// ==========================================
 builder.ValidateCoreKitConfiguration();
 
-// ==========================================
-// KESTREL
-// ==========================================
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
 });
 
-// ==========================================
-// BUILD APP
-// ==========================================
 var app = builder.Build();
 
-// ==========================================
-// SECURITY HEADERS
-// ==========================================
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Frame-Options"] = "DENY";
@@ -133,33 +104,25 @@ app.Use(async (context, next) =>
     context.Response.Headers["X-XSS-Protection"] = "0";
     context.Response.Headers["Permissions-Policy"] =
         "camera=(), microphone=(), geolocation=(), interest-cohort=()";
-
     await next();
 });
 
-// ==========================================
-// BOOT CHECK — STILL NEEDS REPLACEMENT WITH HEALTH CHECKS
-// ==========================================
 await app.PerformBootCheckAsync();
 
-// ==========================================
-// MIDDLEWARE PIPELINE
-// ==========================================
-app.UseMiddleware<ExceptionMiddleware>();        // outermost error handler
+// Correct order: RequestTracing is outermost so it captures the full
+// request lifecycle including exceptions. ExceptionMiddleware sits inside
+// it so unhandled exceptions are both logged by tracing and formatted by
+// the exception handler.
 app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
-// ==========================================
-// ENDPOINTS
-// ==========================================
 app.MapGet("/ping", () => "pong");
 app.MapControllers();
 
-// ==========================================
-// RUN
-// ==========================================
 app.Run();

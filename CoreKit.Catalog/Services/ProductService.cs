@@ -1,6 +1,4 @@
-﻿// CoreKit.Catalog/Services/ProductService.cs
-
-using CoreKit.Catalog.Abstractions;
+﻿using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
@@ -9,6 +7,7 @@ using CoreKit.SharedKernel.Exceptions;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.Tenant.Abstractions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CoreKit.Catalog.Services;
 
@@ -17,32 +16,43 @@ public class ProductService : IProductService
     private readonly CatalogDbContext _db;
     private readonly IStoreInfoProvider _storeInfoProvider;
     private readonly IPlanLimitProvider? _planLimit;
+    private readonly ILogger<ProductService> _logger;
 
     public ProductService(
         CatalogDbContext db,
         IStoreInfoProvider storeInfoProvider,
+        ILogger<ProductService> logger,
         IPlanLimitProvider? planLimit = null)
     {
         _db = db;
         _storeInfoProvider = storeInfoProvider;
+        _logger = logger;
         _planLimit = planLimit;
+
+        if (_planLimit == null)
+            _logger.LogWarning(
+                "IPlanLimitProvider is not registered. " +
+                "Product, variant, and addon limits will not be enforced.");
     }
 
-    public async Task<ProductDto> CreateAsync(CreateProductRequest request)
+    public async Task<ProductDto> CreateAsync(
+        CreateProductRequest request,
+        CancellationToken ct = default)
     {
-        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId)
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct)
             ?? throw new KeyNotFoundException("Store not found.");
 
         if (_planLimit != null)
         {
             if (request.Variants.Any())
             {
-                if (!await _planLimit.IsVariantsEnabledAsync(storeInfo.TenantId))
+                if (!await _planLimit.IsVariantsEnabledAsync(storeInfo.TenantId, ct))
                     throw new ForbiddenException(
                         "Your plan does not include product variants.");
 
                 var maxVariants = await _planLimit
-                    .GetMaxVariantsPerProductAsync(storeInfo.TenantId);
+                    .GetMaxVariantsPerProductAsync(storeInfo.TenantId, ct);
+
                 if (maxVariants.HasValue && request.Variants.Count > maxVariants.Value)
                     throw new InvalidOperationException(
                         $"Maximum {maxVariants.Value} variants per product.");
@@ -50,22 +60,24 @@ public class ProductService : IProductService
 
             if (request.Addons.Any())
             {
-                if (!await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId))
+                if (!await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId, ct))
                     throw new ForbiddenException(
                         "Your plan does not include add-ons.");
 
                 var maxAddons = await _planLimit
-                    .GetMaxAddonsPerProductAsync(storeInfo.TenantId);
+                    .GetMaxAddonsPerProductAsync(storeInfo.TenantId, ct);
+
                 if (maxAddons.HasValue && request.Addons.Count > maxAddons.Value)
                     throw new InvalidOperationException(
                         $"Maximum {maxAddons.Value} add-ons per product.");
             }
 
-            var maxProducts = await _planLimit.GetMaxProductsAsync(storeInfo.TenantId);
+            var maxProducts = await _planLimit.GetMaxProductsAsync(storeInfo.TenantId, ct);
             if (maxProducts.HasValue)
             {
                 var currentCount = await _db.Products
-                    .CountAsync(p => p.StoreId == storeInfo.Id);
+                    .CountAsync(p => p.StoreId == storeInfo.Id, ct);
+
                 if (currentCount >= maxProducts.Value)
                     throw new InvalidOperationException(
                         "Product limit reached. Upgrade your plan.");
@@ -109,7 +121,7 @@ public class ProductService : IProductService
             foreach (var vAttr in varItem.Attributes)
             {
                 var template = await ResolveVariantTemplateAsync(
-                    vAttr, storeInfo.StoreTypeCode);
+                    vAttr, storeInfo.StoreTypeCode, ct);
 
                 variant.AttributeValues.Add(new VariantAttributeValue
                 {
@@ -150,15 +162,16 @@ public class ProductService : IProductService
             });
         }
 
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(ct);
 
-        // Re-fetch with all navigations so MapToDto never hits null refs.
-        return await GetByIdAsync(product.Id)
+        return await GetByIdAsync(product.Id, ct)
             ?? throw new InvalidOperationException(
                 "Product was saved but could not be retrieved.");
     }
 
-    public async Task<ProductDto?> GetByIdAsync(Guid id)
+    public async Task<ProductDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken ct = default)
     {
         var product = await _db.Products
             .Include(p => p.Category)
@@ -167,14 +180,21 @@ public class ProductService : IProductService
                 .ThenInclude(av => av.Template)
             .Include(p => p.Variants)
                 .ThenInclude(v => v.AttributeValues)
-                .ThenInclude(va => va.Template)
+                    .ThenInclude(va => va.Template)
             .Include(p => p.AdHocAddons)
             .Include(p => p.AddonGroup)
                 .ThenInclude(ag => ag!.Addons)
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
 
         return product is null ? null : MapToDto(product);
     }
+
+    // Keep non-ct overload for interface compatibility during transition
+    Task<ProductDto?> IProductService.GetByIdAsync(Guid id)
+        => GetByIdAsync(id, CancellationToken.None);
+
+    Task<ProductDto> IProductService.CreateAsync(CreateProductRequest request)
+        => CreateAsync(request, CancellationToken.None);
 
     public async Task<List<ProductDto>> GetByStoreAsync(Guid storeId)
     {
@@ -184,21 +204,21 @@ public class ProductService : IProductService
             .Include(p => p.Images)
             .Include(p => p.Variants)
                 .ThenInclude(v => v.AttributeValues)
-                .ThenInclude(va => va.Template)
+                    .ThenInclude(va => va.Template)
             .ToListAsync();
 
         return products.Select(MapToDto).ToList();
     }
 
-    // Prefers TemplateId; falls back to Name+StoreTypeCode for legacy callers.
     private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
         VariantAttributeItem attr,
-        string storeTypeCode)
+        string storeTypeCode,
+        CancellationToken ct = default)
     {
         if (attr.TemplateId.HasValue)
         {
             return await _db.VariantAttributeTemplates
-                .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
+                .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value, ct)
                 ?? throw new InvalidOperationException(
                     $"Variant attribute template '{attr.TemplateId}' not found.");
         }
@@ -206,7 +226,7 @@ public class ProductService : IProductService
         return await _db.VariantAttributeTemplates
             .FirstOrDefaultAsync(t =>
                 t.Name == attr.Name &&
-                t.StoreTypeCode == storeTypeCode)
+                t.StoreTypeCode == storeTypeCode, ct)
             ?? throw new InvalidOperationException(
                 $"Variant attribute '{attr.Name}' not defined " +
                 $"for store type '{storeTypeCode}'.");
@@ -226,21 +246,18 @@ public class ProductService : IProductService
         TrackInventory = product.TrackInventory,
         IsActive = product.IsActive,
         AddonGroupId = product.AddonGroupId,
-
         Images = product.Images.Select(i => new ProductImageDto
         {
             Id = i.Id,
             ImageUrl = i.ImageUrl,
             IsPrimary = i.IsPrimary
         }).ToList(),
-
         AttributeValues = product.AttributeValues.Select(av => new ProductAttributeValueDto
         {
             Id = av.Id,
             TemplateName = av.Template.Name,
             Value = av.Value
         }).ToList(),
-
         Variants = product.Variants.Select(v => new ProductVariantDto
         {
             Id = v.Id,
@@ -253,14 +270,12 @@ public class ProductService : IProductService
                 Value = va.Value
             }).ToList()
         }).ToList(),
-
         Addons = product.AdHocAddons.Select(a => new AddonDto
         {
             Id = a.Id,
             Name = a.Name,
             AdditionalPrice = a.AdditionalPrice
         }).ToList(),
-
         AddonGroup = product.AddonGroup is null ? null : new AddonGroupDto
         {
             Id = product.AddonGroup.Id,

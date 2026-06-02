@@ -12,13 +12,19 @@ public class StoreRepository : IStoreRepository
     public StoreRepository(TenantDbContext db) => _db = db;
 
     public async Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
-        => await _db.Stores.FirstOrDefaultAsync(s => s.Id == storeId, ct);
+        => await _db.Stores
+            .Include(s => s.StoreType)
+            .FirstOrDefaultAsync(s => s.Id == storeId, ct);
 
-    
     public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
-        => await _db.Stores.Where(s => s.TenantId == tenantId).ToListAsync(ct);
+        => await _db.Stores
+            .Include(s => s.StoreType)
+            .Where(s => s.TenantId == tenantId)
+            .ToListAsync(ct);
 
     public void Add(Store store) => _db.Stores.Add(store);
+
     public void Update(Store store) => _db.Stores.Update(store);
+
     public void Delete(Store store) => _db.Stores.Remove(store);
 }

@@ -1,0 +1,528 @@
+﻿
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Abstractions\IStoreInfoProvider.cs =====
+namespace CoreKit.Catalog.Abstractions;
+public interface IStoreInfoProvider
+{
+Task<StoreInfo?> GetStoreInfoAsync(Guid storeId, CancellationToken ct = default);
+}
+public sealed class StoreInfo
+{
+public Guid Id { get; init; }
+public Guid TenantId { get; init; }
+public string StoreTypeCode { get; init; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\AddonConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class AddonConfiguration : IEntityTypeConfiguration<Addon>
+{
+public void Configure(EntityTypeBuilder<Addon> builder)
+{
+builder.ToTable("Catalog_Addons");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.IsRequired()
+.HasMaxLength(200);
+builder.Property(x => x.AdditionalPrice)
+.HasColumnType("decimal(18,2)")
+.IsRequired();
+builder.Property(x => x.AddonGroupId)
+.IsRequired(false);
+builder.HasOne(x => x.AddonGroup)
+.WithMany(x => x.Addons)
+.HasForeignKey(x => x.AddonGroupId)
+.OnDelete(DeleteBehavior.Cascade)
+.IsRequired(false);
+builder.HasOne(x => x.Product)
+.WithMany(x => x.AdHocAddons)
+.HasForeignKey(x => x.ProductId)
+.OnDelete(DeleteBehavior.Cascade)
+.IsRequired(false);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\CategoryConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class CategoryConfiguration : IEntityTypeConfiguration<Category>
+{
+public void Configure(EntityTypeBuilder<Category> builder)
+{
+builder.ToTable("Catalog_Categories");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Slug })
+.IsUnique()
+.HasFilter("\"StoreId\" IS NOT NULL");
+builder.HasIndex(x => new { x.TenantId, x.Slug })
+.IsUnique()
+.HasFilter("\"StoreId\" IS NULL");
+builder.Property(x => x.IconUrl).HasMaxLength(2000);
+builder.HasOne(x => x.ParentCategory)
+.WithMany(x => x.SubCategories)
+.HasForeignKey(x => x.ParentCategoryId)
+.OnDelete(DeleteBehavior.Restrict);
+builder.Property(x => x.Level).HasDefaultValue(1);
+builder.Property(x => x.StoreTypeCode).HasMaxLength(50);
+builder.HasMany(x => x.Products)
+.WithOne(x => x.Category)
+.HasForeignKey(x => x.CategoryId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AttributeTemplates)
+.WithOne()
+.HasForeignKey("CategoryId")
+.OnDelete(DeleteBehavior.Cascade)
+.IsRequired(false);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductAttributeGroupConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductAttributeGroupConfiguration
+: IEntityTypeConfiguration<ProductAttributeGroup>
+{
+public void Configure(EntityTypeBuilder<ProductAttributeGroup> builder)
+{
+builder.ToTable("Catalog_AttributeGroups");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.IsRequired()
+.HasMaxLength(200);
+builder.Property(x => x.StoreTypeCode)
+.IsRequired()
+.HasMaxLength(50);
+builder.HasIndex(x => new { x.StoreTypeCode, x.TenantId, x.Name })
+.IsUnique();
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductAttributeTemplateConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductAttributeTemplateConfiguration
+: IEntityTypeConfiguration<ProductAttributeTemplate>
+{
+public void Configure(EntityTypeBuilder<ProductAttributeTemplate> builder)
+{
+builder.ToTable("Catalog_AttributeTemplates");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name)
+.IsRequired()
+.HasMaxLength(200);
+builder.Property(x => x.StoreTypeCode)
+.IsRequired()
+.HasMaxLength(50);
+builder.Property(x => x.OptionsJson)
+.HasMaxLength(2000);
+builder.Property(x => x.IsVisible)
+.HasDefaultValue(true);
+builder.HasIndex(x => new { x.StoreTypeCode, x.TenantId, x.Name })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NOT NULL")
+.HasDatabaseName("IX_AttrTemplate_StoreType_Tenant_Name");
+builder.HasIndex(x => new { x.StoreTypeCode, x.Name })
+.IsUnique()
+.HasFilter("\"TenantId\" IS NULL")
+.HasDatabaseName("IX_AttrTemplate_StoreType_Name_Global");
+builder.HasOne(x => x.OverridesTemplate)
+.WithMany()
+.HasForeignKey(x => x.OverridesTemplateId)
+.OnDelete(DeleteBehavior.Restrict)
+.IsRequired(false);
+builder.HasOne(x => x.Group)
+.WithMany(g => g.Attributes)
+.HasForeignKey(x => x.GroupId)
+.OnDelete(DeleteBehavior.SetNull)
+.IsRequired(false);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+public void Configure(EntityTypeBuilder<Product> builder)
+{
+builder.ToTable("Catalog_Products");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.Slug).IsRequired().HasMaxLength(200);
+builder.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
+builder.Property(x => x.Description).HasMaxLength(2000);
+builder.Property(x => x.BasePrice).HasColumnType("decimal(18,2)").IsRequired();
+builder.HasOne(x => x.Category).WithMany(x => x.Products).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+builder.HasOne(x => x.AddonGroup).WithMany(x => x.Products).HasForeignKey(x => x.AddonGroupId).OnDelete(DeleteBehavior.SetNull);
+builder.HasMany(x => x.Images).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AttributeValues).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.Variants).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AdHocAddons).WithOne(x => x.Product).HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\StoreAttributeOverrideConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class StoreAttributeOverrideConfiguration
+: IEntityTypeConfiguration<StoreAttributeOverride>
+{
+public void Configure(EntityTypeBuilder<StoreAttributeOverride> builder)
+{
+builder.ToTable("Catalog_StoreAttributeOverrides");
+builder.HasKey(x => x.Id);
+builder.HasIndex(x => new { x.StoreId, x.TemplateId })
+.IsUnique();
+builder.HasOne(x => x.Template)
+.WithMany(t => t.StoreOverrides)
+.HasForeignKey(x => x.TemplateId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\TenantTemplateAssignmentConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class TenantTemplateAssignmentConfiguration
+: IEntityTypeConfiguration<TenantTemplateAssignment>
+{
+public void Configure(EntityTypeBuilder<TenantTemplateAssignment> builder)
+{
+builder.ToTable("Catalog_TenantTemplateAssignments");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.StoreTypeCode)
+.IsRequired()
+.HasMaxLength(50);
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.TemplateId })
+.IsUnique()
+.HasFilter("\"StoreId\" IS NOT NULL")
+.HasDatabaseName("IX_TTA_Tenant_Store_Template");
+builder.HasIndex(x => new { x.TenantId, x.TemplateId })
+.IsUnique()
+.HasFilter("\"StoreId\" IS NULL")
+.HasDatabaseName("IX_TTA_Tenant_Template_Global");
+builder.HasOne(x => x.Template)
+.WithMany()
+.HasForeignKey(x => x.TemplateId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Addon.cs =====
+namespace CoreKit.Catalog.Entities;
+public class Addon
+{
+public Guid Id { get; set; }
+public Guid? AddonGroupId { get; set; }
+public AddonGroup? AddonGroup { get; set; }
+public string Name { get; set; } = default!;
+public decimal AdditionalPrice { get; set; }
+public bool IsActive { get; set; } = true;
+public Guid? ProductId { get; set; }
+public Product? Product { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\AddonGroup.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class AddonGroup : AuditableEntity, ITenantScoped
+{
+public string Name { get; set; } = default!;
+public string? StoreTypeCode { get; set; }
+public Guid TenantId { get; set; }
+public ICollection<Addon> Addons { get; set; } = new List<Addon>();
+public ICollection<Product> Products { get; set; } = new List<Product>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Category.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class Category : AuditableEntity, ITenantScoped
+{
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? IconUrl { get; set; }
+public Guid? ParentCategoryId { get; set; }
+public Category? ParentCategory { get; set; }
+public ICollection<Category> SubCategories { get; set; } = new List<Category>();
+public int Level { get; set; } = 1;
+public string? StoreTypeCode { get; set; }
+public Guid? StoreId { get; set; }
+public Guid TenantId { get; set; }
+public ICollection<Product> Products { get; set; } = new List<Product>();
+public ICollection<ProductAttributeTemplate> AttributeTemplates { get; set; }
+= new List<ProductAttributeTemplate>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Product.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Catalog.Entities;
+public class Product : AuditableEntity, ITenantScoped, IStoreScoped
+{
+public string Name { get; set; } = default!;
+public string Slug { get; set; } = default!;
+public string? Description { get; set; }
+public decimal BasePrice { get; set; }
+public Guid CategoryId { get; set; }
+public Category Category { get; set; } = default!;
+public Guid StoreId { get; set; }
+public Guid TenantId { get; set; }
+public bool TrackInventory { get; set; } = false;
+public bool IsActive { get; set; } = true;
+public Guid? AddonGroupId { get; set; }
+public AddonGroup? AddonGroup { get; set; }
+public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+public ICollection<ProductAttributeValue> AttributeValues { get; set; } = new List<ProductAttributeValue>();
+public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
+public ICollection<Addon> AdHocAddons { get; set; } = new List<Addon>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeGroup.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductAttributeGroup
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public int SortOrder { get; set; }
+public string StoreTypeCode { get; set; } = default!;
+public Guid? TenantId { get; set; }
+public ICollection<ProductAttributeTemplate> Attributes { get; set; }
+= new List<ProductAttributeTemplate>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeTemplate.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductAttributeTemplate
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string StoreTypeCode { get; set; } = default!;
+public AttributeFieldType FieldType { get; set; }
+public string? OptionsJson { get; set; }
+public bool IsRequired { get; set; }
+public bool IsVisible { get; set; } = true;
+public int SortOrder { get; set; }
+public Guid? TenantId { get; set; }
+public Guid? OverridesTemplateId { get; set; }
+public ProductAttributeTemplate? OverridesTemplate { get; set; }
+public Guid? GroupId { get; set; }
+public ProductAttributeGroup? Group { get; set; }
+public ICollection<StoreAttributeOverride> StoreOverrides { get; set; }
+= new List<StoreAttributeOverride>();
+public ICollection<ProductAttributeValue> ProductAttributeValues { get; set; }
+= new List<ProductAttributeValue>();
+}
+public enum AttributeFieldType
+{
+Text = 1,
+Number = 2,
+Boolean = 3,
+Select = 4
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeValue.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductAttributeValue
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public Guid TemplateId { get; set; }
+public ProductAttributeTemplate Template { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductImage.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductImage
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public string ImageUrl { get; set; } = default!;
+public bool IsPrimary { get; set; }
+public int SortOrder { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductVariant.cs =====
+namespace CoreKit.Catalog.Entities;
+public class ProductVariant
+{
+public Guid Id { get; set; }
+public Guid ProductId { get; set; }
+public Product Product { get; set; } = default!;
+public string Sku { get; set; } = default!;
+public decimal Price { get; set; }
+public bool IsActive { get; set; } = true;
+public ICollection<VariantAttributeValue> AttributeValues { get; set; } = new List<VariantAttributeValue>();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\StoreAttributeOverride.cs =====
+namespace CoreKit.Catalog.Entities;
+public class StoreAttributeOverride
+{
+public Guid Id { get; set; }
+public Guid StoreId { get; set; }
+public Guid TemplateId { get; set; }
+public ProductAttributeTemplate Template { get; set; } = default!;
+public bool? IsRequired { get; set; }
+public bool? IsVisible { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\TenantTemplateAssignment.cs =====
+namespace CoreKit.Catalog.Entities;
+public class TenantTemplateAssignment
+{
+public Guid Id { get; set; }
+public Guid TenantId { get; set; }
+public Guid? StoreId { get; set; }
+public Guid TemplateId { get; set; }
+public ProductAttributeTemplate Template { get; set; } = default!;
+public string StoreTypeCode { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeTemplate.cs =====
+namespace CoreKit.Catalog.Entities;
+public class VariantAttributeTemplate
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string? OptionsJson { get; set; }
+public string StoreTypeCode { get; set; } = default!;
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\VariantAttributeValue.cs =====
+namespace CoreKit.Catalog.Entities;
+public class VariantAttributeValue
+{
+public Guid Id { get; set; }
+public Guid VariantId { get; set; }
+public ProductVariant Variant { get; set; } = default!;
+public Guid TemplateId { get; set; }
+public VariantAttributeTemplate Template { get; set; } = default!;
+public string Value { get; set; } = default!;
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Persistence;
+using CoreKit.Catalog.Services;
+using CoreKit.Catalog.Validators;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+namespace CoreKit.Catalog.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddCatalogModule(
+this IServiceCollection services,
+string connectionString,
+Action<IServiceCollection> configureStoreInfo)
+{
+services.AddDbContext<CatalogDbContext>(options =>
+options.UseNpgsql(connectionString));
+services.AddScoped<ICategoryService, CategoryService>();
+services.AddScoped<IProductService, ProductService>();
+services.AddScoped<IProductVariantService, ProductVariantService>();
+services.AddScoped<IProductAttributeTemplateService,
+ProductAttributeTemplateService>();
+services.AddScoped<IProductAttributeGroupService,
+ProductAttributeGroupService>();
+services.AddScoped<IAddonService, AddonService>();
+configureStoreInfo(services);
+services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
+return services;
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IAddonService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IAddonService
+{
+Task<List<AddonDto>> GetByProductAsync(Guid productId);
+Task<AddonDto?> GetByIdAsync(Guid addonId);
+Task<AddonDto> CreateAdHocAsync(Guid productId, string name, decimal additionalPrice);
+Task DeleteAsync(Guid addonId);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\ICategoryService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface ICategoryService
+{
+Task<List<CategoryDto>> GetByTenantAsync(Guid tenantId, Guid? storeId = null);
+Task<CategoryDto?> GetByIdAsync(Guid id);
+Task<CategoryDto> CreateAsync(CreateCategoryRequest request);
+Task UpdateAsync(Guid id, UpdateCategoryRequest request);
+Task DeleteAsync(Guid id);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductAttributeGroupService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IProductAttributeGroupService
+{
+Task<ProductAttributeGroupDto> CreateAsync(CreateAttributeGroupRequest request);
+Task UpdateAsync(Guid groupId, string newName, int sortOrder);
+Task DeleteAsync(Guid groupId);
+Task<List<ProductAttributeGroupDto>> GetByStoreTypeAsync(
+string storeTypeCode,
+Guid? tenantId = null);
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductAttributeTemplateService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IProductAttributeTemplateService
+{
+Task<ProductAttributeTemplateDto> CreatePlatformTemplateAsync(
+CreateAttributeTemplateRequest request);
+Task UpdatePlatformTemplateAsync(
+Guid templateId,
+UpdateAttributeTemplateRequest request);
+Task DeletePlatformTemplateAsync(Guid templateId);
+Task<ProductAttributeTemplateDto> OverridePlatformTemplateAsync(
+OverrideAttributeTemplateRequest request);
+Task<ProductAttributeTemplateDto> CreateTenantTemplateAsync(
+CreateAttributeTemplateRequest request);
+Task UpdateTenantTemplateAsync(
+Guid templateId,
+Guid tenantId,
+UpdateAttributeTemplateRequest request);
+Task DeleteTenantTemplateAsync(Guid templateId, Guid tenantId);
+Task AssignTemplateAsync(AssignTemplateRequest request);
+Task UnassignTemplateAsync(
+Guid tenantId,
+Guid? storeId,
+Guid templateId);
+Task SetStoreAttributeOverrideAsync(StoreAttributeOverrideRequest request);
+Task<List<ProductAttributeGroupDto>> GetPlatformTemplatesAsync(
+string storeTypeCode);
+Task<List<ResolvedAttributeDto>> GetResolvedAttributesAsync(
+Guid storeId,
+Guid tenantId,
+string storeTypeCode);
+Task<List<ProductAttributeTemplateDto>> GetTenantTemplatesAsync(
+Guid tenantId,
+string storeTypeCode);
+}
+

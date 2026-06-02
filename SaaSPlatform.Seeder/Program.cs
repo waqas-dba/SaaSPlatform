@@ -17,10 +17,8 @@ using Microsoft.Extensions.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// ==========================================
-// CONFIGURATION
-// ==========================================
 var connStr = builder.Configuration.GetConnectionString("Postgres")!;
+
 var encryptionKey = builder.Configuration["EncryptionKey"]
     ?? throw new InvalidOperationException(
         "EncryptionKey is missing from configuration.");
@@ -30,20 +28,11 @@ Console.WriteLine("  SaaS PLATFORM DATABASE SEEDER");
 Console.WriteLine("==============================================");
 Console.WriteLine();
 
-// ==========================================
-// LOGGING
-// ==========================================
 builder.Services.AddLogging();
 
-// ==========================================
-// ENCRYPTION SERVICE
-// ==========================================
 builder.Services.AddSingleton<IEncryptionService>(sp =>
     new EncryptionService(encryptionKey));
 
-// ==========================================
-// DATABASE CONTEXTS
-// ==========================================
 builder.Services.AddDbContext<IamDbContext>(options =>
     options.UseNpgsql(connStr));
 
@@ -53,13 +42,9 @@ builder.Services.AddDbContext<TenantDbContext>(options =>
 builder.Services.AddDbContext<SubscriptionDbContext>(options =>
     options.UseNpgsql(connStr));
 
-// ** NEW ** Catalog context
 builder.Services.AddDbContext<CatalogDbContext>(options =>
     options.UseNpgsql(connStr));
 
-// ==========================================
-// IAM OPTIONS — NO BYPASS
-// ==========================================
 builder.Services.AddSingleton(new IamOptions
 {
     RunMigrationsOnBootstrap = true,
@@ -69,53 +54,43 @@ builder.Services.AddSingleton(new IamOptions
     RequireImpersonationForCrossTenant = true
 });
 
-// ==========================================
-// SERVICES FOR SEEDING
-// ==========================================
+// IAM sub-seeders (consumed by IamBootstrap)
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-
-// ==========================================
-// SEEDERS
-// ==========================================
 builder.Services.AddScoped<PermissionSeeder>();
 builder.Services.AddScoped<RoleSeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<RolePermissionSeeder>();
 builder.Services.AddScoped<UserRoleSeeder>();
+
+// IamBootstrap orchestrates all IAM seeding and migration in the correct order
+builder.Services.AddScoped<IamBootstrap>();
+
+// Other module seeders
 builder.Services.AddScoped<StoreTypeSeeder>();
 builder.Services.AddScoped<TenantSeeder>();
 builder.Services.AddScoped<SubscriptionSeeder>();
-builder.Services.AddScoped<AttributeTemplateSeeder>();   // ** NEW **
-builder.Services.AddScoped<IamBootstrap>();              // (optional, not used)
+builder.Services.AddScoped<AttributeTemplateSeeder>();
 
-// ==========================================
-// BUILD HOST
-// ==========================================
 var app = builder.Build();
 
-// ==========================================
-// EXECUTE SEEDING
-// ==========================================
 using var scope = app.Services.CreateScope();
 var services = scope.ServiceProvider;
 var logger = services.GetRequiredService<ILogger<Program>>();
 
 try
 {
-    // ==========================================
-    // STEP 1: TEST CONNECTION
-    // ==========================================
     logger.LogInformation("Testing database connection...");
 
     var iamDb = services.GetRequiredService<IamDbContext>();
     var tenantDb = services.GetRequiredService<TenantDbContext>();
     var subDb = services.GetRequiredService<SubscriptionDbContext>();
-    var catalogDb = services.GetRequiredService<CatalogDbContext>();   // ** NEW **
+    var catalogDb = services.GetRequiredService<CatalogDbContext>();
 
-    var canConnect = await iamDb.Database.CanConnectAsync();
-    if (!canConnect)
+    if (!await iamDb.Database.CanConnectAsync())
     {
-        logger.LogCritical("Cannot connect to database. Check your connection string and ensure PostgreSQL is running.");
+        logger.LogCritical(
+            "Cannot connect to database. " +
+            "Check your connection string and ensure PostgreSQL is running.");
         Console.WriteLine();
         Console.WriteLine("ERROR: Database connection failed.");
         Console.WriteLine($"Connection string: {connStr}");
@@ -124,17 +99,10 @@ try
 
     logger.LogInformation("Database connection successful.");
 
-    // ==========================================
-    // STEP 2: APPLY MIGRATIONS
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  APPLYING MIGRATIONS");
     Console.WriteLine("==============================================");
-
-    logger.LogInformation("Applying IAM migrations...");
-    await iamDb.Database.MigrateAsync();
-    logger.LogInformation("IAM migrations applied successfully.");
 
     logger.LogInformation("Applying Tenant migrations...");
     await tenantDb.Database.MigrateAsync();
@@ -144,14 +112,10 @@ try
     await subDb.Database.MigrateAsync();
     logger.LogInformation("Subscription migrations applied successfully.");
 
-    // ** NEW ** Apply Catalog migrations
     logger.LogInformation("Applying Catalog migrations...");
     await catalogDb.Database.MigrateAsync();
     logger.LogInformation("Catalog migrations applied successfully.");
 
-    // ==========================================
-    // STEP 3: SEED STORE TYPES FIRST
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING STORE TYPES");
@@ -161,9 +125,6 @@ try
     await storeTypeSeeder.SeedAsync();
     logger.LogInformation("Store types seeded successfully.");
 
-    // ==========================================
-    // STEP 4: SEED TENANTS (after StoreTypes)
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING TENANTS");
@@ -173,9 +134,6 @@ try
     await tenantSeeder.SeedAsync();
     logger.LogInformation("Tenants seeded successfully.");
 
-    // ==========================================
-    // STEP 5: SEED SUBSCRIPTION PLANS
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING SUBSCRIPTION PLANS");
@@ -185,42 +143,17 @@ try
     await subscriptionSeeder.SeedAsync();
     logger.LogInformation("Subscription plans seeded successfully.");
 
-    // ==========================================
-    // STEP 6: IAM BOOTSTRAP
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
-    Console.WriteLine("  IAM BOOTSTRAP");
+    Console.WriteLine("  IAM BOOTSTRAP (migrations + seeding)");
     Console.WriteLine("==============================================");
 
-    logger.LogInformation("Seeding permissions...");
-    var permissionSeeder = services.GetRequiredService<PermissionSeeder>();
-    await permissionSeeder.SeedAsync();
-    logger.LogInformation("Permissions seeded successfully.");
+    // IamBootstrap applies IAM migrations (controlled by RunMigrationsOnBootstrap)
+    // then seeds permissions, roles, users, role-permissions, and user-roles
+    // in the correct dependency order — no manual sub-seeder calls needed.
+    var iamBootstrap = services.GetRequiredService<IamBootstrap>();
+    await iamBootstrap.RunAsync();
 
-    logger.LogInformation("Seeding roles (PlatformAdmin)...");
-    var roleSeeder = services.GetRequiredService<RoleSeeder>();
-    await roleSeeder.SeedAsync();
-    logger.LogInformation("Roles seeded successfully.");
-
-    logger.LogInformation("Seeding default admin user...");
-    var userSeeder = services.GetRequiredService<UserSeeder>();
-    await userSeeder.SeedAsync();
-    logger.LogInformation("Default admin user seeded successfully.");
-
-    logger.LogInformation("Assigning permissions to PlatformAdmin role...");
-    var rolePermissionSeeder = services.GetRequiredService<RolePermissionSeeder>();
-    await rolePermissionSeeder.SeedAsync();
-    logger.LogInformation("Role permissions assigned successfully.");
-
-    logger.LogInformation("Assigning PlatformAdmin role to default user...");
-    var userRoleSeeder = services.GetRequiredService<UserRoleSeeder>();
-    await userRoleSeeder.SeedAsync();
-    logger.LogInformation("User role assigned successfully.");
-
-    // ==========================================
-    // STEP 7: CATALOG SEED DATA (attribute templates)
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING CATALOG ATTRIBUTE TEMPLATES");
@@ -230,9 +163,6 @@ try
     await catalogSeeder.SeedAsync();
     logger.LogInformation("Catalog attribute templates seeded successfully.");
 
-    // ==========================================
-    // SUMMARY
-    // ==========================================
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  DATABASE IS READY");
@@ -262,17 +192,14 @@ try
 catch (Exception ex)
 {
     logger.LogCritical(ex, "Database bootstrap failed: {Message}", ex.Message);
-
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  BOOTSTRAP FAILED");
     Console.WriteLine("==============================================");
     Console.WriteLine($"Error: {ex.Message}");
     Console.WriteLine();
-
     if (ex.InnerException != null)
         Console.WriteLine($"Inner: {ex.InnerException.Message}");
-
     Console.WriteLine();
     throw;
 }

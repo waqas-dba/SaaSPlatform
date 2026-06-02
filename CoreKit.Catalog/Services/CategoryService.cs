@@ -1,5 +1,4 @@
-﻿// CoreKit.Catalog/Services/CategoryService.cs
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.Catalog.Persistence;
@@ -23,7 +22,8 @@ public class CategoryService : ICategoryService
 
     public async Task<List<CategoryDto>> GetByTenantAsync(
         Guid tenantId,
-        Guid? storeId = null)
+        Guid? storeId = null,
+        CancellationToken ct = default)
     {
         var query = _db.Categories
             .Where(c => c.TenantId == tenantId &&
@@ -32,8 +32,13 @@ public class CategoryService : ICategoryService
 
         return await query
             .Select(c => MapToDto(c))
-            .ToListAsync();
+            .ToListAsync(ct);
     }
+
+    // Keep non-ct overload to satisfy existing interface contract
+    Task<List<CategoryDto>> ICategoryService.GetByTenantAsync(
+        Guid tenantId, Guid? storeId)
+        => GetByTenantAsync(tenantId, storeId, CancellationToken.None);
 
     public async Task<CategoryDto?> GetByIdAsync(Guid id)
     {
@@ -46,7 +51,6 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request)
     {
-        // Enforce plan-level category depth limit before resolving parent.
         if (_planLimit is not null && request.ParentCategoryId.HasValue)
         {
             var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(request.TenantId);
@@ -59,20 +63,16 @@ public class CategoryService : ICategoryService
 
                 if (parentLevel >= maxLevel)
                     throw new ForbiddenException(
-                        $"Category depth limited to {maxLevel} level(s) by your subscription.");
+                        $"Category depth limited to {maxLevel} level(s) " +
+                        "by your subscription.");
             }
         }
 
-        // FIX: Removed dead Level = 2 assignment that was immediately
-        // overwritten by the parent lookup below. The level is now set
-        // in exactly one place: parent.Level + 1 (or 1 for root categories).
         int level = 1;
-
         if (request.ParentCategoryId.HasValue)
         {
             var parent = await _db.Categories.FindAsync(request.ParentCategoryId.Value)
                 ?? throw new KeyNotFoundException("Parent category not found.");
-
             level = parent.Level + 1;
         }
 
@@ -91,7 +91,6 @@ public class CategoryService : ICategoryService
 
         _db.Categories.Add(category);
         await _db.SaveChangesAsync();
-
         return MapToDto(category);
     }
 

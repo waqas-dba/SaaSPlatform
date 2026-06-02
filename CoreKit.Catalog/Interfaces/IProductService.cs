@@ -1,5 +1,4 @@
-﻿// CoreKit.Catalog/Interfaces/IProductService.cs
-using CoreKit.Catalog.Models;
+﻿using CoreKit.Catalog.Models;
 
 namespace CoreKit.Catalog.Interfaces;
 

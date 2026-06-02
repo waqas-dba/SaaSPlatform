@@ -1,6 +1,4 @@
-﻿// CoreKit.Catalog/Services/ProductVariantService.cs
-
-using CoreKit.Catalog.Abstractions;
+﻿using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
@@ -27,7 +25,7 @@ public class ProductVariantService : IProductVariantService
         return await _db.ProductVariants
             .Where(v => v.ProductId == productId)
             .Include(v => v.AttributeValues)
-                .ThenInclude(av => av.Template)
+            .ThenInclude(av => av.Template)
             .Select(v => MapToDto(v))
             .ToListAsync();
     }
@@ -36,7 +34,7 @@ public class ProductVariantService : IProductVariantService
     {
         var variant = await _db.ProductVariants
             .Include(v => v.AttributeValues)
-                .ThenInclude(av => av.Template)
+            .ThenInclude(av => av.Template)
             .FirstOrDefaultAsync(v => v.Id == id);
 
         return variant is null ? null : MapToDto(variant);
@@ -65,7 +63,6 @@ public class ProductVariantService : IProductVariantService
         {
             var template = await ResolveVariantTemplateAsync(
                 attr, storeInfo.StoreTypeCode);
-
             variant.AttributeValues.Add(new VariantAttributeValue
             {
                 Id = Guid.NewGuid(),
@@ -77,7 +74,6 @@ public class ProductVariantService : IProductVariantService
         _db.ProductVariants.Add(variant);
         await _db.SaveChangesAsync();
 
-        // Reload navigations so Template names are available for MapToDto.
         await _db.Entry(variant)
             .Collection(v => v.AttributeValues)
             .Query()
@@ -99,18 +95,6 @@ public class ProductVariantService : IProductVariantService
 
         if (request.Attributes is not null)
         {
-            // Remove from the DbSet first so EF tracks the deletes, then clear
-            // the in-memory collection, then add the replacements.
-            // Guard the flush: if the collection is empty there is nothing to
-            // delete and the round-trip to the DB would be wasted.
-            if (variant.AttributeValues.Any())
-            {
-                _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
-                await _db.SaveChangesAsync();
-            }
-
-            variant.AttributeValues.Clear();
-
             var product = await _db.Products
                 .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
                 ?? throw new KeyNotFoundException("Product not found.");
@@ -118,21 +102,39 @@ public class ProductVariantService : IProductVariantService
             var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
                 ?? throw new KeyNotFoundException("Store not found.");
 
-            foreach (var attr in request.Attributes)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
             {
-                var template = await ResolveVariantTemplateAsync(
-                    attr, storeInfo.StoreTypeCode);
+                if (variant.AttributeValues.Any())
+                    _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
 
-                variant.AttributeValues.Add(new VariantAttributeValue
+                variant.AttributeValues.Clear();
+
+                foreach (var attr in request.Attributes)
                 {
-                    Id = Guid.NewGuid(),
-                    TemplateId = template.Id,
-                    Value = attr.Value
-                });
+                    var template = await ResolveVariantTemplateAsync(
+                        attr, storeInfo.StoreTypeCode);
+                    variant.AttributeValues.Add(new VariantAttributeValue
+                    {
+                        Id = Guid.NewGuid(),
+                        TemplateId = template.Id,
+                        Value = attr.Value
+                    });
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
             }
         }
-
-        await _db.SaveChangesAsync();
+        else
+        {
+            await _db.SaveChangesAsync();
+        }
     }
 
     public async Task DeleteAsync(Guid id)
@@ -144,7 +146,6 @@ public class ProductVariantService : IProductVariantService
         await _db.SaveChangesAsync();
     }
 
-    // Prefers TemplateId; falls back to Name+StoreTypeCode for legacy callers.
     private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
         VariantAttributeItem attr,
         string storeTypeCode)

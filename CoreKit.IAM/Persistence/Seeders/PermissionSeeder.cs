@@ -13,12 +13,11 @@ public sealed class PermissionSeeder
 
     public async Task SeedAsync()
     {
-        // ── Ensure every required module exists (idempotent) ──────────────
+        // Ensure required modules exist (idempotent)
         var moduleMap = new Dictionary<string, PermissionModule>();
 
         foreach (var permissionName in Permissions.All)
         {
-            // Determine module code from permission prefix
             var moduleCode = GetModuleCode(permissionName);
 
             if (!moduleMap.ContainsKey(moduleCode))
@@ -46,13 +45,13 @@ public sealed class PermissionSeeder
                         Code = moduleCode
                     };
                     _db.PermissionModules.Add(module);
-                    await _db.SaveChangesAsync();   // ensure module exists before permissions
+                    await _db.SaveChangesAsync();
                 }
                 moduleMap[moduleCode] = module;
             }
         }
 
-        // ── Seed permissions under the correct module ────────────────────
+        // Seed permissions under the correct module
         foreach (var permissionName in Permissions.All)
         {
             var exists = await _db.Permissions
@@ -74,13 +73,9 @@ public sealed class PermissionSeeder
         await _db.SaveChangesAsync();
     }
 
-    // ── Simple prefix → module code mapping ──────────────────────────────
     private static string GetModuleCode(string permissionName)
     {
-        // Catalog module permissions
         if (permissionName.StartsWith("catalog.")) return "catalog";
-
-        // All other permissions (including platform.*) belong to IAM for now
         return "iam";
     }
 }

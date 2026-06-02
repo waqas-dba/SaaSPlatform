@@ -11,23 +11,19 @@ using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using SaaSPlatform.Admin.Api.Services;
 using SaaSPlatform.Admin.Api.Validators;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ==========================================
-// RATE LIMITING
-// ==========================================
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
     options.OnRejected = async (ctx, token) =>
     {
-        ctx.HttpContext.Response.StatusCode =
-            StatusCodes.Status429TooManyRequests;
+        ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         ctx.HttpContext.Response.ContentType = "application/json";
 
         var retryAfter = ctx.Lease.TryGetMetadata(
@@ -35,8 +31,7 @@ builder.Services.AddRateLimiter(options =>
             ? (int)retryDelay.TotalSeconds
             : 60;
 
-        ctx.HttpContext.Response.Headers["Retry-After"] =
-            retryAfter.ToString();
+        ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
 
         await ctx.HttpContext.Response.WriteAsync(
             $"{{\"success\":false," +
@@ -53,33 +48,17 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// ==========================================
-// VALIDATION
-// ==========================================
 builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
-
-// ==========================================
-// HTTP CONTEXT
-// ==========================================
 builder.Services.AddHttpContextAccessor();
 
-// ==========================================
-// DATABASE CONNECTION
-// ==========================================
 var connStr = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "Connection string 'Postgres' is missing from configuration.");
 
-// ==========================================
-// IAM — NO BYPASS, PURE PERMISSION-BASED
-// ==========================================
 builder.Services.AddCoreKitIAM(
     connStr,
     builder.Configuration.GetSection("Jwt"));
 
-// ==========================================
-// TENANT KIT
-// ==========================================
 builder.Services.AddTenantKit(connStr, options =>
 {
     options.AutoApproveTenants = false;
@@ -87,35 +66,21 @@ builder.Services.AddTenantKit(connStr, options =>
     options.EnableLegalInfo = true;
 });
 
-// ==========================================
-// Subscription KIT
-// ==========================================
-
 builder.Services.AddSubscriptionModule(connStr);
-
-// ==========================================
-// CONTROLLERS
-// ==========================================
 builder.Services.AddCoreKitControllers();
-
-// ==========================================
-// STARTUP CONFIGURATION VALIDATION
-// ==========================================
 builder.ValidateCoreKitConfiguration();
 
+// Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
+// The per-project SaaSPlatform.Admin.Api/Services/TenantStoreInfoProvider.cs
+// must be deleted — it is now superseded by this shared implementation.
 builder.Services.AddCatalogModule(connStr, services =>
 {
-    // Provide a working IStoreInfoProvider using the Tenant module's repository.
-    // We'll add the implementation class in a moment.
     services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
-// ==========================================
-// KESTREL
-// ==========================================
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
 });
 
 builder.Services.Configure<JsonOptions>(options =>
@@ -123,50 +88,32 @@ builder.Services.Configure<JsonOptions>(options =>
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 });
 
-// ==========================================
-// BUILD APP
-// ==========================================
 var app = builder.Build();
 
-// ==========================================
-// SECURITY HEADERS
-// ==========================================
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Frame-Options"] = "DENY";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
-    context.Response.Headers["X-XSS-Protection"] = "0"; // Deprecated, but some scanners still check
+    context.Response.Headers["X-XSS-Protection"] = "0";
     context.Response.Headers["Permissions-Policy"] =
         "camera=(), microphone=(), geolocation=(), interest-cohort=()";
-
     await next();
 });
 
-// ==========================================
-// BOOT CHECK
-// ==========================================
 await app.PerformBootCheckAsync();
 
-// ==========================================
-// MIDDLEWARE PIPELINE
-// ==========================================
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
+
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
-// ==========================================
-// ENDPOINTS
-// ==========================================
 app.MapGet("/ping", () => "pong");
 app.MapControllers();
 
-// ==========================================
-// RUN
-// ==========================================
 app.Run();
