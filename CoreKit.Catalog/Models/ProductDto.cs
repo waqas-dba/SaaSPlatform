@@ -1,4 +1,4 @@
-﻿// ProductDto.cs
+﻿// CoreKit.Catalog/Models/ProductDto.cs
 namespace CoreKit.Catalog.Models;
 
 public class ProductDto
@@ -15,9 +15,15 @@ public class ProductDto
     public bool TrackInventory { get; set; }
     public bool IsActive { get; set; }
     public Guid? AddonGroupId { get; set; }
+    public Guid? VariantGroupId { get; set; }
     public List<ProductImageDto> Images { get; set; } = new();
     public List<ProductAttributeValueDto> AttributeValues { get; set; } = new();
     public List<ProductVariantDto> Variants { get; set; } = new();
-    public List<AddonDto> Addons { get; set; } = new();
+
+    /// <summary>Full group with its addons — ready for the UI to render.</summary>
     public AddonGroupDto? AddonGroup { get; set; }
+
+    /// <summary>Full group with its options — UI uses this to build
+    /// the variant picker without a separate request.</summary>
+    public VariantGroupDto? VariantGroup { get; set; }
 }

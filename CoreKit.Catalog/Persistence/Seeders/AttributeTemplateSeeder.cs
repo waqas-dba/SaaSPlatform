@@ -18,19 +18,44 @@ public sealed class AttributeTemplateSeeder
 
     public async Task SeedAsync(CancellationToken ct = default)
     {
-        // Skip if platform templates already exist.
-        if (await _db.AttributeTemplates.AnyAsync(t => t.TenantId == null, ct))
-            return;
+        // Count instead of AnyAsync so a partial seed doesn't silently
+        // skip the remaining templates.
+        var existingStoreTypes = await _db.AttributeTemplates
+            .Where(t => t.TenantId == null)
+            .Select(t => t.StoreTypeCode)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var allStoreTypes = new[]
+        {
+        "restaurant", "grocery", "clothing", "pharmacy",
+        "electronics", "hotel", "salon", "bakery", "cafe", "bookstore"
+    };
+
+        var missing = allStoreTypes
+            .Except(existingStoreTypes)
+            .ToHashSet();
+
+        if (missing.Count == 0) return;
 
         var groups = BuildGroups();
-        _db.AttributeGroups.AddRange(groups.Values.SelectMany(v => v));
-
         var templates = BuildTemplates(groups);
-        _db.AttributeTemplates.AddRange(templates);
+
+        // Only add groups and templates for store types not yet seeded
+        var groupsToAdd = groups
+            .Where(kvp => missing.Contains(kvp.Key))
+            .SelectMany(kvp => kvp.Value)
+            .ToList();
+
+        var templatesToAdd = templates
+            .Where(t => missing.Contains(t.StoreTypeCode))
+            .ToList();
+
+        _db.AttributeGroups.AddRange(groupsToAdd);
+        _db.AttributeTemplates.AddRange(templatesToAdd);
 
         await _db.SaveChangesAsync(ct);
     }
-
     // ── Groups per store type ─────────────────────────────────────────────
 
     private static Dictionary<string, List<ProductAttributeGroup>> BuildGroups() =>

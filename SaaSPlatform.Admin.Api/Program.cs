@@ -20,7 +20,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
     options.OnRejected = async (ctx, token) =>
     {
         ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -44,6 +43,13 @@ builder.Services.AddRateLimiter(options =>
     options.AddFixedWindowLimiter("admin-operations", cfg =>
     {
         cfg.PermitLimit = 30;
+        cfg.Window = TimeSpan.FromMinutes(1);
+    });
+
+    // Required by ProductsController (Admin) which uses [EnableRateLimiting("product-create")]
+    options.AddFixedWindowLimiter("product-create", cfg =>
+    {
+        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 20;
         cfg.Window = TimeSpan.FromMinutes(1);
     });
 });
@@ -88,7 +94,41 @@ builder.Services.Configure<JsonOptions>(options =>
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 });
 
+// In the service configuration (before builder.Build()):
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.SuppressModelStateInvalidFilter = true;
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        // This catches both body and route/query parameter validation errors
+        var errors = context.ModelState
+            .Where(e => e.Value?.Errors.Count > 0)
+            .SelectMany(e => e.Value!.Errors.Select(x => new
+            {
+                field = e.Key,
+                message = x.ErrorMessage
+            }))
+            .ToList();
+
+        return new ObjectResult(new
+        {
+            success = false,
+            errorCode = "VALIDATION_ERROR",
+            message = "One or more validation errors occurred.",
+            errors
+        })
+        {
+            StatusCode = 422
+        };
+    };
+});
+
 var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
 
 app.Use(async (context, next) =>
 {

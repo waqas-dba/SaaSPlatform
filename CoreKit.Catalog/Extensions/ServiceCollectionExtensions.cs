@@ -12,6 +12,7 @@ namespace CoreKit.Catalog.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    // CoreKit.Catalog/Extensions/ServiceCollectionExtensions.cs
     public static IServiceCollection AddCatalogModule(
         this IServiceCollection services,
         string connectionString,
@@ -24,13 +25,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductVariantService, ProductVariantService>();
         services.AddScoped<IProductAttributeTemplateService,
-                           ProductAttributeTemplateService>();
+            ProductAttributeTemplateService>();
         services.AddScoped<IProductAttributeGroupService,
-                           ProductAttributeGroupService>();
+            ProductAttributeGroupService>();
         services.AddScoped<IAddonService, AddonService>();
+        services.AddScoped<IVariantAttributeTemplateService,
+            VariantAttributeTemplateService>();
+        services.AddScoped<IVariantGroupService, VariantGroupService>();
 
-        // The host MUST supply a working IStoreInfoProvider (e.g., TenantDbStoreInfoProvider
-        // or an HTTP client). No fallback is provided because the default was broken.
         configureStoreInfo(services);
 
         services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();

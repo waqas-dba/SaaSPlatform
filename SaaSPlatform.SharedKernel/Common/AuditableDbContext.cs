@@ -1,5 +1,6 @@
 ﻿using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace CoreKit.SharedKernel.Common;
 
@@ -17,47 +18,58 @@ public abstract class AuditableDbContext : DbContext
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        StampAuditFields();
+        ApplyAuditRules();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override async Task<int> SaveChangesAsync(
+    public override Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default)
     {
-        StampAuditFields();
-        return await base.SaveChangesAsync(cancellationToken);
+        ApplyAuditRules();
+        return base.SaveChangesAsync(cancellationToken);
     }
 
-    private void StampAuditFields()
+    private void ApplyAuditRules()
     {
-        // Early exit — avoids iterating the change tracker on every save
-        if (!ChangeTracker.HasChanges()) return;
-
         var utcNow = DateTime.UtcNow;
-
-        foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
+        foreach (var entry in ChangeTracker.Entries())
         {
-           
-           
-            switch (entry.State)
+            if (entry.State == EntityState.Unchanged)
+                continue;
+
+            if (entry.Entity is AuditableEntity auditable)
             {
-                case EntityState.Added:
-                    entry.Entity.CreatedAt = utcNow;
-                    entry.Entity.CreatedBy = _currentUser?.UserId;
-                    break;
+                if (entry.State == EntityState.Added)
+                {
+                    auditable.CreatedAt = utcNow;
+                    auditable.CreatedBy = _currentUser?.UserId;
+                }
+                if (entry.State == EntityState.Modified)
+                {
+                    auditable.UpdatedAt = utcNow;
+                    auditable.UpdatedBy = _currentUser?.UserId;
+                }
+            }
 
-                case EntityState.Modified:
-                    entry.Entity.UpdatedAt = utcNow ;
-                    entry.Entity.UpdatedBy = _currentUser?.UserId;
+            if (entry.Entity is ISoftDelete softDelete)
+            {
+                if (entry.State == EntityState.Deleted)
+                {
+                    entry.State = EntityState.Modified;
+                    softDelete.IsDeleted = true;
+                    softDelete.DeletedAtUtc = utcNow;
+                    softDelete.DeletedBy = _currentUser?.UserId;
+                }
+            }
 
-                    if (entry.Entity is ISoftDelete deletable &&
-                        entry.Property(nameof(ISoftDelete.IsDeleted)).IsModified &&
-                        deletable.IsDeleted)
-                    {
-                        deletable.DeletedAtUtc = utcNow;
-                        deletable.DeletedBy = _currentUser?.UserId;
-                    }
-                    break;
+            if (entry.Entity is ITenantScoped tenantEntity)
+            {
+                if (entry.State == EntityState.Added &&
+                    tenantEntity.TenantId == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        $"TenantId is required for {entry.Entity.GetType().Name}");
+                }
             }
         }
     }
@@ -68,29 +80,33 @@ public abstract class AuditableDbContext : DbContext
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            if (typeof(ISoftDelete).IsAssignableFrom(entityType.ClrType))
-                modelBuilder.Entity(entityType.ClrType)
-                    .HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
+            var clrType = entityType.ClrType;
 
-            if (typeof(AuditableEntity).IsAssignableFrom(entityType.ClrType))
-                modelBuilder.Entity(entityType.ClrType)
-                    .Property<uint>("RowVersion")
+            if (typeof(ISoftDelete).IsAssignableFrom(clrType))
+            {
+                modelBuilder.Entity(clrType)
+                    .HasQueryFilter(BuildSoftDeleteFilter(clrType));
+            }
+
+            // PostgreSQL xmin as concurrency token (optimistic concurrency)
+            var rowVersionProp = clrType.GetProperty(nameof(AuditableEntity.RowVersion));
+            if (rowVersionProp != null)
+            {
+                modelBuilder.Entity(clrType)
+                    .Property<uint>(nameof(AuditableEntity.RowVersion))
                     .IsRowVersion()
                     .HasColumnName("xmin")
                     .HasColumnType("xid")
                     .ValueGeneratedOnAddOrUpdate();
+            }
         }
     }
 
-    private static System.Linq.Expressions.LambdaExpression
-        BuildSoftDeleteFilter(Type entityType)
+    private static LambdaExpression BuildSoftDeleteFilter(Type entityType)
     {
-        var param = System.Linq.Expressions.Expression.Parameter(entityType, "e");
-        var property = System.Linq.Expressions.Expression.Property(
-            param, nameof(ISoftDelete.IsDeleted));
-        var condition = System.Linq.Expressions.Expression.Equal(
-            property,
-            System.Linq.Expressions.Expression.Constant(false));
-        return System.Linq.Expressions.Expression.Lambda(condition, param);
+        var param = Expression.Parameter(entityType, "e");
+        var prop = Expression.Property(param, nameof(ISoftDelete.IsDeleted));
+        var condition = Expression.Equal(prop, Expression.Constant(false));
+        return Expression.Lambda(condition, param);
     }
 }

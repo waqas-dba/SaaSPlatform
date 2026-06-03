@@ -11,17 +11,16 @@ namespace CoreKit.Subscription.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    // CoreKit.Subscription/Extensions/ServiceCollectionExtensions.cs
     public static IServiceCollection AddSubscriptionModule(
         this IServiceCollection services,
         string connectionString)
     {
-        // BUG FIX: AuditableDbContext now requires ICurrentUser to stamp CreatedBy/UpdatedBy.
-        // Use AddDbContext overload that resolves ICurrentUser from the DI scope so audit
-        // fields are populated with the authenticated user's ID on every SaveChanges call.
         services.AddDbContext<SubscriptionDbContext>((sp, options) =>
-        {
-            options.UseNpgsql(connectionString);
-        });
+            options.UseNpgsql(connectionString));
+
+        // Ensure memory cache is available (safe to call multiple times)
+        services.AddMemoryCache();
 
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ITenantSubscriptionRepository, TenantSubscriptionRepository>();

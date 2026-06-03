@@ -25,7 +25,7 @@ public class ProductVariantService : IProductVariantService
         return await _db.ProductVariants
             .Where(v => v.ProductId == productId)
             .Include(v => v.AttributeValues)
-            .ThenInclude(av => av.Template)
+                .ThenInclude(av => av.Template)
             .Select(v => MapToDto(v))
             .ToListAsync();
     }
@@ -34,7 +34,7 @@ public class ProductVariantService : IProductVariantService
     {
         var variant = await _db.ProductVariants
             .Include(v => v.AttributeValues)
-            .ThenInclude(av => av.Template)
+                .ThenInclude(av => av.Template)
             .FirstOrDefaultAsync(v => v.Id == id);
 
         return variant is null ? null : MapToDto(variant);
@@ -48,7 +48,8 @@ public class ProductVariantService : IProductVariantService
             .FirstOrDefaultAsync(p => p.Id == productId)
             ?? throw new KeyNotFoundException("Product not found.");
 
-        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
+        var storeInfo = await _storeInfoProvider
+            .GetStoreInfoAsync(product.StoreId)
             ?? throw new KeyNotFoundException("Store not found.");
 
         var variant = new ProductVariant
@@ -63,6 +64,7 @@ public class ProductVariantService : IProductVariantService
         {
             var template = await ResolveVariantTemplateAsync(
                 attr, storeInfo.StoreTypeCode);
+
             variant.AttributeValues.Add(new VariantAttributeValue
             {
                 Id = Guid.NewGuid(),
@@ -85,28 +87,34 @@ public class ProductVariantService : IProductVariantService
 
     public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
     {
-        var variant = await _db.ProductVariants
-            .Include(v => v.AttributeValues)
-            .FirstOrDefaultAsync(v => v.Id == id)
-            ?? throw new KeyNotFoundException("Variant not found.");
-
-        if (request.Sku is not null) variant.Sku = request.Sku;
-        if (request.Price.HasValue) variant.Price = request.Price.Value;
-
-        if (request.Attributes is not null)
+        // Single transaction covering ALL mutations — SKU/price + attributes
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
         {
-            var product = await _db.Products
-                .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
-                ?? throw new KeyNotFoundException("Product not found.");
+            var variant = await _db.ProductVariants
+                .Include(v => v.AttributeValues)
+                .FirstOrDefaultAsync(v => v.Id == id)
+                ?? throw new KeyNotFoundException("Variant not found.");
 
-            var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId)
-                ?? throw new KeyNotFoundException("Store not found.");
+            if (request.Sku is not null)
+                variant.Sku = request.Sku;
 
-            await using var tx = await _db.Database.BeginTransactionAsync();
-            try
+            if (request.Price.HasValue)
+                variant.Price = request.Price.Value;
+
+            if (request.Attributes is not null)
             {
+                var product = await _db.Products
+                    .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
+                    ?? throw new KeyNotFoundException("Product not found.");
+
+                var storeInfo = await _storeInfoProvider
+                    .GetStoreInfoAsync(product.StoreId)
+                    ?? throw new KeyNotFoundException("Store not found.");
+
                 if (variant.AttributeValues.Any())
-                    _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
+                    _db.VariantAttributeValues
+                        .RemoveRange(variant.AttributeValues);
 
                 variant.AttributeValues.Clear();
 
@@ -114,6 +122,7 @@ public class ProductVariantService : IProductVariantService
                 {
                     var template = await ResolveVariantTemplateAsync(
                         attr, storeInfo.StoreTypeCode);
+
                     variant.AttributeValues.Add(new VariantAttributeValue
                     {
                         Id = Guid.NewGuid(),
@@ -121,19 +130,16 @@ public class ProductVariantService : IProductVariantService
                         Value = attr.Value
                     });
                 }
+            }
 
-                await _db.SaveChangesAsync();
-                await tx.CommitAsync();
-            }
-            catch
-            {
-                await tx.RollbackAsync();
-                throw;
-            }
-        }
-        else
-        {
+            // One SaveChanges covers both scalar and attribute changes
             await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
         }
     }
 
@@ -173,10 +179,11 @@ public class ProductVariantService : IProductVariantService
         Sku = variant.Sku,
         Price = variant.Price,
         IsActive = variant.IsActive,
-        Attributes = variant.AttributeValues.Select(av => new VariantAttributeValueDto
-        {
-            Name = av.Template.Name,
-            Value = av.Value
-        }).ToList()
+        Attributes = variant.AttributeValues.Select(av =>
+            new VariantAttributeValueDto
+            {
+                Name = av.Template.Name,
+                Value = av.Value
+            }).ToList()
     };
 }

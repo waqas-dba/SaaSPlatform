@@ -7,6 +7,7 @@ using CoreKit.Infrastructure.Middleware;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
@@ -82,8 +83,42 @@ builder.Services.AddCatalogModule(connStr, services =>
     services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
+// In the service configuration (before builder.Build()):
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.SuppressModelStateInvalidFilter = true;
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        // This catches both body and route/query parameter validation errors
+        var errors = context.ModelState
+            .Where(e => e.Value?.Errors.Count > 0)
+            .SelectMany(e => e.Value!.Errors.Select(x => new
+            {
+                field = e.Key,
+                message = x.ErrorMessage
+            }))
+            .ToList();
+
+        return new ObjectResult(new
+        {
+            success = false,
+            errorCode = "VALIDATION_ERROR",
+            message = "One or more validation errors occurred.",
+            errors
+        })
+        {
+            StatusCode = 422
+        };
+    };
+});
+
 var app = builder.Build();
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+
+}
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Frame-Options"] = "DENY";

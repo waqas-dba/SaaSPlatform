@@ -1,12 +1,6 @@
 ﻿namespace CoreKit.SharedKernel.Common;
 
-/// <summary>
-/// Base entity for all entities.
-/// </summary>
 public abstract class BaseEntity
 {
-    /// <summary>
-    /// Primary key.
-    /// </summary>
-    public Guid Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
 }

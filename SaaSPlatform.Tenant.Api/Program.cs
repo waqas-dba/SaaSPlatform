@@ -7,122 +7,206 @@ using CoreKit.Infrastructure.Middleware;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
-var builder = WebApplication.CreateBuilder(args);
+namespace SaaSPlatform.Tenant.Api;
 
-builder.Services.AddRateLimiter(options =>
+public class Program
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-    options.OnRejected = async (ctx, token) =>
+    public static async Task Main(string[] args)
     {
-        ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        ctx.HttpContext.Response.ContentType = "application/json";
+        var builder = WebApplication.CreateBuilder(args);
 
-        var retryAfter = ctx.Lease.TryGetMetadata(
-            MetadataName.RetryAfter, out var retryDelay)
-            ? (int)retryDelay.TotalSeconds
-            : 60;
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-        ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
+            options.OnRejected = async (ctx, token) =>
+            {
+                ctx.HttpContext.Response.StatusCode =
+                    StatusCodes.Status429TooManyRequests;
 
-        await ctx.HttpContext.Response.WriteAsync(
-            $"{{\"success\":false," +
-            $"\"errorCode\":\"RATE_LIMITED\"," +
-            $"\"message\":\"Too many requests. " +
-            $"Please wait {retryAfter} seconds.\"}}",
-            token);
-    };
+                ctx.HttpContext.Response.ContentType =
+                    "application/json";
 
-    options.AddFixedWindowLimiter("store-create", cfg =>
-    {
-        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 50 : 10;
-        cfg.Window = TimeSpan.FromMinutes(1);
-    });
+                var retryAfter =
+                    ctx.Lease.TryGetMetadata(
+                        MetadataName.RetryAfter,
+                        out var retryDelay)
+                    ? (int)retryDelay.TotalSeconds
+                    : 60;
 
-    options.AddFixedWindowLimiter("store-update", cfg =>
-    {
-        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
-        cfg.Window = TimeSpan.FromMinutes(1);
-    });
+                ctx.HttpContext.Response.Headers["Retry-After"] =
+                    retryAfter.ToString();
 
-    options.AddFixedWindowLimiter("product-create", cfg =>
-    {
-        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
-        cfg.Window = TimeSpan.FromMinutes(1);
-    });
+                await ctx.HttpContext.Response.WriteAsync(
+                    $"{{\"success\":false," +
+                    $"\"errorCode\":\"RATE_LIMITED\"," +
+                    $"\"message\":\"Too many requests. " +
+                    $"Please wait {retryAfter} seconds.\"}}",
+                    token);
+            };
 
-    options.AddFixedWindowLimiter("product-update", cfg =>
-    {
-        cfg.PermitLimit = builder.Environment.IsDevelopment() ? 200 : 60;
-        cfg.Window = TimeSpan.FromMinutes(1);
-    });
-});
+            options.AddFixedWindowLimiter("store-create", cfg =>
+            {
+                cfg.PermitLimit =
+                    builder.Environment.IsDevelopment() ? 50 : 10;
 
-builder.Services.AddHttpContextAccessor();
+                cfg.Window = TimeSpan.FromMinutes(1);
+            });
 
-var connStr = builder.Configuration.GetConnectionString("Postgres")
-    ?? throw new InvalidOperationException(
-        "Connection string 'Postgres' is missing from configuration.");
+            options.AddFixedWindowLimiter("store-update", cfg =>
+            {
+                cfg.PermitLimit =
+                    builder.Environment.IsDevelopment() ? 100 : 30;
 
-builder.Services.AddCoreKitIAM(
-    connStr,
-    builder.Configuration.GetSection("Jwt"));
+                cfg.Window = TimeSpan.FromMinutes(1);
+            });
 
-builder.Services.AddTenantKit(connStr, options =>
-{
-    options.AutoApproveTenants = false;
-    options.AllowMultipleStores = true;
-    options.EnableLegalInfo = true;
-});
+            options.AddFixedWindowLimiter("product-create", cfg =>
+            {
+                cfg.PermitLimit =
+                    builder.Environment.IsDevelopment() ? 100 : 30;
 
-// Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
-// No per-project copy needed — fixes the duplication across all three API projects.
-builder.Services.AddCatalogModule(connStr, services =>
-{
-    services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
-});
+                cfg.Window = TimeSpan.FromMinutes(1);
+            });
 
-builder.Services.AddCoreKitControllers();
-builder.ValidateCoreKitConfiguration();
+            options.AddFixedWindowLimiter("product-update", cfg =>
+            {
+                cfg.PermitLimit =
+                    builder.Environment.IsDevelopment() ? 200 : 60;
 
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
-});
+                cfg.Window = TimeSpan.FromMinutes(1);
+            });
+        });
 
-var app = builder.Build();
+        builder.Services.AddHttpContextAccessor();
 
-app.Use(async (context, next) =>
-{
-    context.Response.Headers["X-Frame-Options"] = "DENY";
-    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
-    context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
-    context.Response.Headers["X-XSS-Protection"] = "0";
-    context.Response.Headers["Permissions-Policy"] =
-        "camera=(), microphone=(), geolocation=(), interest-cohort=()";
-    await next();
-});
+        var connStr =
+            builder.Configuration.GetConnectionString("Postgres")
+            ?? throw new InvalidOperationException(
+                "Connection string 'Postgres' is missing from configuration.");
 
-await app.PerformBootCheckAsync();
+        builder.Services.AddCoreKitIAM(
+            connStr,
+            builder.Configuration.GetSection("Jwt"));
 
-// Correct order: RequestTracing is outermost so it captures the full
-// request lifecycle including exceptions. ExceptionMiddleware sits inside
-// it so unhandled exceptions are both logged by tracing and formatted by
-// the exception handler.
-app.UseMiddleware<RequestTracingMiddleware>();
-app.UseMiddleware<ExceptionMiddleware>();
+        builder.Services.AddTenantKit(connStr, options =>
+        {
+            options.AutoApproveTenants = false;
+            options.AllowMultipleStores = true;
+            options.EnableLegalInfo = true;
+        });
 
-app.UseRouting();
-app.UseRateLimiter();
-app.UseAuthentication();
-app.UseMiddleware<TenantResolutionMiddleware>();
-app.UseAuthorization();
+        builder.Services.AddCatalogModule(connStr, services =>
+        {
+            services.AddScoped<IStoreInfoProvider,
+                TenantStoreInfoProvider>();
+        });
 
-app.MapGet("/ping", () => "pong");
-app.MapControllers();
+        builder.Services.AddCoreKitControllers();
 
-app.Run();
+        builder.ValidateCoreKitConfiguration();
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.Limits.MaxRequestBodySize =
+                10 * 1024 * 1024;
+        });
+        // In the service configuration (before builder.Build()):
+        builder.Services.Configure<ApiBehaviorOptions>(options =>
+        {
+            options.SuppressModelStateInvalidFilter = true;
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                // This catches both body and route/query parameter validation errors
+                var errors = context.ModelState
+                    .Where(e => e.Value?.Errors.Count > 0)
+                    .SelectMany(e => e.Value!.Errors.Select(x => new
+                    {
+                        field = e.Key,
+                        message = x.ErrorMessage
+                    }))
+                    .ToList();
+
+                return new ObjectResult(new
+                {
+                    success = false,
+                    errorCode = "VALIDATION_ERROR",
+                    message = "One or more validation errors occurred.",
+                    errors
+                })
+                {
+                    StatusCode = 422
+                };
+            };
+        });
+
+        var app = builder.Build();
+
+        // Reverse proxy support
+        app.UseForwardedHeaders(
+            new ForwardedHeadersOptions
+            {
+                ForwardedHeaders =
+                    ForwardedHeaders.XForwardedFor |
+                    ForwardedHeaders.XForwardedProto
+            });
+
+        // Production security
+        if (!app.Environment.IsDevelopment())
+        {
+            app.UseHsts();
+        }
+
+        app.UseHttpsRedirection();
+
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers["X-Frame-Options"] =
+                "DENY";
+
+            context.Response.Headers["X-Content-Type-Options"] =
+                "nosniff";
+
+            context.Response.Headers["Referrer-Policy"] =
+                "strict-origin-when-cross-origin";
+
+            context.Response.Headers["X-Permitted-Cross-Domain-Policies"] =
+                "none";
+
+            context.Response.Headers["X-XSS-Protection"] =
+                "0";
+
+            context.Response.Headers["Permissions-Policy"] =
+                "camera=(), microphone=(), geolocation=(), interest-cohort=()";
+
+            await next();
+        });
+
+        await app.PerformBootCheckAsync();
+
+        app.UseMiddleware<RequestTracingMiddleware>();
+
+        app.UseMiddleware<ExceptionMiddleware>();
+
+        app.UseRouting();
+
+        app.UseRateLimiter();
+
+        app.UseAuthentication();
+
+        app.UseMiddleware<TenantResolutionMiddleware>();
+
+        app.UseAuthorization();
+
+        app.MapGet("/ping", () => "pong");
+
+        app.MapControllers();
+
+        await app.RunAsync();
+    }
+}

@@ -2,6 +2,8 @@
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Helpers;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
@@ -36,31 +38,27 @@ public class StoreService : IStoreService
     }
 
     public async Task<StoreDto?> GetByIdAsync(
-        Guid storeId,
-        CancellationToken cancellationToken = default)
+     Guid storeId,
+     CancellationToken cancellationToken = default)
     {
+        // Single scope-resolution path for all callers.
+        // ResolveStoreScopeAsync already returns StoreScope.All for
+        // users with store.view_all or platform.stores.view.
         var storeScope = await ResolveStoreScopeAsync();
 
-        IQueryable<Store> query;
+        IQueryable<Store> query = _db.Stores.Include(x => x.StoreType);
 
-        if (_currentUser.HasPermission(Permissions.Platform.ViewAllStores) ||
-            _currentUser.HasPermission(Permissions.Store.ViewAll))
-        {
-            query = _db.Stores;
-        }
-        else
-        {
-            var tenantId = _tenantContext.TenantId;
-            query = _db.Stores.Where(x => x.TenantId == tenantId);
-        }
-
+        // Tenant filter: platform admins with All scope skip this
         if (!storeScope.IsAllStores)
         {
+            var tenantId = _tenantContext.TenantId;
+            if (tenantId.HasValue)
+                query = query.Where(x => x.TenantId == tenantId.Value);
+
             query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
         }
 
         var store = await query
-            .Include(x => x.StoreType)
             .FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
 
         return store == null ? null : Map(store);
@@ -100,8 +98,8 @@ public class StoreService : IStoreService
     }
 
     public async Task<StoreDto> CreateAsync(
-        CreateStoreRequest request,
-        CancellationToken cancellationToken = default)
+     CreateStoreRequest request,
+     CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
@@ -112,8 +110,11 @@ public class StoreService : IStoreService
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var lockKey = BitConverter.ToInt64(tenantId.ToByteArray(), 0);
+            // -------------------------------------------------------
+            // FIX: endian-safe advisory lock key
+            var lockKey = LockKeyHelper.GuidToLockKey(tenantId);   // was BitConverter.ToInt64(...)
             await _db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", lockKey);
+            // -------------------------------------------------------
 
             await EnforceStoreLimitAsync(tenantId, cancellationToken);
 

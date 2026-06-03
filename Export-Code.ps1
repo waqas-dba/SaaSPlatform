@@ -12,7 +12,7 @@ $AllFile = Join-Path $ExportFolder "ALL_CODE.txt"
 "" | Out-File $AllFile -Encoding utf8 -Force
 
 # ===== CHUNK SETTINGS =====
-$ChunkSize = 20000   # change to 60000 for DeepSeek
+$ChunkSize = 60000   # change to 60000 for DeepSeek
 $ChunkIndex = 1
 $CurrentSize = 0
 $CurrentChunkFile = Join-Path $ChunkFolder "Chunk_$ChunkIndex.txt"

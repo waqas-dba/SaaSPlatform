@@ -1,5 +1,4 @@
-﻿// SaaSPlatform.Tenant.Api/Controllers/ProductVariantsController.cs
-using CoreKit.Catalog.Interfaces;
+﻿using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
 using CoreKit.Infrastructure.Controllers;
@@ -26,7 +25,7 @@ public class ProductVariantsController : ApiControllerBase
         return Ok(variants);
     }
 
-    [HttpGet("{id}")]
+    [HttpGet("{id:guid}")]
     [RequiresPermission("catalog.products.view")]
     public async Task<IActionResult> GetById(Guid id)
     {
@@ -42,7 +41,7 @@ public class ProductVariantsController : ApiControllerBase
         return CreatedResponse(variant);
     }
 
-    [HttpPut("{id}")]
+    [HttpPut("{id:guid}")]
     [RequiresPermission("catalog.products.update")]
     public async Task<IActionResult> Update(Guid id, UpdateVariantRequest request)
     {
@@ -50,7 +49,7 @@ public class ProductVariantsController : ApiControllerBase
         return UpdatedResponse();
     }
 
-    [HttpDelete("{id}")]
+    [HttpDelete("{id:guid}")]
     [RequiresPermission("catalog.products.update")]
     public async Task<IActionResult> Delete(Guid id)
     {

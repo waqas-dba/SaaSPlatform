@@ -1,4 +1,5 @@
 ﻿// CoreKit.Tenant/Extensions/TenantKitServiceCollectionExtensions.cs
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Models;
@@ -39,16 +40,13 @@ public static class TenantKitServiceCollectionExtensions
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
         services.AddScoped<IStoreTypeService, StoreTypeService>();
 
-        // FIX: Single TenantContext instance shared across all three registrations.
-        // Previously TenantContext was registered twice as a concrete type,
-        // producing two separate instances per scope. The middleware would set
-        // the tenant on one instance while controllers resolved the other,
-        // causing TenantId to always appear null in tenant-scoped operations.
+        // Single TenantContext instance shared by both interfaces
         services.AddScoped<TenantContext>();
         services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
         services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
 
-        services.AddScoped<TenantResolutionMiddleware>();
+        // DO NOT register TenantResolutionMiddleware here – it is added via app.UseMiddleware<...>()
+
         services.AddValidatorsFromAssemblyContaining<CreateStoreRequestValidator>();
 
         return services;

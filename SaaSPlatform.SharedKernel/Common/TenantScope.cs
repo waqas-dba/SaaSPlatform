@@ -2,7 +2,8 @@
 
 public sealed class TenantScope
 {
-    public Guid TenantId { get; }       // Guid.Empty when IsGlobal
+    public Guid TenantId { get; }
+
     public bool IsGlobal { get; }
 
     private TenantScope(Guid tenantId, bool isGlobal)
@@ -16,14 +17,22 @@ public sealed class TenantScope
     public static TenantScope For(Guid tenantId)
     {
         if (tenantId == Guid.Empty)
-            throw new ArgumentException("tenantId cannot be Guid.Empty.", nameof(tenantId));
-        return new(tenantId, false);
+        {
+            throw new ArgumentException(
+                "TenantId cannot be Guid.Empty.",
+                nameof(tenantId));
+        }
+
+        return new TenantScope(tenantId, false);
     }
 
-    /// <summary>Apply tenant filter to an <see cref="ITenantScoped"/> query.</summary>
-    public IQueryable<T> Apply<T>(IQueryable<T> query) where T : class, ITenantScoped
+    public IQueryable<T> Apply<T>(IQueryable<T> query)
+        where T : class, ITenantScoped
     {
-        if (IsGlobal) return query;
-        return query.Where(e => e.TenantId == TenantId);
+        ArgumentNullException.ThrowIfNull(query);
+
+        return IsGlobal
+            ? query
+            : query.Where(x => x.TenantId == TenantId);
     }
 }

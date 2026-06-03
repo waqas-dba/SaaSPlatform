@@ -1,19 +1,16 @@
-﻿// SaaSPlatform.Tenant.Api/Controllers/TenantAttributeTemplatesController.cs
-using CoreKit.Catalog.Constants;
-using CoreKit.Catalog.Interfaces;
+﻿using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
-/// <summary>
-/// Tenant admin manages their scoped attribute customisations.
-/// </summary>
 [ApiController]
 [Route("api/tenant/catalog/attribute-templates")]
 [Authorize]
@@ -36,10 +33,8 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         _tenantContext = tenantContext;
     }
 
-    // ── View platform base templates ──────────────────────────────────────
-
     [HttpGet("platform/{storeTypeCode}")]
-    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    [RequiresPermission(Permissions.Catalog.TemplatesView)]
     public async Task<IActionResult> GetPlatformTemplates(string storeTypeCode)
     {
         var templates =
@@ -47,10 +42,8 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return OkResponse(templates);
     }
 
-    // ── Tenant-scoped templates ───────────────────────────────────────────
-
     [HttpGet("{storeTypeCode}")]
-    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    [RequiresPermission(Permissions.Catalog.TemplatesView)]
     public async Task<IActionResult> GetTenantTemplates(string storeTypeCode)
     {
         var tenantId = RequireTenantId();
@@ -60,7 +53,7 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     }
 
     [HttpPost("override")]
-    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    [RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
     public async Task<IActionResult> OverridePlatformTemplate(
         [FromBody] OverrideAttributeTemplateRequest request)
     {
@@ -71,7 +64,7 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     }
 
     [HttpPost("custom")]
-    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    [RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
     public async Task<IActionResult> CreateCustomTemplate(
         [FromBody] CreateAttributeTemplateRequest request)
     {
@@ -82,7 +75,7 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     }
 
     [HttpPut("{templateId}")]
-    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    [RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
     public async Task<IActionResult> UpdateTenantTemplate(
         Guid templateId,
         [FromBody] UpdateAttributeTemplateRequest request)
@@ -93,7 +86,7 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     }
 
     [HttpDelete("{templateId}")]
-    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    [RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
     public async Task<IActionResult> DeleteTenantTemplate(Guid templateId)
     {
         await _templateService.DeleteTenantTemplateAsync(
@@ -101,10 +94,8 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return DeletedResponse();
     }
 
-    // ── Groups ────────────────────────────────────────────────────────────
-
     [HttpPost("groups")]
-    [RequiresPermission(CatalogPermissions.TemplatesManageTenant)]
+    [RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
     public async Task<IActionResult> CreateGroup(
         [FromBody] CreateAttributeGroupRequest request)
     {
@@ -113,10 +104,8 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return CreatedResponse(group);
     }
 
-    // ── Assignment ────────────────────────────────────────────────────────
-
     [HttpPost("assign")]
-    [RequiresPermission(CatalogPermissions.TemplatesAssign)]
+    [RequiresPermission(Permissions.Catalog.TemplatesAssign)]
     public async Task<IActionResult> AssignTemplate(
         [FromBody] AssignTemplateRequest request)
     {
@@ -126,7 +115,7 @@ public class TenantAttributeTemplatesController : ApiControllerBase
     }
 
     [HttpDelete("assign")]
-    [RequiresPermission(CatalogPermissions.TemplatesAssign)]
+    [RequiresPermission(Permissions.Catalog.TemplatesAssign)]
     public async Task<IActionResult> UnassignTemplate(
         [FromBody] UnassignTemplateRequest request)
     {
@@ -135,10 +124,8 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return DeletedResponse();
     }
 
-    // ── Resolved view ─────────────────────────────────────────────────────
-
     [HttpGet("resolved/{storeId}/{storeTypeCode}")]
-    [RequiresPermission(CatalogPermissions.TemplatesView)]
+    [RequiresPermission(Permissions.Catalog.TemplatesView)]
     public async Task<IActionResult> GetResolved(
         Guid storeId,
         string storeTypeCode)
@@ -148,18 +135,14 @@ public class TenantAttributeTemplatesController : ApiControllerBase
         return OkResponse(resolved);
     }
 
-    // ── Store-level toggle ────────────────────────────────────────────────
-
     [HttpPost("store-override")]
-    [RequiresPermission(CatalogPermissions.TemplatesToggleStore)]
+    [RequiresPermission(Permissions.Catalog.TemplatesToggleStore)]
     public async Task<IActionResult> SetStoreOverride(
         [FromBody] StoreAttributeOverrideRequest request)
     {
         await _templateService.SetStoreAttributeOverrideAsync(request);
         return OkResponse("Store attribute override saved.");
     }
-
-    // ── Helper ────────────────────────────────────────────────────────────
 
     private Guid RequireTenantId() =>
         _tenantContext.TenantId

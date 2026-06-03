@@ -1,4 +1,4 @@
-﻿using CoreKit.Catalog.Abstractions;
+﻿// CoreKit.Catalog/Services/AddonService.cs
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
@@ -13,120 +13,224 @@ namespace CoreKit.Catalog.Services;
 public class AddonService : IAddonService
 {
     private readonly CatalogDbContext _db;
-    private readonly IStoreInfoProvider _storeInfoProvider;
     private readonly IPlanLimitProvider? _planLimit;
     private readonly ILogger<AddonService> _logger;
 
     public AddonService(
         CatalogDbContext db,
-        IStoreInfoProvider storeInfoProvider,
         ILogger<AddonService> logger,
         IPlanLimitProvider? planLimit = null)
     {
         _db = db;
-        _storeInfoProvider = storeInfoProvider;
         _logger = logger;
         _planLimit = planLimit;
 
         if (_planLimit == null)
             _logger.LogWarning(
-                "IPlanLimitProvider is not registered. " +
-                "Addon limits will not be enforced.");
+                "IPlanLimitProvider not registered. " +
+                "Add-on limits will not be enforced.");
     }
 
-    public async Task<List<AddonDto>> GetByProductAsync(
-        Guid productId,
+    // ── Groups ───────────────────────────────────────────────────────
+
+    public async Task<AddonGroupDto> CreateGroupAsync(
+        Guid tenantId,
+        CreateAddonGroupRequest request,
         CancellationToken ct = default)
     {
-        var addons = await _db.Addons
-            .Where(a => a.ProductId == productId)
+        if (_planLimit != null &&
+            !await _planLimit.IsAddonsEnabledAsync(tenantId, ct))
+            throw new ForbiddenException(
+                "Your plan does not include add-ons.");
+
+        var group = new AddonGroup
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name.Trim(),
+            TenantId = tenantId
+        };
+
+        foreach (var item in request.Addons)
+        {
+            group.Addons.Add(new Addon
+            {
+                Id = Guid.NewGuid(),
+                Name = item.Name.Trim(),
+                AdditionalPrice = item.AdditionalPrice,
+                IsActive = true
+            });
+        }
+
+        _db.AddonGroups.Add(group);
+        await _db.SaveChangesAsync(ct);
+
+        return MapGroupToDto(group);
+    }
+
+    public async Task<AddonGroupDto> UpdateGroupAsync(
+        Guid groupId,
+        Guid tenantId,
+        UpdateAddonGroupRequest request,
+        CancellationToken ct = default)
+    {
+        var group = await _db.AddonGroups
+            .Include(g => g.Addons)
+            .FirstOrDefaultAsync(
+                g => g.Id == groupId && g.TenantId == tenantId, ct)
+            ?? throw new KeyNotFoundException("Addon group not found.");
+
+        if (request.Name is not null)
+            group.Name = request.Name.Trim();
+
+        await _db.SaveChangesAsync(ct);
+        return MapGroupToDto(group);
+    }
+
+    public async Task DeleteGroupAsync(
+        Guid groupId,
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        var group = await _db.AddonGroups
+            .Include(g => g.Addons)
+            .FirstOrDefaultAsync(
+                g => g.Id == groupId && g.TenantId == tenantId, ct)
+            ?? throw new KeyNotFoundException("Addon group not found.");
+
+        // Detach group from any products that reference it
+        await _db.Products
+            .Where(p => p.AddonGroupId == groupId)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(p => p.AddonGroupId, (Guid?)null), ct);
+
+        _db.AddonGroups.Remove(group);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<List<AddonGroupDto>> GetGroupsByTenantAsync(
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        var groups = await _db.AddonGroups
+            .Include(g => g.Addons)
+            .Where(g => g.TenantId == tenantId)
+            .OrderBy(g => g.Name)
             .ToListAsync(ct);
 
-        return addons.Select(a => new AddonDto
-        {
-            Id = a.Id,
-            Name = a.Name,
-            AdditionalPrice = a.AdditionalPrice
-        }).ToList();
+        return groups.Select(MapGroupToDto).ToList();
     }
 
-    public async Task<AddonDto?> GetByIdAsync(
-        Guid addonId,
+    public async Task<AddonGroupDto?> GetGroupByIdAsync(
+        Guid groupId,
+        Guid tenantId,
         CancellationToken ct = default)
     {
-        var addon = await _db.Addons.FindAsync(
-            new object[] { addonId }, ct);
+        var group = await _db.AddonGroups
+            .Include(g => g.Addons)
+            .FirstOrDefaultAsync(
+                g => g.Id == groupId && g.TenantId == tenantId, ct);
 
-        if (addon == null) return null;
-
-        return new AddonDto
-        {
-            Id = addon.Id,
-            Name = addon.Name,
-            AdditionalPrice = addon.AdditionalPrice
-        };
+        return group is null ? null : MapGroupToDto(group);
     }
 
-    public async Task<AddonDto> CreateAdHocAsync(
-        Guid productId,
-        string name,
-        decimal additionalPrice,
+    // ── Addons inside a group ────────────────────────────────────────
+
+    public async Task<AddonDto> AddToGroupAsync(
+        Guid groupId,
+        Guid tenantId,
+        AddAddonToGroupRequest request,
         CancellationToken ct = default)
     {
-        var product = await _db.Products.FindAsync(
-            new object[] { productId }, ct)
-            ?? throw new KeyNotFoundException("Product not found.");
-
-        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId, ct)
-            ?? throw new KeyNotFoundException("Store not found.");
+        var group = await _db.AddonGroups
+            .Include(g => g.Addons)
+            .FirstOrDefaultAsync(
+                g => g.Id == groupId && g.TenantId == tenantId, ct)
+            ?? throw new KeyNotFoundException("Addon group not found.");
 
         if (_planLimit != null)
         {
-            if (!await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId, ct))
-                throw new ForbiddenException("Your plan does not include add-ons.");
+            var max = await _planLimit
+                .GetMaxAddonsPerProductAsync(tenantId, ct);
 
-            var maxAddons = await _planLimit.GetMaxAddonsPerProductAsync(
-                storeInfo.TenantId, ct);
-
-            if (maxAddons.HasValue)
-            {
-                var currentCount = await _db.Addons
-                    .CountAsync(a => a.ProductId == productId, ct);
-
-                if (currentCount >= maxAddons.Value)
-                    throw new InvalidOperationException(
-                        $"Maximum {maxAddons.Value} add-ons per product reached. " +
-                        "Upgrade your plan.");
-            }
+            if (max.HasValue && group.Addons.Count >= max.Value)
+                throw new InvalidOperationException(
+                    $"This group already has the maximum of " +
+                    $"{max.Value} add-ons allowed by your plan.");
         }
 
         var addon = new Addon
         {
             Id = Guid.NewGuid(),
-            Name = name,
-            AdditionalPrice = additionalPrice,
-            AddonGroupId = null,
-            ProductId = productId
+            Name = request.Name.Trim(),
+            AdditionalPrice = request.AdditionalPrice,
+            AddonGroupId = groupId,
+            IsActive = true
         };
 
         _db.Addons.Add(addon);
         await _db.SaveChangesAsync(ct);
 
-        return new AddonDto
-        {
-            Id = addon.Id,
-            Name = addon.Name,
-            AdditionalPrice = addon.AdditionalPrice
-        };
+        return MapAddonToDto(addon);
     }
 
-    public async Task DeleteAsync(Guid addonId, CancellationToken ct = default)
+    public async Task<AddonDto> UpdateAddonAsync(
+        Guid addonId,
+        Guid tenantId,
+        AddAddonToGroupRequest request,
+        CancellationToken ct = default)
     {
-        var addon = await _db.Addons.FindAsync(
-            new object[] { addonId }, ct)
-            ?? throw new KeyNotFoundException("Add-on not found.");
+        // Verify ownership via the group
+        var addon = await _db.Addons
+            .Include(a => a.AddonGroup)
+            .FirstOrDefaultAsync(a => a.Id == addonId, ct)
+            ?? throw new KeyNotFoundException("Addon not found.");
+
+        if (addon.AddonGroup?.TenantId != tenantId)
+            throw new ForbiddenException(
+                "You do not have access to this addon.");
+
+        addon.Name = request.Name.Trim();
+        addon.AdditionalPrice = request.AdditionalPrice;
+
+        await _db.SaveChangesAsync(ct);
+        return MapAddonToDto(addon);
+    }
+
+    public async Task RemoveFromGroupAsync(
+        Guid addonId,
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        var addon = await _db.Addons
+            .Include(a => a.AddonGroup)
+            .FirstOrDefaultAsync(a => a.Id == addonId, ct)
+            ?? throw new KeyNotFoundException("Addon not found.");
+
+        if (addon.AddonGroup?.TenantId != tenantId)
+            throw new ForbiddenException(
+                "You do not have access to this addon.");
 
         _db.Addons.Remove(addon);
         await _db.SaveChangesAsync(ct);
     }
+
+    // ── Mappers ──────────────────────────────────────────────────────
+
+    private static AddonGroupDto MapGroupToDto(AddonGroup g) => new()
+    {
+        Id = g.Id,
+        Name = g.Name,
+        Addons = g.Addons
+            .Where(a => a.IsActive)
+            .OrderBy(a => a.Name)
+            .Select(MapAddonToDto)
+            .ToList()
+    };
+
+    private static AddonDto MapAddonToDto(Addon a) => new()
+    {
+        Id = a.Id,
+        Name = a.Name,
+        AdditionalPrice = a.AdditionalPrice
+    };
 }

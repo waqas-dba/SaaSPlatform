@@ -25,7 +25,9 @@ public static class BootCheckExtensions
             ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IEncryptionService");
             ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IAuthService");
             ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.ICurrentUserService");
-            ResolveByName(sp, logger, "CoreKit.Tenant.Services.IMutableTenantContext");
+            // FIX: IMutableTenantContext now lives in SharedKernel.Tenancy, not CoreKit.Tenant.Services
+            ResolveByName(sp, logger, "CoreKit.SharedKernel.Tenancy.IMutableTenantContext");
+            // TenantResolutionMiddleware is not registered as a DI service (it's middleware added via UseMiddleware)
             ResolveByName(sp, logger, "CoreKit.Tenant.Middleware.TenantResolutionMiddleware");
 
             // Database check — resolved generically through IDbContextFactory pattern
@@ -60,9 +62,18 @@ public static class BootCheckExtensions
         {
             var service = sp.GetService(type);
             if (service != null)
+            {
                 logger.LogInformation("{ShortName,-30} OK", type.Name);
+            }
             else
-                logger.LogWarning("{ShortName,-30} NOT REGISTERED", type.Name);
+            {
+                // TenantResolutionMiddleware is intentionally NOT registered as a service,
+                // it's added via app.UseMiddleware<T>(). Don't treat as a problem.
+                if (fullTypeName.Contains("TenantResolutionMiddleware"))
+                    logger.LogInformation("{ShortName,-30} NOT REGISTERED (expected — added via UseMiddleware)", type.Name);
+                else
+                    logger.LogWarning("{ShortName,-30} NOT REGISTERED", type.Name);
+            }
         }
         catch (Exception ex)
         {

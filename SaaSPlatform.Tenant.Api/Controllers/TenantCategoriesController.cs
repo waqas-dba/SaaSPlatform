@@ -3,6 +3,7 @@ using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
 using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

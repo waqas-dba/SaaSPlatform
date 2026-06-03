@@ -1,465 +1,1855 @@
 ﻿
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserDocumentConfiguration.cs =====
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Models\UpdateStoreRequest.cs =====
+namespace CoreKit.Tenant.Models;
+public class UpdateStoreRequest
+{
+public string? Name { get; set; }
+public Guid? StoreTypeId { get; set; }
+public string? AddressLine1 { get; set; }
+public string? AddressLine2 { get; set; }
+public string? City { get; set; }
+public string? State { get; set; }
+public string? PostalCode { get; set; }
+public string? CountryCode { get; set; }
+public decimal? Latitude { get; set; }
+public decimal? Longitude { get; set; }
+public string? LogoUrl { get; set; }
+public string? CoverImageUrl { get; set; }
+public bool? IsActive { get; set; }
+public string? MetadataJson { get; set; }
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\StoreTypeSeeder.cs =====
+using CoreKit.Tenant.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.IAM.Entities;
-namespace CoreKit.IAM.Configuration;
-public class UserDocumentConfiguration : IEntityTypeConfiguration<UserDocument>
+namespace CoreKit.Tenant.Persistence.Seeders;
+public class StoreTypeSeeder
 {
-public void Configure(EntityTypeBuilder<UserDocument> builder)
+private readonly TenantDbContext _db;
+public StoreTypeSeeder(TenantDbContext db)
 {
-builder.ToTable("IAM_UserDocuments");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.DocumentType).IsRequired().HasMaxLength(50);
-builder.Property(x => x.ImageUrl).IsRequired().HasMaxLength(2000);
-builder.HasIndex(x => new { x.UserId, x.DocumentType }).IsUnique();
-builder.HasOne(x => x.User)
-.WithMany()
-.HasForeignKey(x => x.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(ud => !ud.User.IsDeleted);
+_db = db;
+}
+public async Task SeedAsync(
+CancellationToken cancellationToken = default)
+{
+var exists = await _db.StoreTypes
+.AsNoTracking()
+.AnyAsync(cancellationToken);
+if (exists)
+return;
+var items = new List<StoreType>
+{
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Restaurant",
+Code = "restaurant",
+Category = "Food",
+Description = "Restaurant and food ordering business",
+IsSystem = true,
+IsActive = true,
+SortOrder = 1
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Pharmacy",
+Code = "pharmacy",
+Category = "Healthcare",
+Description = "Medical and pharmacy store",
+IsSystem = true,
+IsActive = true,
+SortOrder = 2
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Hotel",
+Code = "hotel",
+Category = "Hospitality",
+Description = "Hotel and room booking business",
+IsSystem = true,
+IsActive = true,
+SortOrder = 3
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Salon",
+Code = "salon",
+Category = "Beauty",
+Description = "Salon and beauty services",
+IsSystem = true,
+IsActive = true,
+SortOrder = 4
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Grocery",
+Code = "grocery",
+Category = "Retail",
+Description = "Supermarket and grocery business",
+IsSystem = true,
+IsActive = true,
+SortOrder = 5
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Electronics",
+Code = "electronics",
+Category = "Retail",
+Description = "Electronics and gadgets store",
+IsSystem = true,
+IsActive = true,
+SortOrder = 6
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Clothing",
+Code = "clothing",
+Category = "Fashion",
+Description = "Fashion and clothing store",
+IsSystem = true,
+IsActive = true,
+SortOrder = 7
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Bakery",
+Code = "bakery",
+Category = "Food",
+Description = "Bakery and sweets shop",
+IsSystem = true,
+IsActive = true,
+SortOrder = 8
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Cafe",
+Code = "cafe",
+Category = "Food",
+Description = "Coffee shop and cafe business",
+IsSystem = true,
+IsActive = true,
+SortOrder = 9
+},
+new()
+{
+Id = Guid.NewGuid(),
+Name = "Bookstore",
+Code = "bookstore",
+Category = "Retail",
+Description = "Books and stationery business",
+IsSystem = true,
+IsActive = true,
+SortOrder = 10
+}
+};
+await _db.StoreTypes.AddRangeAsync(
+items,
+cancellationToken);
+await _db.SaveChangesAsync(
+cancellationToken);
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserIdentityConfiguration.cs =====
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\Seeders\TenantSeeder.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.IAM.Entities;
-namespace CoreKit.IAM.Configuration;
-public class UserIdentityConfiguration : IEntityTypeConfiguration<UserIdentity>
+using Microsoft.Extensions.Logging;
+namespace CoreKit.Tenant.Persistence.Seeders;
+public sealed class TenantSeeder
 {
-public void Configure(EntityTypeBuilder<UserIdentity> builder)
+private readonly TenantDbContext _db;
+private readonly ILogger<TenantSeeder> _logger;
+public TenantSeeder(TenantDbContext db, ILogger<TenantSeeder> logger)
 {
-builder.ToTable("IAM_UserIdentities");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.EncryptedCnic)
-.IsRequired()
-.HasMaxLength(500);
-builder.HasIndex(x => x.UserId)
-.IsUnique();
-builder.HasOne(x => x.User)
-.WithOne()
-.HasForeignKey<UserIdentity>(x => x.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(ui => !ui.User.IsDeleted);
+_db = db;
+_logger = logger;
+}
+public async Task SeedAsync()
+{
+_logger.LogInformation("Tenant seeding started...");
+var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+if (!await _db.Tenants.AnyAsync(t => t.Id == systemTenantId))
+{
+_db.Tenants.Add(new TenantEntity
+{
+Id = systemTenantId,
+Name = "System",
+Slug = "system",
+Status = TenantStatus.Active
+});
+await _db.SaveChangesAsync();
+_logger.LogInformation("✔ System tenant created.");
+}
+else
+{
+_logger.LogInformation("System tenant already exists.");
+}
+if (!await _db.Stores.AnyAsync(s => s.Id == systemStoreId))
+{
+var defaultStoreType = await _db.StoreTypes
+.OrderBy(st => st.SortOrder)
+.FirstOrDefaultAsync();
+if (defaultStoreType == null)
+{
+_logger.LogWarning("No StoreTypes found. Run StoreTypeSeeder first.");
+return;
+}
+_db.Stores.Add(new Store
+{
+Id = systemStoreId,
+TenantId = systemTenantId,
+Name = "System Store",
+Slug = "system-store",
+StoreTypeId = defaultStoreType.Id,
+IsActive = true,
+IsPrimary = true
+});
+await _db.SaveChangesAsync();
+_logger.LogInformation("✔ System store created (StoreType: {StoreTypeName}).", defaultStoreType.Name);
+}
+else
+{
+_logger.LogInformation("System store already exists.");
+}
+_logger.LogInformation("Tenant seeding completed.");
 }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserRoleConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.IAM.Entities;
-namespace CoreKit.IAM.Configuration;
-public class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
-{
-public void Configure(EntityTypeBuilder<UserRole> builder)
-{
-builder.ToTable("IAM_UserRoles");
-builder.HasKey(x => new { x.UserId, x.RoleId });
-builder.HasIndex(x => new { x.UserId, x.RoleId, x.TenantId })
-.IsUnique()
-.HasFilter("\"TenantId\" IS NOT NULL")
-.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_TenantId_NotNull");
-builder.HasIndex(x => new { x.UserId, x.RoleId })
-.IsUnique()
-.HasFilter("\"TenantId\" IS NULL")
-.HasDatabaseName("IX_IAM_UserRoles_UserId_RoleId_Global");
-builder.HasOne(ur => ur.User)
-.WithMany(u => u.Roles)
-.HasForeignKey(ur => ur.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasOne(ur => ur.Role)
-.WithMany(r => r.UserRoles)
-.HasForeignKey(ur => ur.RoleId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(ur => !ur.User.IsDeleted && !ur.Role.IsDeleted);
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Configuration\UserStoreAssignmentConfiguration.cs =====
-using CoreKit.IAM.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.IAM.Configuration;
-public class UserStoreAssignmentConfiguration : IEntityTypeConfiguration<UserStoreAssignment>
-{
-public void Configure(EntityTypeBuilder<UserStoreAssignment> builder)
-{
-builder.ToTable("IAM_UserStoreAssignments");
-builder.HasKey(x => new { x.UserId, x.StoreId });
-builder.HasIndex(x => new { x.TenantId, x.StoreId });
-builder.HasOne(x => x.User)
-.WithMany(u => u.StoreAssignments)
-.HasForeignKey(x => x.UserId)
-.OnDelete(DeleteBehavior.Cascade);
-builder.HasQueryFilter(x => !x.User.IsDeleted);
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\ClaimConstants.cs =====
-using System.Security.Claims;
-namespace CoreKit.IAM.Constants;
-public static class ClaimConstants
-{
-public const string StoreId = "storeId";
-public const string UserId = "userId";
-public const string TenantId = "tenantId";
-public const string Permission = "permission";
-public const string Email = ClaimTypes.Email;
-public const string Role = ClaimTypes.Role;
-public const string Name = ClaimTypes.Name;
-public const string JwtId = "jti";
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Constants\Permissions.cs =====
-using System.Reflection;
-namespace CoreKit.IAM.Constants;
-public static class Permissions
-{
-public static class Users
-{
-public const string Create = "users.create";
-public const string Update = "users.update";
-public const string Delete = "users.delete";
-public const string View = "users.view";
-public const string AssignRole = "users.assign_role";
-public const string RemoveRole = "users.remove_role";
-public const string Lock = "users.lock";
-public const string Unlock = "users.unlock";
-}
-public static class Roles
-{
-public const string Create = "roles.create";
-public const string Update = "roles.update";
-public const string Delete = "roles.delete";
-public const string View = "roles.view";
-public const string AssignPermission = "roles.assign_permission";
-public const string RemovePermission = "roles.remove_permission";
-}
-public static class PermissionsManagement
-{
-public const string View = "permissions.view";
-public const string Assign = "permissions.assign";
-}
-public static class Auth
-{
-public const string Login = "auth.login";
-public const string Refresh = "auth.refresh";
-public const string Logout = "auth.logout";
-}
-public static class Documents
-{
-public const string Upload = "documents.upload";
-public const string View = "documents.view";
-public const string Delete = "documents.delete";
-}
-public static class Identity
-{
-public const string Manage = "identity.manage";
-public const string View = "identity.view";
-}
-public static class Tenants
-{
-public const string Create = "tenants.create";
-public const string Update = "tenants.update";
-public const string Delete = "tenants.delete";
-public const string View = "tenants.view";
-public const string Approve = "tenants.approve";
-}
-public static class System
-{
-public const string Settings = "system.settings";
-public const string AuditLogs = "system.audit_logs";
-}
-public static class Store
-{
-public const string View = "store.view";
-public const string ViewAll = "store.view_all";
-public const string Update = "store.update";
-}
-public static class Platform
-{
-public const string ViewAllTenants = "platform.tenants.view";
-public const string ManageTenants = "platform.tenants.manage";
-public const string ViewAllStores = "platform.stores.view";
-public const string ManageAnyStore = "platform.stores.manage";
-public const string ViewAllUsers = "platform.users.view";
-public const string ManageAnyUser = "platform.users.manage";
-public const string ViewAuditLogs = "platform.audit.view";
-public const string ManageSystemSettings = "platform.settings.manage";
-public const string CreateImpersonation = "platform.impersonation.create";
-public const string ManageBilling = "platform.billing.manage";
-}
-public static class Catalog
-{
-public const string ProductsView = "catalog.products.view";
-public const string ProductsCreate = "catalog.products.create";
-public const string ProductsUpdate = "catalog.products.update";
-public const string ProductsDelete = "catalog.products.delete";
-public const string CategoriesView = "catalog.categories.view";
-public const string CategoriesCreate = "catalog.categories.create";
-public const string CategoriesUpdate = "catalog.categories.update";
-public const string CategoriesDelete = "catalog.categories.delete";
-public const string TemplatesManagePlatform = "catalog.templates.manage.platform";
-public const string TemplatesManageTenant = "catalog.templates.manage.tenant";
-public const string TemplatesAssign = "catalog.templates.assign";
-public const string TemplatesToggleStore = "catalog.templates.toggle.store";
-public const string TemplatesView = "catalog.templates.view";
-}
-public static IReadOnlyList<string> All { get; } =
-typeof(Permissions)
-.GetNestedTypes(BindingFlags.Public | BindingFlags.Static)
-.SelectMany(t => t.GetFields(
-BindingFlags.Public |
-BindingFlags.Static |
-BindingFlags.FlattenHierarchy))
-.Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
-.Select(f => (string)f.GetRawConstantValue()!)
-.Distinct()
-.OrderBy(x => x)
-.ToList()
-.AsReadOnly();
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Permission.cs =====
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContext.cs =====
 using CoreKit.SharedKernel.Common;
-namespace CoreKit.IAM.Entities;
-public class Permission : AuditableEntity
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Tenant.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContext : AuditableDbContext
 {
-public string Name { get; set; } = default!;
-public Guid PermissionModuleId { get; set; }
-public PermissionModule Module { get; set; } = default!;
-public ICollection<RolePermission>? RolePermissions { get; set; }
+private Guid? _tenantId;
+private bool _isGlobal = true;
+public void SetTenantScope(Guid? tenantId, bool isGlobal)
+{
+_tenantId = tenantId;
+_isGlobal = isGlobal;
+}
+public TenantDbContext(
+DbContextOptions<TenantDbContext> options,
+ICurrentUser? currentUser = null)
+: base(options, currentUser)
+{
+}
+public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
+public DbSet<Store> Stores => Set<Store>();
+public DbSet<TenantLegalInfo> TenantLegalInfos => Set<TenantLegalInfo>();
+public DbSet<StoreType> StoreTypes => Set<StoreType>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(typeof(TenantDbContext).Assembly);
+modelBuilder.Entity<Store>()
+.HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
+modelBuilder.Entity<TenantLegalInfo>()
+.HasQueryFilter(x => _isGlobal || x.TenantId == _tenantId);
+}
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\PermissionModule.cs =====
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Persistence\TenantDbContextFactory.cs =====
+using CoreKit.IAM.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+using System.IO;
+namespace CoreKit.Tenant.Persistence;
+public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContext>
+{
+public TenantDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new TenantDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class StoreRepository : IStoreRepository
+{
+private readonly TenantDbContext _db;
+public StoreRepository(TenantDbContext db) => _db = db;
+public async Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default)
+=> await _db.Stores
+.Include(s => s.StoreType)
+.FirstOrDefaultAsync(s => s.Id == storeId, ct);
+public async Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
+=> await _db.Stores
+.Include(s => s.StoreType)
+.Where(s => s.TenantId == tenantId)
+.ToListAsync(ct);
+public void Add(Store store) => _db.Stores.Add(store);
+public void Update(Store store) => _db.Stores.Update(store);
+public void Delete(Store store) => _db.Stores.Remove(store);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\StoreTypeRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class StoreTypeRepository : IStoreTypeRepository
+{
+private readonly TenantDbContext _db;
+public StoreTypeRepository(TenantDbContext db) => _db = db;
+public async Task<List<StoreType>> GetAllActiveAsync(CancellationToken cancellationToken = default)
+{
+return await _db.StoreTypes
+.AsNoTracking()
+.Where(st => st.IsActive)
+.OrderBy(st => st.SortOrder)
+.ToListAsync(cancellationToken);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantLegalInfoRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public sealed class TenantLegalInfoRepository : ITenantLegalInfoRepository
+{
+private readonly TenantDbContext _db;
+public TenantLegalInfoRepository(TenantDbContext db)
+{
+_db = db ?? throw new ArgumentNullException(nameof(db));
+}
+public async Task<TenantLegalInfo?> GetByTenantAsync(
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.TenantLegalInfos
+.AsNoTracking()
+.SingleOrDefaultAsync(
+x => x.TenantId == tenantId,
+ct);
+}
+public async Task AddOrUpdateAsync(
+TenantLegalInfo info,
+CancellationToken ct = default)
+{
+ArgumentNullException.ThrowIfNull(info);
+try
+{
+var existing = await _db.TenantLegalInfos
+.SingleOrDefaultAsync(
+x => x.TenantId == info.TenantId,
+ct);
+if (existing is not null)
+{
+existing.BusinessLicenseNumber =
+info.BusinessLicenseNumber;
+existing.TaxId =
+info.TaxId;
+existing.AdditionalJson =
+info.AdditionalJson;
+}
+else
+{
+await _db.TenantLegalInfos
+.AddAsync(info, ct);
+}
+await _db.SaveChangesAsync(ct);
+}
+catch (DbUpdateConcurrencyException ex)
+{
+throw new InvalidOperationException(
+"The tenant legal information was modified by another user. Refresh the data and try again.",
+ex);
+}
+catch (DbUpdateException ex)
+{
+throw new InvalidOperationException(
+"Failed to save tenant legal information.",
+ex);
+}
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Repositories\TenantRepository.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Tenant.Repositories;
+public class TenantRepository : ITenantRepository
+{
+private readonly TenantDbContext _db;
+public TenantRepository(TenantDbContext db)
+{
+_db = db;
+}
+public async Task<TenantEntity?> GetByIdAsync(
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.Id == tenantId, ct);
+}
+public async Task<TenantEntity?> GetByIdIncludeDeletedAsync(
+Guid tenantId,
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.IgnoreQueryFilters()
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.Id == tenantId, ct);
+}
+public async Task<List<TenantEntity>> GetAllAsync(
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AsNoTracking()
+.OrderBy(x => x.Name)
+.ToListAsync(ct);
+}
+public async Task<bool> ExistsByNameAsync(
+string name,
+CancellationToken ct = default)
+{
+return await _db.Tenants
+.AnyAsync(x => x.Name == name, ct);
+}
+public void Add(TenantEntity tenant)
+{
+_db.Tenants.Add(tenant);
+}
+public void Update(TenantEntity tenant)
+{
+_db.Tenants.Update(tenant);
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreService.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
-namespace CoreKit.IAM.Entities;
-public class PermissionModule : AuditableEntity
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Tenancy;
+using CoreKit.Tenant.Abstractions;
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace CoreKit.Tenant.Services;
+public class StoreService : IStoreService
+{
+private readonly TenantDbContext _db;
+private readonly ITenantContext _tenantContext;
+private readonly TenantKitOptions _options;
+private readonly ICurrentUserService _currentUser;
+private readonly IPlanLimitProvider? _planLimit;
+public StoreService(
+TenantDbContext db,
+ITenantContext tenantContext,
+IOptions<TenantKitOptions> options,
+ICurrentUserService currentUser,
+IPlanLimitProvider? planLimit = null)
+{
+_db = db;
+_tenantContext = tenantContext;
+_options = options.Value;
+_currentUser = currentUser;
+_planLimit = planLimit;
+}
+public async Task<StoreDto?> GetByIdAsync(
+Guid storeId,
+CancellationToken cancellationToken = default)
+{
+var storeScope = await ResolveStoreScopeAsync();
+IQueryable<Store> query;
+if (_currentUser.HasPermission(Permissions.Platform.ViewAllStores) ||
+_currentUser.HasPermission(Permissions.Store.ViewAll))
+{
+query = _db.Stores;
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+query = _db.Stores.Where(x => x.TenantId == tenantId);
+}
+if (!storeScope.IsAllStores)
+{
+query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
+}
+var store = await query
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
+return store == null ? null : Map(store);
+}
+public async Task<List<StoreDto>> GetAllByTenantAsync(
+Guid tenantId,
+CancellationToken cancellationToken = default)
+{
+var storeScope = await ResolveStoreScopeAsync();
+IQueryable<Store> query = _db.Stores
+.Include(x => x.StoreType)
+.Where(x => x.TenantId == tenantId);
+if (!storeScope.IsAllStores)
+{
+query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
+}
+var stores = await query
+.OrderBy(x => x.Name)
+.ToListAsync(cancellationToken);
+return stores.Select(Map).ToList();
+}
+public async Task<List<StoreDto>> GetAllStoresAsync(
+CancellationToken cancellationToken = default)
+{
+var stores = await _db.Stores
+.Include(x => x.StoreType)
+.OrderBy(x => x.Name)
+.ToListAsync(cancellationToken);
+return stores.Select(Map).ToList();
+}
+public async Task<StoreDto> CreateAsync(
+CreateStoreRequest request,
+CancellationToken cancellationToken = default)
+{
+if (string.IsNullOrWhiteSpace(request.Name))
+throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
+var tenantId = _tenantContext.TenantId
+?? throw new UnauthorizedAccessException("Tenant context missing.");
+await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+try
+{
+var lockKey = LockKeyHelper.GuidToLockKey(tenantId);
+await _db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", lockKey);
+await EnforceStoreLimitAsync(tenantId, cancellationToken);
+var storeType = await _db.StoreTypes
+.AsNoTracking()
+.FirstOrDefaultAsync(x => x.Id == request.StoreTypeId && x.IsActive, cancellationToken)
+?? throw new InvalidOperationException("Invalid store type.");
+var slug = await GenerateUniqueSlugAsync(request.Name, tenantId, cancellationToken);
+var store = new Store
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = request.Name.Trim(),
+Slug = slug,
+StoreTypeId = request.StoreTypeId,
+AddressLine1 = request.AddressLine1,
+AddressLine2 = request.AddressLine2,
+City = request.City,
+State = request.State,
+PostalCode = request.PostalCode,
+CountryCode = request.CountryCode,
+Latitude = request.Latitude,
+Longitude = request.Longitude,
+LogoUrl = request.LogoUrl,
+CoverImageUrl = request.CoverImageUrl,
+MetadataJson = request.MetadataJson,
+IsActive = request.IsActive ?? true,
+IsPrimary = false,
+IsListedOnMarketplace = false
+};
+_db.Stores.Add(store);
+await _db.SaveChangesAsync(cancellationToken);
+await transaction.CommitAsync(cancellationToken);
+store.StoreType = storeType;
+return Map(store);
+}
+catch
+{
+await transaction.RollbackAsync(cancellationToken);
+throw;
+}
+}
+public async Task UpdateAsync(
+Guid storeId,
+UpdateStoreRequest request,
+CancellationToken cancellationToken = default)
+{
+Store store;
+if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
+_currentUser.HasPermission(Permissions.Store.ViewAll))
+{
+store = await _db.Stores
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.Include(x => x.StoreType)
+.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+if (!string.IsNullOrWhiteSpace(request.Name))
+{
+store.Name = request.Name.Trim();
+store.Slug = await GenerateUniqueSlugAsync(
+request.Name, store.TenantId, cancellationToken, store.Id);
+}
+if (request.StoreTypeId.HasValue)
+{
+var storeType = await _db.StoreTypes
+.FirstOrDefaultAsync(x => x.Id == request.StoreTypeId.Value && x.IsActive, cancellationToken)
+?? throw new InvalidOperationException("Invalid store type.");
+store.StoreTypeId = request.StoreTypeId.Value;
+store.StoreType = storeType;
+}
+if (request.AddressLine1 != null) store.AddressLine1 = request.AddressLine1;
+if (request.AddressLine2 != null) store.AddressLine2 = request.AddressLine2;
+if (request.City != null) store.City = request.City;
+if (request.State != null) store.State = request.State;
+if (request.PostalCode != null) store.PostalCode = request.PostalCode;
+if (request.CountryCode != null) store.CountryCode = request.CountryCode;
+if (request.Latitude.HasValue) store.Latitude = request.Latitude;
+if (request.Longitude.HasValue) store.Longitude = request.Longitude;
+if (request.LogoUrl != null) store.LogoUrl = request.LogoUrl;
+if (request.CoverImageUrl != null) store.CoverImageUrl = request.CoverImageUrl;
+if (request.MetadataJson != null) store.MetadataJson = request.MetadataJson;
+if (request.IsActive.HasValue) store.IsActive = request.IsActive.Value;
+await _db.SaveChangesAsync(cancellationToken);
+}
+public async Task DeleteAsync(
+Guid storeId,
+CancellationToken cancellationToken = default)
+{
+Store store;
+if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
+_currentUser.HasPermission(Permissions.Store.ViewAll))
+{
+store = await _db.Stores
+.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+_db.Stores.Remove(store);
+await _db.SaveChangesAsync(cancellationToken);
+}
+public async Task SetMarketplaceListingAsync(
+Guid storeId,
+bool isListed,
+CancellationToken cancellationToken = default)
+{
+Store store;
+if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
+_currentUser.HasPermission(Permissions.Store.ViewAll))
+{
+store = await _db.Stores
+.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+else
+{
+var tenantId = _tenantContext.TenantId;
+store = await _db.Stores
+.FirstOrDefaultAsync(x => x.Id == storeId && x.TenantId == tenantId, cancellationToken)
+?? throw new KeyNotFoundException("Store not found.");
+}
+store.IsListedOnMarketplace = isListed;
+await _db.SaveChangesAsync(cancellationToken);
+}
+private async Task EnforceStoreLimitAsync(Guid tenantId, CancellationToken ct)
+{
+if (_planLimit == null) return;
+var maxStores = await _planLimit.GetMaxStoresAsync(tenantId, ct);
+if (maxStores.HasValue)
+{
+var count = await _db.Stores.CountAsync(x => x.TenantId == tenantId, ct);
+if (count >= maxStores.Value)
+throw new InvalidOperationException(
+$"Store limit of {maxStores.Value} reached. Upgrade your plan.");
+}
+}
+private async Task<StoreScope> ResolveStoreScopeAsync()
+{
+if (_currentUser.HasPermission(Permissions.Store.ViewAll) ||
+_currentUser.HasPermission(Permissions.Platform.ViewAllStores))
+return StoreScope.All;
+return await _currentUser.GetStoreScopeAsync();
+}
+private async Task<string> GenerateUniqueSlugAsync(
+string name,
+Guid tenantId,
+CancellationToken cancellationToken = default,
+Guid? excludeStoreId = null)
+{
+var baseSlug = SlugHelper.Generate(name);
+var slug = baseSlug;
+var counter = 1;
+while (true)
+{
+IQueryable<Store> query = _db.Stores
+.Where(x => x.TenantId == tenantId && x.Slug == slug);
+if (excludeStoreId.HasValue)
+query = query.Where(x => x.Id != excludeStoreId.Value);
+var exists = await query.AnyAsync(cancellationToken);
+if (!exists) return slug;
+slug = $"{baseSlug}-{counter++}";
+}
+}
+private static StoreDto Map(Store store) => new()
+{
+Id = store.Id,
+TenantId = store.TenantId,
+Name = store.Name,
+Slug = store.Slug,
+StoreTypeId = store.StoreTypeId,
+StoreTypeName = store.StoreType?.Name ?? string.Empty,
+StoreCategory = store.StoreType?.Category ?? string.Empty,
+IsActive = store.IsActive,
+IsListedOnMarketplace = store.IsListedOnMarketplace
+};
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\StoreTypeService.cs =====
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+namespace CoreKit.Tenant.Services;
+public class StoreTypeService : IStoreTypeService
+{
+private readonly IStoreTypeRepository _repository;
+public StoreTypeService(IStoreTypeRepository repository) => _repository = repository;
+public async Task<List<StoreTypeDto>> GetAllActiveAsync(CancellationToken cancellationToken = default)
+{
+var types = await _repository.GetAllActiveAsync(cancellationToken);
+return types.Select(t => new StoreTypeDto
+{
+Id = t.Id,
+Name = t.Name,
+Code = t.Code,
+Category = t.Category
+}).ToList();
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantContext.cs =====
+using CoreKit.SharedKernel.Tenancy;
+using CoreKit.Tenant.Abstractions;
+namespace CoreKit.Tenant.Services;
+public class TenantContext : IMutableTenantContext
+{
+public Guid? TenantId { get; private set; }
+public void SetTenant(Guid? tenantId)
+{
+TenantId = tenantId == Guid.Empty ? null : tenantId;
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantLegalInfoService.cs =====
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Interfaces;
+namespace CoreKit.Tenant.Services;
+public class TenantLegalInfoService : ITenantLegalInfoService
+{
+private readonly ITenantLegalInfoRepository _repo;
+public TenantLegalInfoService(ITenantLegalInfoRepository repo) => _repo = repo;
+public async Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson)
+{
+var info = new TenantLegalInfo
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+BusinessLicenseNumber = businessLicenseNumber,
+TaxId = taxId,
+AdditionalJson = additionalJson
+};
+await _repo.AddOrUpdateAsync(info);
+}
+public async Task<TenantLegalInfo?> GetAsync(Guid tenantId) => await _repo.GetByTenantAsync(tenantId);
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Services\TenantService.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Helpers;
+using CoreKit.Tenant.Entities;
+using CoreKit.Tenant.Enums;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+namespace CoreKit.Tenant.Services;
+public class TenantService : ITenantService
+{
+private readonly ITenantRepository _tenantRepo;
+private readonly TenantKitOptions _options;
+private readonly TenantDbContext _db;
+private readonly ICurrentUserService? _currentUser;
+public TenantService(
+ITenantRepository tenantRepo,
+IOptions<TenantKitOptions> options,
+TenantDbContext db,
+ICurrentUserService? currentUser = null)
+{
+_tenantRepo = tenantRepo;
+_options = options.Value;
+_db = db;
+_currentUser = currentUser;
+}
+public async Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request)
+{
+if (await _tenantRepo.ExistsByNameAsync(request.Name))
+throw new InvalidOperationException("Tenant already exists.");
+var status = _options.AutoApproveTenants
+? TenantStatus.Active
+: TenantStatus.Pending;
+var slug = SlugHelper.Generate(request.Name);
+var tenant = new TenantEntity
+{
+Id = Guid.NewGuid(),
+Name = request.Name,
+Slug = slug,
+Status = status,
+MetadataJson = request.MetadataJson,
+OwnerUserId = _currentUser?.UserId
+};
+_tenantRepo.Add(tenant);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+return new TenantRegistrationResponse
+{
+TenantId = tenant.Id,
+Message = _options.AutoApproveTenants
+? "Tenant registered and activated."
+: "Tenant registration submitted. Awaiting approval."
+};
+}
+public Task<TenantEntity?> GetByIdAsync(Guid tenantId)
+=> _tenantRepo.GetByIdAsync(tenantId);
+public Task<List<TenantEntity>> GetAllAsync()
+=> _tenantRepo.GetAllAsync();
+public async Task ApproveAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+?? throw new KeyNotFoundException("Tenant not found.");
+if (tenant.Status == TenantStatus.Active)
+throw new InvalidOperationException("Tenant is already active.");
+tenant.Status = TenantStatus.Active;
+_tenantRepo.Update(tenant);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+}
+public async Task RejectAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+?? throw new KeyNotFoundException("Tenant not found.");
+tenant.Status = TenantStatus.Rejected;
+_tenantRepo.Update(tenant);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+}
+public async Task UpdateAsync(Guid tenantId, string? name, string? metadataJson)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+?? throw new KeyNotFoundException("Tenant not found.");
+if (name != null)
+{
+tenant.Name = name;
+tenant.Slug = SlugHelper.Generate(name);
+}
+if (metadataJson != null)
+tenant.MetadataJson = metadataJson;
+_tenantRepo.Update(tenant);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+}
+public async Task DeleteAsync(Guid tenantId)
+{
+var tenant = await _tenantRepo.GetByIdAsync(tenantId)
+?? throw new KeyNotFoundException("Tenant not found.");
+tenant.IsDeleted = true;
+tenant.Status = TenantStatus.Archived;
+_tenantRepo.Update(tenant);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateConcurrencyException)
+{
+throw new InvalidOperationException(
+"This record was modified by another user. Please refresh and try again.");
+}
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\CreateStoreRequestValidator.cs =====
+using CoreKit.Tenant.Models;
+using FluentValidation;
+namespace CoreKit.Tenant.Validators;
+public class CreateStoreRequestValidator : AbstractValidator<CreateStoreRequest>
+{
+public CreateStoreRequestValidator()
+{
+RuleFor(x => x.Name)
+.NotEmpty().WithMessage("Store name is required.")
+.MaximumLength(200).WithMessage("Store name must not exceed 200 characters.");
+RuleFor(x => x.CountryCode)
+.Length(2).WithMessage("Country code must be 2 characters (ISO 3166-1).")
+.When(x => !string.IsNullOrWhiteSpace(x.CountryCode));
+RuleFor(x => x.Latitude)
+.InclusiveBetween(-90, 90).WithMessage("Latitude must be between -90 and 90.")
+.When(x => x.Latitude.HasValue);
+RuleFor(x => x.Longitude)
+.InclusiveBetween(-180, 180).WithMessage("Longitude must be between -180 and 180.")
+.When(x => x.Longitude.HasValue);
+RuleFor(x => x.PostalCode)
+.MaximumLength(20).WithMessage("Postal code must not exceed 20 characters.")
+.When(x => !string.IsNullOrWhiteSpace(x.PostalCode));
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\TenantRegistrationRequestValidator.cs =====
+using CoreKit.Tenant.Models;
+using FluentValidation;
+namespace CoreKit.Tenant.Validators;
+public class TenantRegistrationRequestValidator
+: AbstractValidator<TenantRegistrationRequest>
+{
+public TenantRegistrationRequestValidator()
+{
+RuleFor(x => x.Name)
+.NotEmpty()
+.WithMessage("Tenant name is required.")
+.MinimumLength(3)
+.WithMessage("Tenant name must be at least 3 characters.")
+.MaximumLength(200)
+.WithMessage("Tenant name must not exceed 200 characters.")
+.Matches(@"^[a-zA-Z0-9\s\-_]+$")
+.WithMessage(
+"Tenant name can only contain letters, numbers, " +
+"spaces, hyphens, and underscores.");
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\UpdateStoreRequestValidator.cs =====
+using CoreKit.Tenant.Models;
+using FluentValidation;
+namespace CoreKit.Tenant.Validators;
+public class UpdateStoreRequestValidator : AbstractValidator<UpdateStoreRequest>
+{
+public UpdateStoreRequestValidator()
+{
+RuleFor(x => x.Name)
+.NotEmpty()
+.WithMessage("Store name must not be empty when provided.")
+.MaximumLength(200)
+.WithMessage("Store name must not exceed 200 characters.")
+.When(x => x.Name is not null);
+RuleFor(x => x.CountryCode)
+.Length(2)
+.WithMessage("Country code must be 2 characters (ISO 3166-1).")
+.When(x => !string.IsNullOrWhiteSpace(x.CountryCode));
+RuleFor(x => x.Latitude)
+.InclusiveBetween(-90, 90)
+.WithMessage("Latitude must be between -90 and 90.")
+.When(x => x.Latitude.HasValue);
+RuleFor(x => x.Longitude)
+.InclusiveBetween(-180, 180)
+.WithMessage("Longitude must be between -180 and 180.")
+.When(x => x.Longitude.HasValue);
+RuleFor(x => x.PostalCode)
+.MaximumLength(20)
+.WithMessage("Postal code must not exceed 20 characters.")
+.When(x => !string.IsNullOrWhiteSpace(x.PostalCode));
+}
+}
+
+===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Validators\ValidationFilter.cs =====
+using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+namespace CoreKit.Tenant.Validators;
+public class ValidationFilter : IAsyncActionFilter
+{
+private readonly IServiceProvider _serviceProvider;
+public ValidationFilter(IServiceProvider serviceProvider)
+=> _serviceProvider = serviceProvider;
+public async Task OnActionExecutionAsync(
+ActionExecutingContext context,
+ActionExecutionDelegate next)
+{
+foreach (var (_, value) in context.ActionArguments)
+{
+if (value is null) continue;
+var validatorType = typeof(IValidator<>)
+.MakeGenericType(value.GetType());
+if (_serviceProvider.GetService(validatorType)
+is not IValidator validator)
+continue;
+var validationContext = new ValidationContext<object>(value);
+var result = await validator.ValidateAsync(
+validationContext, context.HttpContext.RequestAborted);
+if (result.IsValid) continue;
+var errors = result.Errors
+.Select(e => new
+{
+field = e.PropertyName,
+message = e.ErrorMessage
+})
+.ToList();
+context.Result = new ObjectResult(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "One or more validation errors occurred.",
+errors
+})
+{
+StatusCode = 422
+};
+return;
+}
+await next();
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\AdminCategoriesController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/categories")]
+[Authorize]
+public class AdminCategoriesController : ApiControllerBase
+{
+private readonly ICategoryService _categoryService;
+public AdminCategoriesController(ICategoryService categoryService)
+=> _categoryService = categoryService;
+[HttpGet("tenant/{tenantId}")]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetByTenant(Guid tenantId, [FromQuery] Guid? storeId = null)
+{
+var categories = await _categoryService.GetByTenantAsync(tenantId, storeId);
+return Ok(categories);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var category = await _categoryService.GetByIdAsync(id);
+return category is null ? NotFound() : Ok(category);
+}
+[HttpPost]
+[RequiresPermission("catalog.categories.create")]
+public async Task<IActionResult> Create(CreateCategoryRequest request)
+{
+var category = await _categoryService.CreateAsync(request);
+return CreatedResponse(category);
+}
+[HttpPut("{id}")]
+[RequiresPermission("catalog.categories.update")]
+public async Task<IActionResult> Update(Guid id, UpdateCategoryRequest request)
+{
+await _categoryService.UpdateAsync(id, request);
+return UpdatedResponse();
+}
+[HttpDelete("{id}")]
+[RequiresPermission("catalog.categories.delete")]
+public async Task<IActionResult> Delete(Guid id)
+{
+await _categoryService.DeleteAsync(id);
+return DeletedResponse();
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ImpersonationController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/impersonation")]
+[Authorize]
+public class ImpersonationController : ControllerBase
+{
+private readonly IImpersonationService _impersonationService;
+private readonly ICurrentUserService _currentUser;
+public ImpersonationController(
+IImpersonationService impersonationService,
+ICurrentUserService currentUser)
+{
+_impersonationService = impersonationService;
+_currentUser = currentUser;
+}
+[HttpPost("tenant/{tenantId}")]
+[RequiresPermission(Permissions.Platform.CreateImpersonation)]
+public async Task<IActionResult> ImpersonateTenant(
+Guid tenantId,
+[FromBody] ImpersonationRequest request)
+{
+if (_currentUser.UserId == null)
+return Unauthorized();
+var (token, expiresAt) = await _impersonationService.CreateImpersonationTokenAsync(
+_currentUser.UserId.Value,
+tenantId,
+request.Reason);
+return Ok(new
+{
+accessToken = token,
+expiresAt,
+tenantId,
+message = $"Impersonation token created for tenant {tenantId}. " +
+$"Use this token with x-tenant-id header for tenant-scoped operations. " +
+$"Token expires at {expiresAt:O}."
+});
+}
+}
+public class ImpersonationRequest
+{
+public string Reason { get; set; } = default!;
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PermissionsController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/permissions")]
+[Authorize]
+public class PermissionsController : ApiControllerBase
+{
+private readonly IRoleRepository _roleRepo;
+public PermissionsController(IRoleRepository roleRepo) => _roleRepo = roleRepo;
+[HttpGet]
+[RequiresPermission(Permissions.PermissionsManagement.View)]
+public async Task<IActionResult> GetAll()
+{
+var perms = await _roleRepo.GetAllPermissionsAsync();
+return Ok(perms.Select(p => new { p.Id, p.Name, p.PermissionModuleId }));
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PlansController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/plans")]
+[Authorize]
+public class PlansController : ApiControllerBase
+{
+private readonly IPlanService _planService;
+public PlansController(IPlanService planService) => _planService = planService;
+[HttpGet]
+[RequiresPermission(Permissions.Platform.ManageSystemSettings)]
+public async Task<IActionResult> GetAll()
+{
+var plans = await _planService.GetAllAsync();
+return Ok(plans.Select(p => new { p.Id, p.Name, p.Code, p.MonthlyPrice, p.MaxStores, p.MaxProducts, p.CustomDomainEnabled, p.ThemeCustomizationEnabled }));
+}
+[HttpPost]
+[RequiresPermission(Permissions.Platform.ManageSystemSettings)]
+public async Task<IActionResult> Create([FromBody] CreatePlanRequest request)
+{
+var plan = await _planService.CreateAsync(
+request.Name, request.Code, request.Description,
+request.MonthlyPrice, request.YearlyPrice,
+request.MaxStores, request.MaxProducts, request.MaxCategories,
+request.CustomDomainEnabled, request.ThemeCustomizationEnabled,
+request.SortOrder);
+return CreatedResponse(new { plan.Id, plan.Name });
+}
+}
+public class CreatePlanRequest
 {
 public string Name { get; set; } = default!;
 public string Code { get; set; } = default!;
-public ICollection<Permission>? Permissions { get; set; }
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RefreshToken.cs =====
-namespace CoreKit.IAM.Entities;
-public class RefreshToken
-{
-public Guid Id { get; set; }
-public Guid UserId { get; set; }
-public string TokenHash { get; set; } = default!;
-public string FamilyId { get; set; } = default!;
-public string JwtId { get; set; } = default!;
-public DateTime ExpiresAtUtc { get; set; }
-public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-public DateTime? RevokedAtUtc { get; set; }
-public bool IsRevoked { get; set; }
-public string? ReplacedByTokenHash { get; set; }
-public string? CreatedByIp { get; set; }
-public string? RevokedByIp { get; set; }
-public string? UserAgent { get; set; }
-public bool IsActive => !IsRevoked && DateTime.UtcNow < ExpiresAtUtc;
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\Role.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.IAM.Entities;
-public class Role : AuditableEntity
-{
-public Guid? TenantId { get; set; }
-public string Name { get; set; } = default!;
 public string? Description { get; set; }
-public bool IsSystem { get; set; }
-public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
-public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+public decimal MonthlyPrice { get; set; }
+public decimal YearlyPrice { get; set; }
+public int? MaxStores { get; set; }
+public int? MaxProducts { get; set; }
+public int? MaxCategories { get; set; }
+public bool CustomDomainEnabled { get; set; }
+public bool ThemeCustomizationEnabled { get; set; }
+public int SortOrder { get; set; } = 99;
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RoleDocumentRequirement.cs =====
-namespace CoreKit.IAM.Entities;
-public class RoleDocumentRequirement
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\PlatformAttributeTemplatesController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/catalog/attribute-templates")]
+[Authorize]
+public class PlatformAttributeTemplatesController : ApiControllerBase
 {
-public Guid Id { get; set; }
-public Guid RoleId { get; set; }
-public string DocumentType { get; set; } = default!;
-public Role Role { get; set; } = default!;
+private readonly IProductAttributeTemplateService _templateService;
+private readonly IProductAttributeGroupService _groupService;
+public PlatformAttributeTemplatesController(
+IProductAttributeTemplateService templateService,
+IProductAttributeGroupService groupService)
+{
+_templateService = templateService;
+_groupService = groupService;
+}
+[HttpGet("groups/{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetGroups(string storeTypeCode)
+{
+var groups = await _groupService.GetByStoreTypeAsync(storeTypeCode);
+return OkResponse(groups);
+}
+[HttpPost("groups")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> CreateGroup(
+[FromBody] CreateAttributeGroupRequest request)
+{
+request.TenantId = null;
+var group = await _groupService.CreateAsync(request);
+return CreatedResponse(group);
+}
+[HttpPut("groups/{groupId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> UpdateGroup(
+Guid groupId,
+[FromBody] UpdateGroupRequest request)
+{
+await _groupService.UpdateAsync(groupId, request.Name, request.SortOrder);
+return UpdatedResponse();
+}
+[HttpDelete("groups/{groupId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> DeleteGroup(Guid groupId)
+{
+await _groupService.DeleteAsync(groupId);
+return DeletedResponse();
+}
+[HttpGet("{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetByStoreType(string storeTypeCode)
+{
+var templates =
+await _templateService.GetPlatformTemplatesAsync(storeTypeCode);
+return OkResponse(templates);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Create(
+[FromBody] CreateAttributeTemplateRequest request)
+{
+var template =
+await _templateService.CreatePlatformTemplateAsync(request);
+return CreatedResponse(template);
+}
+[HttpPut("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Update(
+Guid templateId,
+[FromBody] UpdateAttributeTemplateRequest request)
+{
+await _templateService.UpdatePlatformTemplateAsync(templateId, request);
+return UpdatedResponse();
+}
+[HttpDelete("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Delete(Guid templateId)
+{
+await _templateService.DeletePlatformTemplateAsync(templateId);
+return DeletedResponse();
+}
+}
+public record UpdateGroupRequest(string Name, int SortOrder);
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\ProductAddonsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+private readonly IProductService _productService;
+public ProductsController(IProductService productService)
+=> _productService = productService;
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+[EnableRateLimiting("product-create")]
+public async Task<IActionResult> Create(CreateProductRequest request)
+{
+var product = await _productService.CreateAsync(request);
+return CreatedResponse(product);
+}
+[HttpGet("{id}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var product = await _productService.GetByIdAsync(id);
+return product is null ? NotFound() : Ok(product);
+}
+[HttpGet("store/{storeId}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByStore(Guid storeId)
+{
+var products = await _productService.GetByStoreAsync(storeId);
+return Ok(products);
+}
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\RolePermission.cs =====
-namespace CoreKit.IAM.Entities;
-public class RolePermission
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\RolesController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[Route("api/admin/roles")]
+[Authorize]
+public class RolesController : ApiControllerBase
 {
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid PermissionId { get; set; }
-public Permission Permission { get; set; } = default!;
+private readonly IRoleManagementService _roleService;
+public RolesController(IRoleManagementService roleService)
+=> _roleService = roleService;
+[HttpPost]
+[RequiresPermission(Permissions.Roles.Create)]
+public async Task<IActionResult> Create(
+[FromBody] CreateRoleRequest request)
+{
+var role = await _roleService.CreateRoleAsync(
+request.Name, request.TenantId, request.Description);
+return CreatedResponse(new { role.Id, role.Name });
+}
+[HttpPost("{roleId}/permissions")]
+[RequiresPermission(Permissions.Roles.AssignPermission)]
+public async Task<IActionResult> AssignPermission(
+Guid roleId, [FromBody] AssignPermissionRequest request)
+{
+await _roleService.AssignPermissionAsync(
+roleId, request.PermissionId);
+return UpdatedResponse("Permission assigned successfully.");
+}
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\User.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.IAM.Entities;
-public class User : AuditableEntity
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\SubscriptionController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Subscription.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/subscription")]
+[Authorize]
+public class SubscriptionController : ApiControllerBase
 {
-public Guid? TenantId { get; set; }
-public string Name { get; set; } = default!;
-public string? Email { get; set; }
-public string Phone { get; set; } = default!;
-public string PasswordHash { get; set; } = default!;
-public bool IsActive { get; set; } = true;
-public DateTime? LastLoginAt { get; set; }
-public int FailedLoginAttempts { get; set; }
-public DateTime? LockoutEnd { get; set; }
-public ICollection<UserRole> Roles { get; set; } = new List<UserRole>();
-public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
-public ICollection<UserStoreAssignment> StoreAssignments { get; set; } = new List<UserStoreAssignment>();
+private readonly IPlanService _planService;
+private readonly ISubscriptionManagementService _subService;
+public SubscriptionController(
+IPlanService planService,
+ISubscriptionManagementService subService)
+{
+_planService = planService;
+_subService = subService;
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserDocument.cs =====
-namespace CoreKit.IAM.Entities;
-public class UserDocument
+[HttpGet("plans")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> GetAllPlans()
 {
-public Guid Id { get; set; }
-public Guid UserId { get; set; }
-public string DocumentType { get; set; } = default!;
-public string ImageUrl { get; set; } = default!;
-public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-public User User { get; set; } = default!;
+var plans = await _planService.GetAllAsync();
+return Ok(plans);
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserIdentity.cs =====
-namespace CoreKit.IAM.Entities;
-public class UserIdentity
+[HttpPost("assign")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> AssignSubscription([FromBody] AssignSubscriptionRequest request)
 {
-public Guid Id { get; set; }
-public Guid UserId { get; set; }
-public string EncryptedCnic { get; set; } = default!;
-public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-public User User { get; set; } = default!;
+await _subService.AssignSubscriptionAsync(
+request.TenantId,
+request.PlanId,
+startDate: request.StartDate,
+endDate: request.EndDate);
+var active = await _subService.GetActiveSubscriptionForTenantAsync(request.TenantId);
+return Ok(active);
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserRole.cs =====
-namespace CoreKit.IAM.Entities;
-public class UserRole
+[HttpGet("tenant/{tenantId}/active")]
+[RequiresPermission(Permissions.Platform.ManageBilling)]
+public async Task<IActionResult> GetActiveSubscription(Guid tenantId)
 {
-public Guid UserId { get; set; }
-public User User { get; set; } = default!;
-public Guid RoleId { get; set; }
-public Role Role { get; set; } = default!;
-public Guid? TenantId { get; set; }
+var sub = await _subService.GetActiveSubscriptionForTenantAsync(tenantId);
+if (sub is null)
+return NotFound(new
+{
+success = false,
+errorCode = "NOT_FOUND",
+message = "No active subscription found."
+});
+return Ok(sub);
 }
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Entities\UserStoreAssignment.cs =====
-namespace CoreKit.IAM.Entities;
-public class UserStoreAssignment
+}
+public class AssignSubscriptionRequest
 {
-public Guid UserId { get; set; }
-public User User { get; set; } = default!;
-public Guid StoreId { get; set; }
 public Guid TenantId { get; set; }
+public Guid PlanId { get; set; }
+public DateTime? StartDate { get; set; }
+public DateTime? EndDate { get; set; }
 }
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Extensions\ServiceCollectionExtensions.cs =====
-using System.Text;
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\TenantsController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/tenants")]
+public class TenantsController : ApiControllerBase
+{
+private readonly ITenantService _tenantService;
+private readonly IRoleManagementService _roleManagementService;
+private readonly IRoleRepository _roleRepository;
+public TenantsController(
+ITenantService tenantService,
+IRoleManagementService roleManagementService,
+IRoleRepository roleRepository)
+{
+_tenantService = tenantService;
+_roleManagementService = roleManagementService;
+_roleRepository = roleRepository;
+}
+[HttpPost("register")]
+[AllowAnonymous]
+public async Task<IActionResult> Register(TenantRegistrationRequest request)
+{
+if (string.IsNullOrWhiteSpace(request.Name))
+return BadRequest(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "Tenant name is required."
+});
+var result = await _tenantService.RegisterAsync(request);
+return Ok(result);
+}
+[HttpPost("{tenantId}/approve")]
+[Authorize]
+[RequiresPermission(Permissions.Tenants.Approve)]
+public async Task<IActionResult> Approve(Guid tenantId)
+{
+await _tenantService.ApproveAsync(tenantId);
+await EnsureDefaultTenantRoleAsync(tenantId);
+return Ok(new
+{
+tenantId,
+status = "Approved",
+message = "Tenant approved successfully"
+});
+}
+[HttpGet]
+[Authorize]
+[RequiresPermission(Permissions.Tenants.View)]
+public async Task<IActionResult> GetAll()
+{
+var tenants = await _tenantService.GetAllAsync();
+return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
+}
+private async Task EnsureDefaultTenantRoleAsync(Guid tenantId)
+{
+const string roleName = "TenantAdmin";
+var existingRoles = await _roleManagementService.GetRolesAsync(tenantId);
+if (existingRoles.Any(r => r.Name == roleName))
+return;
+var role = await _roleManagementService.CreateRoleAsync(
+roleName,
+tenantId,
+"Default tenant administrator – full store and catalog management");
+var allPermissions = await _roleRepository.GetAllPermissionsAsync();
+string[] requiredPermissions =
+{
+"store.view", "store.update",
+"catalog.categories.view", "catalog.categories.create", "catalog.categories.update", "catalog.categories.delete",
+"catalog.products.view", "catalog.products.create", "catalog.products.update", "catalog.products.delete",
+"catalog.templates.view", "catalog.templates.manage.tenant", "catalog.templates.assign", "catalog.templates.toggle.store"
+};
+foreach (var permName in requiredPermissions)
+{
+var perm = allPermissions.FirstOrDefault(p => p.Name == permName);
+if (perm != null)
+await _roleManagementService.AssignPermissionAsync(role.Id, perm.Id);
+}
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\UsersController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
-using CoreKit.IAM.Persistence;
-using CoreKit.IAM.Repositories;
-using CoreKit.IAM.Services;
-using CoreKit.IAM.Validators;
-using CoreKit.SharedKernel.Interfaces;
-using FluentValidation;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Http;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SaaSPlatform.Admin.Api.Models;
+namespace SaaSPlatform.Admin.Api.Controllers;
+[Route("api/admin/users")]
+[Authorize]
+public class UsersController : ApiControllerBase
+{
+private readonly IUserManagementService _userService;
+private readonly ICurrentUserService _currentUser;
+public UsersController(
+IUserManagementService userService,
+ICurrentUserService currentUser)
+{
+_userService = userService;
+_currentUser = currentUser;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Platform.ViewAllUsers)]
+public async Task<IActionResult> GetAll()
+{
+var users = await _userService.GetAllUsersAsync();
+return Ok(users);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Platform.ManageAnyUser)]
+public async Task<IActionResult> Create(
+[FromBody] SaaSPlatform.Admin.Api.Models.CreateUserRequest request)
+{
+var user = await _userService.CreateUserAsync(
+request.Name,
+request.Phone,
+request.Email,
+request.Password,
+request.TenantId);
+return CreatedResponse(
+new { user.Id, user.Name, user.Phone },
+"Created successfully.");
+}
+[HttpPost("{userId}/roles")]
+[RequiresPermission(Permissions.Users.AssignRole)]
+public async Task<IActionResult> AssignRole(
+Guid userId,
+[FromBody] AssignRoleWithTenantRequest request)
+{
+var isPlatformAdmin = _currentUser.HasPermission(
+Permissions.Platform.ManageAnyUser);
+await _userService.AssignRoleAsync(
+userId,
+request.RoleId,
+request.TenantId,
+callerIsPlatformAdmin: isPlatformAdmin);
+return UpdatedResponse("Role assigned successfully.");
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Controllers\VariantAttributeTemplatesController.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Persistence;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
-namespace CoreKit.IAM.Extensions;
-public static class ServiceCollectionExtensions
+namespace SaaSPlatform.Admin.Api.Controllers;
+[ApiController]
+[Route("api/admin/catalog/variant-attribute-templates")]
+[Authorize]
+public class VariantAttributeTemplatesController : ApiControllerBase
 {
-public static IServiceCollection AddCoreKitIAM(
-this IServiceCollection services,
-string connectionString,
-IConfigurationSection jwtSection,
-Action<IamOptions>? configureOptions = null)
+private readonly CatalogDbContext _db;
+public VariantAttributeTemplatesController(CatalogDbContext db) => _db = db;
+[HttpGet]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetAll([FromQuery] string? storeTypeCode)
 {
-var jwtSettings = jwtSection.Get<JwtSettings>()
-?? throw new InvalidOperationException(
-"JWT configuration is missing. Ensure appsettings.json " +
-"contains a 'Jwt' section with Secret, Issuer, Audience, " +
-"AccessTokenMinutes, and RefreshTokenDays.");
-if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
-throw new InvalidOperationException(
-"Jwt:Secret is missing from configuration.");
-if (string.IsNullOrWhiteSpace(jwtSettings.Issuer))
-throw new InvalidOperationException(
-"Jwt:Issuer is missing from configuration.");
-if (string.IsNullOrWhiteSpace(jwtSettings.Audience))
-throw new InvalidOperationException(
-"Jwt:Audience is missing from configuration.");
-services.Configure<JwtSettings>(jwtSection);
-var iamOptions = new IamOptions();
-configureOptions?.Invoke(iamOptions);
-services.AddSingleton(iamOptions);
-services.AddHttpContextAccessor();
-services.AddDbContext<IamDbContext>(options =>
-options.UseNpgsql(connectionString));
-services.AddMemoryCache();
-services.AddScoped<IUserRepository, UserRepository>();
-services.AddScoped<IRoleRepository, RoleRepository>();
-services.AddScoped<IPermissionRepository, PermissionRepository>();
-services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-services.AddScoped<IUserStoreAssignmentRepository,
-UserStoreAssignmentRepository>();
-services.AddScoped<CurrentUserService>();
-services.AddScoped<ICurrentUserService>(sp =>
-sp.GetRequiredService<CurrentUserService>());
-services.AddScoped<ICurrentUser>(sp =>
+IQueryable<VariantAttributeTemplate> query = _db.VariantAttributeTemplates;
+if (!string.IsNullOrWhiteSpace(storeTypeCode))
+query = query.Where(t => t.StoreTypeCode == storeTypeCode);
+var templates = await query
+.OrderBy(t => t.StoreTypeCode)
+.ThenBy(t => t.Name)
+.ToListAsync();
+var result = templates.Select(t => new
 {
-var accessor = sp.GetRequiredService<IHttpContextAccessor>();
-return new HttpContextCurrentUser(accessor);
+t.Id,
+t.Name,
+t.StoreTypeCode,
+t.OptionsJson
 });
-services.AddScoped<IAuthService, AuthService>();
-services.AddScoped<IJwtTokenService, JwtTokenService>();
-services.AddScoped<IPasswordHasher, PasswordHasher>();
-services.AddScoped<IRefreshTokenService, RefreshTokenService>();
-services.AddScoped<IUserManagementService, UserManagementService>();
-services.AddScoped<IRoleManagementService, RoleManagementService>();
-services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
-services.AddScoped<IPermissionService, PermissionService>();
-if (iamOptions.EnableUserDocuments)
-services.AddScoped<IUserDocumentService, UserDocumentService>();
-if (iamOptions.EnableUserIdentities)
-services.AddScoped<IUserIdentityService, UserIdentityService>();
-if (iamOptions.EnableRoleDocumentRequirements)
-services.AddScoped<IRoleDocumentRequirementService,
-RoleDocumentRequirementService>();
-if (iamOptions.EnableImpersonation)
-{
-services.AddScoped<IImpersonationService, ImpersonationService>();
+return Ok(result);
 }
-services.AddSingleton<IEncryptionService>(sp =>
+[HttpPost]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Create([FromBody] CreateVariantAttributeTemplateRequest request)
 {
-var config = sp.GetRequiredService<IConfiguration>();
-var key = config["EncryptionKey"];
-if (string.IsNullOrWhiteSpace(key))
-throw new InvalidOperationException(
-"EncryptionKey is missing from configuration. " +
-"Add a 32-byte base64-encoded key to appsettings.json: " +
-"\"EncryptionKey\": \"<base64-32-bytes>\"");
-return new EncryptionService(key);
+if (string.IsNullOrWhiteSpace(request.Name))
+return BadRequest("Name is required.");
+if (string.IsNullOrWhiteSpace(request.StoreTypeCode))
+return BadRequest("StoreTypeCode is required.");
+var template = new VariantAttributeTemplate
+{
+Id = Guid.NewGuid(),
+Name = request.Name.Trim(),
+StoreTypeCode = request.StoreTypeCode.Trim(),
+OptionsJson = request.OptionsJson?.Trim(),
+TenantId = null
+};
+_db.VariantAttributeTemplates.Add(template);
+await _db.SaveChangesAsync();
+return CreatedResponse(new
+{
+template.Id,
+template.Name,
+template.StoreTypeCode,
+template.OptionsJson
 });
-services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
-services.Configure<ApiBehaviorOptions>(options =>
+}
+[HttpPut("{id:guid}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Update(Guid id, [FromBody] UpdateVariantAttributeTemplateRequest request)
+{
+var template = await _db.VariantAttributeTemplates.FindAsync(id);
+if (template == null) return NotFound();
+if (!string.IsNullOrWhiteSpace(request.Name))
+template.Name = request.Name.Trim();
+if (request.OptionsJson != null)
+template.OptionsJson = string.IsNullOrWhiteSpace(request.OptionsJson)
+? null
+: request.OptionsJson.Trim();
+await _db.SaveChangesAsync();
+return UpdatedResponse();
+}
+[HttpDelete("{id:guid}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManagePlatform)]
+public async Task<IActionResult> Delete(Guid id)
+{
+var template = await _db.VariantAttributeTemplates.FindAsync(id);
+if (template == null) return NotFound();
+_db.VariantAttributeTemplates.Remove(template);
+await _db.SaveChangesAsync();
+return DeletedResponse();
+}
+}
+public record CreateVariantAttributeTemplateRequest(
+string Name,
+string StoreTypeCode,
+string? OptionsJson);
+public record UpdateVariantAttributeTemplateRequest(
+string? Name,
+string? OptionsJson);
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\AssignPermissionRequest.cs =====
+namespace SaaSPlatform.Admin.Api.Models;
+public class AssignPermissionRequest
+{
+public Guid PermissionId { get; set; }
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\CreateRoleRequest.cs =====
+namespace SaaSPlatform.Admin.Api.Models;
+public class CreateRoleRequest
+{
+public string Name { get; set; } = default!;
+public Guid? TenantId { get; set; }
+public string? Description { get; set; }
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Models\CreateUserRequest.cs =====
+namespace SaaSPlatform.Admin.Api.Models;
+public class CreateUserRequest
+{
+public string Name { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string? Email { get; set; }
+public string Password { get; set; } = default!;
+public Guid? TenantId { get; set; }
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Validator\AdminCreateUserRequestValidator.cs =====
+using FluentValidation;
+using SaaSPlatform.Admin.Api.Models;
+namespace SaaSPlatform.Admin.Api.Validators;
+public class AdminCreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+{
+public AdminCreateUserRequestValidator()
+{
+RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+RuleFor(x => x.Phone).NotEmpty().Matches(@"^\+?[\d\s\-]{7,15}$");
+RuleFor(x => x.Password)
+.NotEmpty()
+.MinimumLength(8).WithMessage("Password must be at least 8 characters.")
+.Matches("[A-Z]").WithMessage("Must contain uppercase.")
+.Matches("[a-z]").WithMessage("Must contain lowercase.")
+.Matches("[0-9]").WithMessage("Must contain a digit.")
+.Matches("[^a-zA-Z0-9]").WithMessage("Must contain a special character.");
+}
+}
+
+===== SaaSPlatform.Admin.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Admin.Api\Program.cs =====
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Extensions;
+using CoreKit.Catalog.Services;
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Subscription.Extensions;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using FluentValidation;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using SaaSPlatform.Admin.Api.Validators;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter = ctx.Lease.TryGetMetadata(
+MetadataName.RetryAfter, out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. " +
+$"Please wait {retryAfter} seconds.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("admin-operations", cfg =>
+{
+cfg.PermitLimit = 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("product-create", cfg =>
+{
+cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 20;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
+builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
+builder.Services.AddHttpContextAccessor();
+var connStr = builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"));
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddSubscriptionModule(connStr);
+builder.Services.AddCoreKitControllers();
+builder.ValidateCoreKitConfiguration();
+builder.Services.AddCatalogModule(connStr, services =>
+{
+services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
+});
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
+builder.Services.Configure<JsonOptions>(options =>
+{
+options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
+builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
 options.SuppressModelStateInvalidFilter = true;
 options.InvalidModelStateResponseFactory = context =>
 {
 var errors = context.ModelState
 .Where(e => e.Value?.Errors.Count > 0)
-.SelectMany(e => e.Value!.Errors
-.Select(x => new
+.SelectMany(e => e.Value!.Errors.Select(x => new
 {
 field = e.Key,
 message = x.ErrorMessage
@@ -473,115 +1863,83 @@ message = "One or more validation errors occurred.",
 errors
 })
 {
-StatusCode = StatusCodes.Status422UnprocessableEntity
+StatusCode = 422
 };
 };
 });
-services
-.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-.AddJwtBearer(o =>
+var app = builder.Build();
+if (!app.Environment.IsDevelopment())
 {
-o.TokenValidationParameters = new TokenValidationParameters
-{
-ValidateIssuer = true,
-ValidateAudience = true,
-ValidateLifetime = true,
-ValidateIssuerSigningKey = true,
-ValidIssuer = jwtSettings.Issuer,
-ValidAudience = jwtSettings.Audience,
-IssuerSigningKey = new SymmetricSecurityKey(
-Encoding.UTF8.GetBytes(jwtSettings.Secret)),
-ClockSkew = TimeSpan.Zero
-};
-o.Events = new JwtBearerEvents
-{
-OnChallenge = async ctx =>
-{
-ctx.HandleResponse();
-if (ctx.Response.HasStarted) return;
-ctx.Response.StatusCode =
-StatusCodes.Status401Unauthorized;
-ctx.Response.ContentType = "application/json";
-await ctx.Response.WriteAsync(
-"{\"success\":false," +
-"\"errorCode\":\"UNAUTHORIZED\"," +
-"\"message\":\"You are not logged in or your " +
-"session has expired. " +
-"Please log in and try again.\"}");
-},
-OnForbidden = async ctx =>
-{
-if (ctx.Response.HasStarted) return;
-ctx.Response.StatusCode =
-StatusCodes.Status403Forbidden;
-ctx.Response.ContentType = "application/json";
-await ctx.Response.WriteAsync(
-"{\"success\":false," +
-"\"errorCode\":\"FORBIDDEN\"," +
-"\"message\":\"You do not have permission to " +
-"perform this action. Contact your administrator " +
-"if you believe this is incorrect.\"}");
-},
-OnAuthenticationFailed = async ctx =>
-{
-if (ctx.Response.HasStarted) return;
-var (code, msg) =
-ctx.Exception is SecurityTokenExpiredException
-? ("TOKEN_EXPIRED",
-"Your session has expired. " +
-"Please log in again to continue.")
-: ("TOKEN_INVALID",
-"Your authentication token is invalid. " +
-"Please log in again.");
-ctx.Response.StatusCode =
-StatusCodes.Status401Unauthorized;
-ctx.Response.ContentType = "application/json";
-await ctx.Response.WriteAsync(
-$"{{\"success\":false," +
-$"\"errorCode\":\"{code}\"," +
-$"\"message\":\"{msg}\"}}");
+app.UseHsts();
 }
-};
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] = "DENY";
+context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+context.Response.Headers["X-XSS-Protection"] = "0";
+context.Response.Headers["Permissions-Policy"] =
+"camera=(), microphone=(), geolocation=(), interest-cohort=()";
+await next();
 });
-services.AddAuthorization();
-return services;
-}
-}
+await app.PerformBootCheckAsync();
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
+app.MapControllers();
+app.Run();
 
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Helpers\PhoneNormalizer.cs =====
-using System.Text.RegularExpressions;
-namespace CoreKit.IAM.Helpers;
-public static class PhoneNormalizer
+===== SaaSPlatform.Public.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+namespace SaaSPlatform.Public.Api.Controllers;
+[ApiController]
+[Route("api/auth")]
+public class AuthController : ApiControllerBase
 {
-private static readonly Regex StripNonDigits =
-new(@"[^\d]", RegexOptions.Compiled);
-public static string Normalize(string phone)
+private readonly IAuthService _authService;
+private readonly ITenantContext _tenantContext;
+public AuthController(
+IAuthService authService,
+ITenantContext tenantContext)
 {
-if (string.IsNullOrWhiteSpace(phone))
-return string.Empty;
-var trimmed = phone.Trim();
-var digitsOnly = StripNonDigits.Replace(trimmed, "");
-if (digitsOnly.Length < 7 || digitsOnly.Length > 15)
-throw new ArgumentException(
-$"Phone number '{phone}' is not a valid length " +
-$"(got {digitsOnly.Length} digits, expected 7–15).");
-return digitsOnly;
+_authService = authService;
+_tenantContext = tenantContext;
 }
-public static string Normalize(string phone, string countryCode)
+[HttpPost("login")]
+[AllowAnonymous]
+public async Task<IActionResult> Login(LoginRequest request)
 {
-if (string.IsNullOrWhiteSpace(countryCode))
-throw new ArgumentException(
-"Country code must not be empty.", nameof(countryCode));
-var digitsOnlyCode = StripNonDigits.Replace(countryCode.Trim(), "");
-if (digitsOnlyCode.Length == 0)
-throw new ArgumentException(
-$"Country code '{countryCode}' contains no digits.", nameof(countryCode));
-var normalized = Normalize(phone);
-if (normalized.StartsWith(digitsOnlyCode))
-return normalized;
-if (normalized.StartsWith('0'))
-normalized = normalized[1..];
-return digitsOnlyCode + normalized;
+var result = await _authService.LoginAsync(request, _tenantContext.TenantId);
+return Ok(result);
+}
+[HttpPost("refresh")]
+[AllowAnonymous]
+public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+{
+var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
+return Ok(result);
+}
+[HttpPost("logout")]
+[Authorize]
+public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+{
+if (string.IsNullOrWhiteSpace(request?.RefreshToken))
+return BadRequest("Refresh token is required.");
+await _authService.LogoutAsync(request.RefreshToken);
+return Ok(new { message = "Logged out successfully" });
 }
 }
 

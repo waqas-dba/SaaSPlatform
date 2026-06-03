@@ -54,15 +54,13 @@ builder.Services.AddSingleton(new IamOptions
     RequireImpersonationForCrossTenant = true
 });
 
-// IAM sub-seeders (consumed by IamBootstrap)
+// IAM sub‑seeders
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<PermissionSeeder>();
 builder.Services.AddScoped<RoleSeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<RolePermissionSeeder>();
 builder.Services.AddScoped<UserRoleSeeder>();
-
-// IamBootstrap orchestrates all IAM seeding and migration in the correct order
 builder.Services.AddScoped<IamBootstrap>();
 
 // Other module seeders
@@ -70,6 +68,11 @@ builder.Services.AddScoped<StoreTypeSeeder>();
 builder.Services.AddScoped<TenantSeeder>();
 builder.Services.AddScoped<SubscriptionSeeder>();
 builder.Services.AddScoped<AttributeTemplateSeeder>();
+builder.Services.AddScoped<VariantAttributeTemplateSeeder>();
+
+// ── Optional group seeders (register them even if you don't call them) ──
+builder.Services.AddScoped<VariantGroupSeeder>();
+builder.Services.AddScoped<AddonGroupSeeder>();
 
 var app = builder.Build();
 
@@ -148,9 +151,6 @@ try
     Console.WriteLine("  IAM BOOTSTRAP (migrations + seeding)");
     Console.WriteLine("==============================================");
 
-    // IamBootstrap applies IAM migrations (controlled by RunMigrationsOnBootstrap)
-    // then seeds permissions, roles, users, role-permissions, and user-roles
-    // in the correct dependency order — no manual sub-seeder calls needed.
     var iamBootstrap = services.GetRequiredService<IamBootstrap>();
     await iamBootstrap.RunAsync();
 
@@ -162,6 +162,26 @@ try
     var catalogSeeder = services.GetRequiredService<AttributeTemplateSeeder>();
     await catalogSeeder.SeedAsync();
     logger.LogInformation("Catalog attribute templates seeded successfully.");
+
+    // ── Variant attribute templates ─────────────────────────────────
+    Console.WriteLine();
+    Console.WriteLine("==============================================");
+    Console.WriteLine("  SEEDING VARIANT ATTRIBUTE TEMPLATES");
+    Console.WriteLine("==============================================");
+
+    var variantSeeder = services.GetRequiredService<VariantAttributeTemplateSeeder>();
+    await variantSeeder.SeedAsync();
+    logger.LogInformation("Variant attribute templates seeded successfully.");
+
+//Optional: seed variant groups(currently not used by Postman collection)
+     var variantGroupSeeder = services.GetRequiredService<VariantGroupSeeder>();
+    await variantGroupSeeder.SeedAsync();
+    logger.LogInformation("Variant groups seeded successfully.");
+
+//Optional: seed addon groups(currently not used by Postman collection)
+     var addonGroupSeeder = services.GetRequiredService<AddonGroupSeeder>();
+    await addonGroupSeeder.SeedAsync();
+    logger.LogInformation("Addon groups seeded successfully.");
 
     Console.WriteLine();
     Console.WriteLine("==============================================");
@@ -176,6 +196,7 @@ try
     Console.WriteLine("  ✓ PlatformAdmin role (all permissions)");
     Console.WriteLine("  ✓ Default admin user (phone: 0000000000)");
     Console.WriteLine("  ✓ Catalog attribute templates (restaurant, grocery, ...)");
+    Console.WriteLine("  ✓ Variant attribute templates (restaurant, grocery, ...)");
     Console.WriteLine();
     Console.WriteLine("IMPORTANT:");
     Console.WriteLine("  Set 'Seeder:AdminPassword' in your configuration");
@@ -184,7 +205,7 @@ try
     Console.WriteLine();
     Console.WriteLine("Platform architecture:");
     Console.WriteLine("  - No SuperAdmin bypass");
-    Console.WriteLine("  - Permission-based access control");
+    Console.WriteLine("  - Permission‑based access control");
     Console.WriteLine("  - Subscription plans ready");
     Console.WriteLine("  - Use /api/admin/impersonation for tenant access");
     Console.WriteLine();

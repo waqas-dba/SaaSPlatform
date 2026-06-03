@@ -8,6 +8,7 @@ using SaaSPlatform.Admin.Api.Models;
 
 namespace SaaSPlatform.Admin.Api.Controllers;
 
+[ApiController]
 [Route("api/admin/roles")]
 [Authorize]
 public class RolesController : ApiControllerBase

@@ -1,8 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
-using CoreKit.IAM.Constants;
-using CoreKit.IAM.Interfaces;
 
 namespace CoreKit.IAM.Authorization;
 
@@ -16,8 +17,6 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        if (context.Result != null) return;
-
         var user = context.HttpContext.User;
 
         if (user.Identity?.IsAuthenticated != true)
@@ -26,18 +25,19 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
             return;
         }
 
-        // Check claim-based permissions (fast path from JWT)
         if (user.Claims.Any(c =>
             c.Type == ClaimConstants.Permission &&
             c.Value == _permission))
             return;
 
-        // Full permission check via service
-        var permissionService = context.HttpContext.RequestServices
-            .GetRequiredService<IPermissionService>();
+        var permissionService =
+            context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
 
-        var currentUser = context.HttpContext.RequestServices
-            .GetRequiredService<ICurrentUserService>();
+        var currentUser =
+            context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
+
+        var tenantContext =
+            context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
 
         if (currentUser.UserId == null)
         {
@@ -45,20 +45,10 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
             return;
         }
 
-        Guid? tenantId;
-        try
-        {
-            var scope = currentUser.GetTenantScope();
-            tenantId = scope.IsGlobal ? null : scope.TenantId;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            context.Result = new ForbidResult();
-            return;
-        }
-
         var hasPermission = await permissionService.HasPermissionAsync(
-            currentUser.UserId.Value, tenantId, _permission);
+            currentUser.UserId.Value,
+            tenantContext.TenantId,
+            _permission);
 
         if (!hasPermission)
             context.Result = new ForbidResult();

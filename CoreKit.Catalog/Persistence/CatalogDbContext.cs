@@ -1,5 +1,4 @@
 ﻿// CoreKit.Catalog/Persistence/CatalogDbContext.cs
-
 using CoreKit.Catalog.Configuration;
 using CoreKit.Catalog.Entities;
 using CoreKit.SharedKernel.Common;
@@ -19,30 +18,23 @@ public class CatalogDbContext : AuditableDbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductImage> ProductImages => Set<ProductImage>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
-
     public DbSet<VariantAttributeTemplate> VariantAttributeTemplates
         => Set<VariantAttributeTemplate>();
-
     public DbSet<VariantAttributeValue> VariantAttributeValues
         => Set<VariantAttributeValue>();
-
+    public DbSet<VariantGroup> VariantGroups => Set<VariantGroup>();
+    public DbSet<VariantGroupOption> VariantGroupOptions
+        => Set<VariantGroupOption>();
     public DbSet<AddonGroup> AddonGroups => Set<AddonGroup>();
     public DbSet<Addon> Addons => Set<Addon>();
-
     public DbSet<ProductAttributeGroup> AttributeGroups
         => Set<ProductAttributeGroup>();
-
-    // Single DbSet for the one true attribute-template entity.
-    // The old AttributeTemplate entity has been deleted.
     public DbSet<ProductAttributeTemplate> AttributeTemplates
         => Set<ProductAttributeTemplate>();
-
     public DbSet<ProductAttributeValue> ProductAttributeValues
         => Set<ProductAttributeValue>();
-
     public DbSet<StoreAttributeOverride> StoreAttributeOverrides
         => Set<StoreAttributeOverride>();
-
     public DbSet<TenantTemplateAssignment> TenantTemplateAssignments
         => Set<TenantTemplateAssignment>();
 

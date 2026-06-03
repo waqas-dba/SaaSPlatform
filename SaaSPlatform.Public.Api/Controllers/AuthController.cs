@@ -1,6 +1,7 @@
 ﻿using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

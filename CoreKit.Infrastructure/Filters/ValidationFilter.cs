@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
-namespace CoreKit.IAM.Validators;
+namespace CoreKit.Infrastructure.Filters;
 
 public class ValidationFilter : IAsyncActionFilter
 {
@@ -28,7 +28,8 @@ public class ValidationFilter : IAsyncActionFilter
 
             var validationContext = new ValidationContext<object>(value);
             var result = await validator.ValidateAsync(
-                validationContext, context.HttpContext.RequestAborted);
+                validationContext,
+                context.HttpContext.RequestAborted);
 
             if (result.IsValid) continue;
 
