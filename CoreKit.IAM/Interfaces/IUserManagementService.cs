@@ -24,7 +24,7 @@ public interface IUserManagementService
         string? phone,
         Guid? tenantId);
 
-    Task DeleteUserAsync(Guid userId, Guid? tenantId);
+    Task DeleteUserAsync(Guid userId, Guid? tenantId, CancellationToken ct = default);
 
     // callerIsPlatformAdmin replaces the internal HttpContext permission check
     // so this method is usable from background jobs and seeders, not just HTTP.

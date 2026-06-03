@@ -1,4 +1,4 @@
-﻿// CoreKit.Tenant/Extensions/TenantKitServiceCollectionExtensions.cs
+﻿using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Middleware;
@@ -40,14 +40,15 @@ public static class TenantKitServiceCollectionExtensions
         services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
         services.AddScoped<IStoreTypeService, StoreTypeService>();
 
+        // Rule 1: IStoreInfoProvider lives in SharedKernel; implementation lives in Tenant
+        services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
+
         // Single TenantContext instance shared by both interfaces
         services.AddScoped<TenantContext>();
         services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
         services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
 
-        // DO NOT register TenantResolutionMiddleware here – it is added via app.UseMiddleware<...>()
-
-        services.AddValidatorsFromAssemblyContaining<CreateStoreRequestValidator>();
+        services.AddValidatorsFromAssemblyContaining < CreateStoreRequestValidator > ();
 
         return services;
     }

@@ -141,18 +141,29 @@ public class UserManagementService : IUserManagementService
             .Include(u => u.Roles).ThenInclude(r => r.Role)
             .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
 
-    public async Task DeleteUserAsync(Guid userId, Guid? tenantId)
+    public async Task DeleteUserAsync(Guid userId, Guid? tenantId, CancellationToken ct = default)
     {
         var user = await _db.Users
-            .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId, ct)
             ?? throw new KeyNotFoundException("User not found.");
 
         user.IsDeleted = true;
         user.IsActive = false;
-        await _db.SaveChangesAsync();
+
+        // Revoke all refresh tokens so the user cannot obtain new access tokens
+        var tokens = await _db.RefreshTokens
+            .Where(t => t.UserId == userId)
+            .ToListAsync(ct);
+
+        foreach (var t in tokens)
+        {
+            t.IsRevoked = true;
+            t.RevokedAtUtc = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync(ct);
         await _permissionCache.InvalidateUserAsync(userId);
     }
-
     public async Task AssignRoleAsync(
         Guid userId,
         Guid roleId,

@@ -1,188 +1,155 @@
-﻿// CoreKit.Catalog/Services/ProductService.cs
-
-using System.Text.Json;
+﻿using System.Text.Json;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
-using CoreKit.Catalog.Persistence;
 using CoreKit.SharedKernel.Exceptions;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CoreKit.Catalog.Services;
 
 public class ProductService : IProductService
 {
-    private readonly CatalogDbContext _db;
+    private readonly IProductRepository _productRepo;
+    private readonly ICategoryRepository _categoryRepo;
+    private readonly IAddonGroupRepository _addonGroupRepo;
+    private readonly IVariantGroupRepository _variantGroupRepo;
+    private readonly IVariantAttributeTemplateRepository _variantTemplateRepo;
     private readonly IStoreInfoProvider _storeInfoProvider;
     private readonly IPlanLimitProvider? _planLimit;
     private readonly ILogger<ProductService> _logger;
 
     public ProductService(
-        CatalogDbContext db,
+        IProductRepository productRepo,
+        ICategoryRepository categoryRepo,
+        IAddonGroupRepository addonGroupRepo,
+        IVariantGroupRepository variantGroupRepo,
+        IVariantAttributeTemplateRepository variantTemplateRepo,
         IStoreInfoProvider storeInfoProvider,
         ILogger<ProductService> logger,
         IPlanLimitProvider? planLimit = null)
     {
-        _db = db;
+        _productRepo = productRepo;
+        _categoryRepo = categoryRepo;
+        _addonGroupRepo = addonGroupRepo;
+        _variantGroupRepo = variantGroupRepo;
+        _variantTemplateRepo = variantTemplateRepo;
         _storeInfoProvider = storeInfoProvider;
         _logger = logger;
         _planLimit = planLimit;
 
-        if (_planLimit == null)
-            _logger.LogWarning(
-                "IPlanLimitProvider not registered. " +
-                "Product, variant and addon limits will not be enforced.");
+        if (_planLimit is null)
+            _logger.LogWarning("IPlanLimitProvider not registered. Product, variant and addon limits will not be enforced.");
     }
 
-    // ── Create ───────────────────────────────────────────────────────
-
-    public async Task<ProductDto> CreateAsync(
-        CreateProductRequest request,
-        CancellationToken ct = default)
+    public async Task<ProductDto> CreateAsync(CreateProductRequest request, CancellationToken ct = default)
     {
-        var storeInfo = await _storeInfoProvider
-            .GetStoreInfoAsync(request.StoreId, ct)
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct)
             ?? throw new KeyNotFoundException("Store not found.");
 
-        if (_planLimit != null)
+        var category = await _categoryRepo.GetByIdAsync(request.CategoryId, ct)
+            ?? throw new KeyNotFoundException("Category not found.");
+        if (category.TenantId != storeInfo.TenantId)
+            throw new ForbiddenException("Category does not belong to this tenant.");
+
+        if (_planLimit is not null)
         {
-            // Feature + per-request size checks before acquiring lock
             if (request.Variants.Any())
             {
-                if (!await _planLimit.IsVariantsEnabledAsync(
-                        storeInfo.TenantId, ct))
-                    throw new ForbiddenException(
-                        "Your plan does not include product variants.");
+                if (!await _planLimit.IsVariantsEnabledAsync(storeInfo.TenantId, ct))
+                    throw new ForbiddenException("Your plan does not include product variants.");
 
-                var maxVariants = await _planLimit
-                    .GetMaxVariantsPerProductAsync(storeInfo.TenantId, ct);
-
-                if (maxVariants.HasValue &&
-                    request.Variants.Count > maxVariants.Value)
-                    throw new InvalidOperationException(
-                        $"Maximum {maxVariants.Value} variants per product " +
-                        "allowed by your plan.");
+                var maxVariants = await _planLimit.GetMaxVariantsPerProductAsync(storeInfo.TenantId, ct);
+                if (maxVariants.HasValue && request.Variants.Count > maxVariants.Value)
+                    throw new InvalidOperationException($"Maximum {maxVariants.Value} variants per product allowed by your plan.");
             }
 
-            if (request.AddonGroupId.HasValue &&
-                !await _planLimit.IsAddonsEnabledAsync(
-                    storeInfo.TenantId, ct))
-                throw new ForbiddenException(
-                    "Your plan does not include add-ons.");
+            if (request.AddonGroupId.HasValue && !await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId, ct))
+                throw new ForbiddenException("Your plan does not include add-ons.");
         }
 
-        // Acquire a lock per store to prevent concurrent product-limit violations
         var lockKey = LockKeyHelper.GuidToLockKey(request.StoreId);
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        await _productRepo.BeginTransactionAsync(ct);
         try
         {
-            await _db.Database.ExecuteSqlRawAsync(
-                "SELECT pg_advisory_xact_lock({0})", lockKey);
+            await _productRepo.ExecuteAdvisoryLockAsync(lockKey, ct);
 
-            if (_planLimit != null)
+            if (_planLimit is not null)
             {
-                var maxProducts = await _planLimit
-                    .GetMaxProductsAsync(storeInfo.TenantId, ct);
-
+                var maxProducts = await _planLimit.GetMaxProductsAsync(storeInfo.TenantId, ct);
                 if (maxProducts.HasValue)
                 {
-                    var count = await _db.Products
-                        .CountAsync(p => p.StoreId == request.StoreId, ct);
-
+                    var count = await _productRepo.CountByStoreAsync(request.StoreId, ct);
                     if (count >= maxProducts.Value)
-                        throw new InvalidOperationException(
-                            "Product limit reached. Upgrade your plan.");
+                        throw new InvalidOperationException("Product limit reached. Upgrade your plan.");
                 }
             }
 
-            // Validate addon group belongs to this tenant
             if (request.AddonGroupId.HasValue)
-                await RequireAddonGroupAsync(
-                    request.AddonGroupId.Value, storeInfo.TenantId, ct);
+            {
+                var addonExists = await _addonGroupRepo.ExistsForTenantAsync(request.AddonGroupId.Value, storeInfo.TenantId, ct);
+                if (!addonExists)
+                    throw new KeyNotFoundException("Addon group not found or does not belong to this tenant.");
+            }
 
-            // Validate variants against variant group (if one is attached)
             if (request.VariantGroupId.HasValue && request.Variants.Any())
-                await ValidateVariantsAgainstGroupAsync(
-                    request.VariantGroupId.Value,
-                    storeInfo.TenantId,
-                    request.Variants,
-                    ct);
+                await ValidateVariantsAgainstGroupAsync(request.VariantGroupId.Value, storeInfo.TenantId, request.Variants, ct);
 
-            var product = await BuildAndSaveAsync(request, storeInfo, ct);
+            var product = BuildProduct(request, storeInfo);
+            _productRepo.Add(product);
+            await _productRepo.SaveChangesAsync(ct);
+            await _productRepo.CommitAsync(ct);
 
-            await tx.CommitAsync(ct);
-
-            return await GetByIdAsync(product.Id, ct)
-                ?? throw new InvalidOperationException(
-                    "Product saved but could not be retrieved.");
+            var result = await GetByIdAsync(product.Id, ct);
+            return result ?? throw new InvalidOperationException("Product saved but could not be retrieved.");
         }
         catch
         {
-            await tx.RollbackAsync(ct);
+            await _productRepo.RollbackAsync(ct);
             throw;
         }
     }
 
-    // ── Update ───────────────────────────────────────────────────────
-
-    public async Task<ProductDto> UpdateAsync(
-        Guid id,
-        UpdateProductRequest request,
-        CancellationToken ct = default)
+    public async Task<ProductDto> UpdateAsync(Guid id, UpdateProductRequest request, CancellationToken ct = default)
     {
-        var product = await _db.Products
-            .Include(p => p.Variants)
-                .ThenInclude(v => v.AttributeValues)
-            .FirstOrDefaultAsync(p => p.Id == id, ct)
+        var product = await _productRepo.GetByIdWithDetailsAsync(id, ct)
             ?? throw new KeyNotFoundException("Product not found.");
 
-        var storeInfo = await _storeInfoProvider
-            .GetStoreInfoAsync(product.StoreId, ct)
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(product.StoreId, ct)
             ?? throw new KeyNotFoundException("Store not found.");
 
-        // Basic field updates
         if (request.Name is not null)
         {
             product.Name = request.Name;
             product.Slug = SlugHelper.Generate(request.Name);
         }
-
         if (request.Description is not null)
             product.Description = request.Description;
-
         if (request.BasePrice.HasValue)
             product.BasePrice = request.BasePrice.Value;
-
         if (request.IsActive.HasValue)
             product.IsActive = request.IsActive.Value;
 
-        // ── Addon group ─────────────────────────────────────────────
         if (request.AddonGroupId is not null)
         {
-            // Guid.Empty means "remove the group"
             if (request.AddonGroupId == Guid.Empty)
             {
                 product.AddonGroupId = null;
             }
             else
             {
-                if (_planLimit != null &&
-                    !await _planLimit.IsAddonsEnabledAsync(
-                        storeInfo.TenantId, ct))
-                    throw new ForbiddenException(
-                        "Your plan does not include add-ons.");
+                if (_planLimit is not null && !await _planLimit.IsAddonsEnabledAsync(storeInfo.TenantId, ct))
+                    throw new ForbiddenException("Your plan does not include add-ons.");
 
-                await RequireAddonGroupAsync(
-                    request.AddonGroupId.Value, storeInfo.TenantId, ct);
+                var addonExists = await _addonGroupRepo.ExistsForTenantAsync(request.AddonGroupId.Value, storeInfo.TenantId, ct);
+                if (!addonExists)
+                    throw new KeyNotFoundException("Addon group not found or does not belong to this tenant.");
 
                 product.AddonGroupId = request.AddonGroupId.Value;
             }
         }
 
-        // ── Variant group ────────────────────────────────────────────
         if (request.VariantGroupId.HasValue)
         {
             product.VariantGroupId = request.VariantGroupId == Guid.Empty
@@ -190,140 +157,101 @@ public class ProductService : IProductService
                 : request.VariantGroupId.Value;
         }
 
-        // ── Variants ────────────────────────────────────────────────
         if (request.Variants is not null)
         {
             if (request.Variants.Any())
             {
-                if (_planLimit != null)
+                if (_planLimit is not null)
                 {
-                    if (!await _planLimit.IsVariantsEnabledAsync(
-                            storeInfo.TenantId, ct))
-                        throw new ForbiddenException(
-                            "Your plan does not include product variants.");
+                    if (!await _planLimit.IsVariantsEnabledAsync(storeInfo.TenantId, ct))
+                        throw new ForbiddenException("Your plan does not include product variants.");
 
-                    var maxVariants = await _planLimit
-                        .GetMaxVariantsPerProductAsync(
-                            storeInfo.TenantId, ct);
-
-                    if (maxVariants.HasValue &&
-                        request.Variants.Count > maxVariants.Value)
-                        throw new InvalidOperationException(
-                            $"Maximum {maxVariants.Value} variants " +
-                            "per product allowed by your plan.");
+                    var maxVariants = await _planLimit.GetMaxVariantsPerProductAsync(storeInfo.TenantId, ct);
+                    if (maxVariants.HasValue && request.Variants.Count > maxVariants.Value)
+                        throw new InvalidOperationException($"Maximum {maxVariants.Value} variants per product allowed by your plan.");
                 }
 
-                // Validate against variant group (if one is attached)
                 if (product.VariantGroupId.HasValue)
-                    await ValidateVariantsAgainstGroupAsync(
-                        product.VariantGroupId.Value,
-                        storeInfo.TenantId,
-                        request.Variants,
-                        ct);
+                    await ValidateVariantsAgainstGroupAsync(product.VariantGroupId.Value, storeInfo.TenantId, request.Variants, ct);
             }
 
-            // Replace all existing variants
-            _db.ProductVariants.RemoveRange(product.Variants);
-            product.Variants.Clear();
+            var existingBySku = product.Variants.ToDictionary(v => v.Sku);
+            var incomingSkus = request.Variants.Select(v => v.Sku).ToHashSet();
+
+            foreach (var toRemove in product.Variants.Where(v => !incomingSkus.Contains(v.Sku)).ToList())
+                product.Variants.Remove(toRemove);
 
             foreach (var varItem in request.Variants)
             {
-                var variant = new ProductVariant
+                if (existingBySku.TryGetValue(varItem.Sku, out var existing))
                 {
-                    Id = Guid.NewGuid(),
-                    Sku = varItem.Sku,
-                    Price = varItem.Price
-                };
+                    existing.Price = varItem.Price;
+                    existing.IsActive = true;
+                    existing.AttributeValues.Clear();
 
-                foreach (var vAttr in varItem.Attributes)
+                    foreach (var vAttr in varItem.Attributes)
+                    {
+                        var template = await ResolveVariantTemplateAsync(vAttr, storeInfo.StoreTypeCode, ct);
+                        existing.AttributeValues.Add(new VariantAttributeValue
+                        {
+                            Id = Guid.NewGuid(),
+                            TemplateId = template.Id,
+                            Value = vAttr.Value
+                        });
+                    }
+                }
+                else
                 {
-                    var template = await ResolveVariantTemplateAsync(
-                        vAttr, storeInfo.StoreTypeCode, ct);
-
-                    variant.AttributeValues.Add(new VariantAttributeValue
+                    var variant = new ProductVariant
                     {
                         Id = Guid.NewGuid(),
-                        TemplateId = template.Id,
-                        Value = vAttr.Value
-                    });
+                        ProductId = product.Id,
+                        Sku = varItem.Sku,
+                        Price = varItem.Price
+                    };
+                    foreach (var vAttr in varItem.Attributes)
+                    {
+                        var template = await ResolveVariantTemplateAsync(vAttr, storeInfo.StoreTypeCode, ct);
+                        variant.AttributeValues.Add(new VariantAttributeValue
+                        {
+                            Id = Guid.NewGuid(),
+                            TemplateId = template.Id,
+                            Value = vAttr.Value
+                        });
+                    }
+                    product.Variants.Add(variant);
                 }
-
-                product.Variants.Add(variant);
             }
         }
 
-        await _db.SaveChangesAsync(ct);
+        _productRepo.Update(product);
+        await _productRepo.SaveChangesAsync(ct);
 
-        return await GetByIdAsync(product.Id, ct)
-            ?? throw new InvalidOperationException(
-                "Product updated but could not be retrieved.");
+        var result = await GetByIdAsync(product.Id, ct);
+        return result ?? throw new InvalidOperationException("Product updated but could not be retrieved.");
     }
 
-    // ── Read ─────────────────────────────────────────────────────────
-
-    public async Task<ProductDto?> GetByIdAsync(
-        Guid id,
-        CancellationToken ct = default)
+    public async Task<ProductDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var product = await _db.Products
-            .Include(p => p.Category)
-            .Include(p => p.Images)
-            .Include(p => p.AttributeValues)
-                .ThenInclude(av => av.Template)
-            .Include(p => p.Variants)
-                .ThenInclude(v => v.AttributeValues)
-                    .ThenInclude(va => va.Template)
-            .Include(p => p.AddonGroup)
-                .ThenInclude(ag => ag!.Addons)
-            .Include(p => p.VariantGroup)
-                .ThenInclude(vg => vg!.Options)
-                    .ThenInclude(o => o.Template)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
+        var product = await _productRepo.GetByIdWithDetailsAsync(id, ct);
         return product is null ? null : MapToDto(product);
     }
 
-    public async Task<List<ProductDto>> GetByStoreAsync(
-        Guid storeId,
-        CancellationToken ct = default)
+    public async Task<IReadOnlyList<ProductDto>> GetByStoreAsync(Guid storeId, CancellationToken ct = default)
     {
-        var products = await _db.Products
-            .Where(p => p.StoreId == storeId)
-            .Include(p => p.Category)
-            .Include(p => p.Images)
-            .Include(p => p.AttributeValues)
-                .ThenInclude(av => av.Template)
-            .Include(p => p.Variants)
-                .ThenInclude(v => v.AttributeValues)
-                    .ThenInclude(va => va.Template)
-            .Include(p => p.AddonGroup)
-                .ThenInclude(ag => ag!.Addons)
-            .Include(p => p.VariantGroup)
-                .ThenInclude(vg => vg!.Options)
-                    .ThenInclude(o => o.Template)
-            .ToListAsync(ct);
-
+        var products = await _productRepo.GetByStoreAsync(storeId, ct);
         return products.Select(MapToDto).ToList();
     }
 
-    // ── Delete ───────────────────────────────────────────────────────
-
     public async Task DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var product = await _db.Products
-            .FindAsync(new object[] { id }, ct)
+        var product = await _productRepo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException("Product not found.");
-
-        _db.Products.Remove(product);
-        await _db.SaveChangesAsync(ct);
+        _productRepo.Remove(product);
+        await _productRepo.SaveChangesAsync(ct);
     }
 
-    // ── Internals ────────────────────────────────────────────────────
-
-    private async Task<Product> BuildAndSaveAsync(
-        CreateProductRequest request,
-        StoreInfo storeInfo,
-        CancellationToken ct)
+    private Product BuildProduct(CreateProductRequest request, StoreInfo storeInfo)
     {
         var product = new Product
         {
@@ -340,8 +268,6 @@ public class ProductService : IProductService
             VariantGroupId = request.VariantGroupId
         };
 
-        _db.Products.Add(product);
-
         foreach (var attr in request.Attributes)
         {
             product.AttributeValues.Add(new ProductAttributeValue
@@ -357,15 +283,13 @@ public class ProductService : IProductService
             var variant = new ProductVariant
             {
                 Id = Guid.NewGuid(),
+                ProductId = product.Id,
                 Sku = varItem.Sku,
                 Price = varItem.Price
             };
-
             foreach (var vAttr in varItem.Attributes)
             {
-                var template = await ResolveVariantTemplateAsync(
-                    vAttr, storeInfo.StoreTypeCode, ct);
-
+                var template = ResolveVariantTemplateAsync(vAttr, storeInfo.StoreTypeCode, default).GetAwaiter().GetResult();
                 variant.AttributeValues.Add(new VariantAttributeValue
                 {
                     Id = Guid.NewGuid(),
@@ -373,7 +297,6 @@ public class ProductService : IProductService
                     Value = vAttr.Value
                 });
             }
-
             product.Variants.Add(variant);
         }
 
@@ -387,23 +310,7 @@ public class ProductService : IProductService
             });
         }
 
-        await _db.SaveChangesAsync(ct);
         return product;
-    }
-
-    private async Task RequireAddonGroupAsync(
-        Guid groupId,
-        Guid tenantId,
-        CancellationToken ct)
-    {
-        var exists = await _db.AddonGroups
-            .AnyAsync(g =>
-                g.Id == groupId &&
-                g.TenantId == tenantId, ct);
-
-        if (!exists)
-            throw new KeyNotFoundException(
-                "Addon group not found or does not belong to this tenant.");
     }
 
     private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
@@ -412,49 +319,32 @@ public class ProductService : IProductService
         CancellationToken ct)
     {
         if (attr.TemplateId.HasValue)
-            return await _db.VariantAttributeTemplates
-                .FirstOrDefaultAsync(
-                    t => t.Id == attr.TemplateId.Value, ct)
-                ?? throw new InvalidOperationException(
-                    $"Variant template '{attr.TemplateId}' not found.");
+            return await _variantTemplateRepo.GetByIdAsync(attr.TemplateId.Value, ct)
+                ?? throw new InvalidOperationException($"Variant template '{attr.TemplateId}' not found.");
 
-        return await _db.VariantAttributeTemplates
-            .FirstOrDefaultAsync(t =>
-                t.Name == attr.Name &&
-                t.StoreTypeCode == storeTypeCode, ct)
-            ?? throw new InvalidOperationException(
-                $"Variant attribute '{attr.Name}' not defined " +
-                $"for store type '{storeTypeCode}'.");
+        return await _variantTemplateRepo.GetByNameAndStoreTypeAsync(attr.Name, storeTypeCode, ct)
+            ?? throw new InvalidOperationException($"Variant attribute '{attr.Name}' not defined for store type '{storeTypeCode}'.");
     }
 
     private async Task ValidateVariantsAgainstGroupAsync(
         Guid variantGroupId,
         Guid tenantId,
-        List<CreateVariantItem> variants,
+        List<CreateVariantRequest> variants,
         CancellationToken ct)
     {
-        var group = await _db.VariantGroups
-            .Include(g => g.Options)
-                .ThenInclude(o => o.Template)
-            .FirstOrDefaultAsync(g =>
-                g.Id == variantGroupId &&
-                g.TenantId == tenantId, ct)
-            ?? throw new KeyNotFoundException(
-                "Variant group not found or does not belong to this tenant.");
+        var group = await _variantGroupRepo.GetByIdWithOptionsAsync(variantGroupId, tenantId, ct)
+            ?? throw new KeyNotFoundException("Variant group not found or does not belong to this tenant.");
 
-        // Build a lookup of templateId → allowed values
         var optionMap = group.Options.ToDictionary(
             o => o.TemplateId,
             o => string.IsNullOrWhiteSpace(o.AllowedValuesJson)
                 ? null
-                : JsonSerializer.Deserialize<List<string>>(
-                    o.AllowedValuesJson));
+                : JsonSerializer.Deserialize<List<string>>(o.AllowedValuesJson));
 
         foreach (var variant in variants)
         {
             foreach (var attr in variant.Attributes)
             {
-                // Resolve template id if only name was provided
                 Guid templateId;
                 if (attr.TemplateId.HasValue)
                 {
@@ -462,27 +352,18 @@ public class ProductService : IProductService
                 }
                 else
                 {
-                    var template = await _db.VariantAttributeTemplates
-                        .FirstOrDefaultAsync(t =>
-                            t.Name == attr.Name &&
-                            t.StoreTypeCode == group.StoreTypeCode, ct)
-                        ?? throw new InvalidOperationException(
-                            $"Variant attribute '{attr.Name}' not found " +
-                            $"for store type '{group.StoreTypeCode}'.");
+                    var template = await _variantTemplateRepo.GetByNameAndStoreTypeAsync(attr.Name, group.StoreTypeCode, ct)
+                        ?? throw new InvalidOperationException($"Variant attribute '{attr.Name}' not found for store type '{group.StoreTypeCode}'.");
                     templateId = template.Id;
                     attr.TemplateId = templateId;
                 }
 
                 if (!optionMap.ContainsKey(templateId))
-                    throw new InvalidOperationException(
-                        $"Variant attribute template '{templateId}' is not " +
-                        "part of the selected variant group.");
+                    throw new InvalidOperationException($"Variant attribute template '{templateId}' is not part of the selected variant group.");
 
                 var allowed = optionMap[templateId];
                 if (allowed != null && !allowed.Contains(attr.Value))
-                    throw new InvalidOperationException(
-                        $"Value '{attr.Value}' is not in the allowed list " +
-                        $"for this variant option.");
+                    throw new InvalidOperationException($"Value '{attr.Value}' is not in the allowed list for this variant option.");
             }
         }
     }
@@ -560,8 +441,7 @@ public class ProductService : IProductService
                     TemplateName = o.Template.Name,
                     AllowedValues = string.IsNullOrWhiteSpace(o.AllowedValuesJson)
                         ? null
-                        : JsonSerializer.Deserialize<List<string>>(
-                            o.AllowedValuesJson),
+                        : JsonSerializer.Deserialize<List<string>>(o.AllowedValuesJson),
                     SortOrder = o.SortOrder
                 }).ToList()
         }

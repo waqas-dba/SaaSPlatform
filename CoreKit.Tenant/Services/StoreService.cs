@@ -321,7 +321,7 @@ public class StoreService : IStoreService
         }
     }
 
-    private static StoreDto Map(Store store) => new()
+    private static StoreDto Map(CoreKit.Tenant.Entities.Store store) => new()
     {
         Id = store.Id,
         TenantId = store.TenantId,

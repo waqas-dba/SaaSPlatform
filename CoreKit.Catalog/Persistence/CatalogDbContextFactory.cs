@@ -1,19 +1,24 @@
-﻿// CoreKit.Catalog/Persistence/CatalogDbContextFactory.cs
+﻿using CoreKit.SharedKernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
 namespace CoreKit.Catalog.Persistence;
 
-public class CatalogDbContextFactory
-    : IDesignTimeDbContextFactory<CatalogDbContext>
+public class CatalogDbContextFactory : IDesignTimeDbContextFactory<CatalogDbContext>
 {
     public CatalogDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<CatalogDbContext>();
-        // Use the same connection string you use in your host project.
-        // For local development only — never commit production credentials.
         optionsBuilder.UseNpgsql(
             "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
-        return new CatalogDbContext(optionsBuilder.Options);
+
+        // Design-time: no HTTP context or tenant resolution available.
+        // Passing null tenant ID makes query filters neutral (TenantId == null || ... evaluates true).
+        return new CatalogDbContext(optionsBuilder.Options, new DesignTimeTenantContext());
+    }
+
+    private sealed class DesignTimeTenantContext : ITenantContext
+    {
+        public Guid? TenantId => null;
     }
 }

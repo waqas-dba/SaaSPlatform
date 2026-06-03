@@ -43,5 +43,6 @@ public class RefreshTokenRepository : IRefreshTokenRepository
             t.RevokedByIp = revokedByIp;
         }
         UpdateRange(tokens);
+        await _db.SaveChangesAsync(); 
     }
 }

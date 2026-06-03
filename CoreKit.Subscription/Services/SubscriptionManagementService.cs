@@ -1,7 +1,8 @@
 ﻿using CoreKit.Subscription.Entities;
 using CoreKit.Subscription.Interfaces;
 using CoreKit.Subscription.Persistence;
-using Microsoft.EntityFrameworkCore; // BUG FIX: was missing — ToListAsync, Where, etc. are EF extensions
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CoreKit.Subscription.Services;
 
@@ -9,13 +10,16 @@ public class SubscriptionManagementService : ISubscriptionManagementService
 {
     private readonly SubscriptionDbContext _db;
     private readonly ITenantSubscriptionRepository _subscriptionRepo;
+    private readonly IMemoryCache _cache;
 
     public SubscriptionManagementService(
         SubscriptionDbContext db,
-        ITenantSubscriptionRepository subscriptionRepo)
+        ITenantSubscriptionRepository subscriptionRepo,
+        IMemoryCache cache)
     {
         _db = db;
         _subscriptionRepo = subscriptionRepo;
+        _cache = cache;
     }
 
     public async Task AssignSubscriptionAsync(
@@ -24,10 +28,9 @@ public class SubscriptionManagementService : ISubscriptionManagementService
         DateTime? startDate = null,
         DateTime? endDate = null)
     {
-        // Cancel any currently active subscriptions for this tenant
         var existingActive = await _db.TenantSubscriptions
             .Where(ts => ts.TenantId == tenantId && ts.Status == SubscriptionStatus.Active)
-            .ToListAsync(); // BUG FIX: previously failed to compile / resolve without the using
+            .ToListAsync();
 
         foreach (var sub in existingActive)
         {
@@ -47,6 +50,9 @@ public class SubscriptionManagementService : ISubscriptionManagementService
 
         _subscriptionRepo.Add(subscription);
         await _db.SaveChangesAsync();
+
+        // Evict cached plan so new limits take effect immediately
+        _cache.Remove($"plan:active:{tenantId}");
     }
 
     public async Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId)

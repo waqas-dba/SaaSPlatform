@@ -1,8 +1,6 @@
-﻿using CoreKit.IAM.Persistence;
+﻿using CoreKit.SharedKernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-using Microsoft.Extensions.Configuration;
-using System.IO;
 
 namespace CoreKit.Tenant.Persistence;
 
@@ -13,6 +11,13 @@ public class TenantDbContextFactory : IDesignTimeDbContextFactory<TenantDbContex
         var optionsBuilder = new DbContextOptionsBuilder<TenantDbContext>();
         optionsBuilder.UseNpgsql(
             "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
-        return new TenantDbContext(optionsBuilder.Options);
+
+        // Design-time: no tenant context available; pass null-tenant context so query filters are neutral
+        return new TenantDbContext(optionsBuilder.Options, new DesignTimeTenantContext());
+    }
+
+    private sealed class DesignTimeTenantContext : ITenantContext
+    {
+        public Guid? TenantId => null;
     }
 }

@@ -7,6 +7,7 @@ using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Subscription.Extensions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
+using CoreKit.Tenant.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
