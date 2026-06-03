@@ -1,12 +1,9 @@
-﻿// CoreKit.Catalog/Abstractions/IStoreInfoProvider.cs
-namespace CoreKit.Catalog.Abstractions;
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
 
-/// <summary>
-/// Provides minimal store information needed by the Catalog module
-/// without taking a hard dependency on CoreKit.Tenant entities or DbContext.
-/// Implement this in the host application (or Tenant module) and register
-/// it via AddCatalogModule so Catalog never queries Tenant tables directly.
-/// </summary>
+namespace CoreKit.SharedKernel.Interfaces;
+
 public interface IStoreInfoProvider
 {
     /// <summary>

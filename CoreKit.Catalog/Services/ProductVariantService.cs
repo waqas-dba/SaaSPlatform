@@ -1,8 +1,8 @@
-﻿using CoreKit.Catalog.Abstractions;
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.Catalog.Services;

@@ -1,5 +1,8 @@
-﻿// CoreKit.Tenant/Abstractions/IPlanLimitProvider.cs
-namespace CoreKit.Tenant.Abstractions;
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Interfaces;
 
 public interface IPlanLimitProvider
 {

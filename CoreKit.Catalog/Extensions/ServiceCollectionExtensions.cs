@@ -1,5 +1,4 @@
 ﻿// CoreKit.Catalog/Extensions/ServiceCollectionExtensions.cs
-using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Persistence;
 using CoreKit.Catalog.Services;

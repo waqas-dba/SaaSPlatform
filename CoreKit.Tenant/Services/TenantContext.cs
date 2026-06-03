@@ -1,5 +1,5 @@
 ﻿using CoreKit.SharedKernel.Tenancy;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.SharedKernel.Interfaces;
 
 namespace CoreKit.Tenant.Services;
 

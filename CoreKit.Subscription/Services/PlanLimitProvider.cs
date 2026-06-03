@@ -1,6 +1,6 @@
-﻿using CoreKit.Subscription.Entities;
+﻿using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Subscription.Entities;
 using CoreKit.Subscription.Persistence;
-using CoreKit.Tenant.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 

@@ -3,7 +3,6 @@ using CoreKit.Subscription.Interfaces;
 using CoreKit.Subscription.Persistence;
 using CoreKit.Subscription.Repositories;
 using CoreKit.Subscription.Services;
-using CoreKit.Tenant.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -44,4 +44,8 @@
     <ProjectReference Include="..\SaaSPlatform.SharedKernel\CoreKit.SharedKernel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Abstractions\" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,267 @@
+﻿
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\VariantGroupsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/variant-groups")]
+[Authorize]
+public class VariantGroupsController : ApiControllerBase
+{
+private readonly IVariantGroupService _variantGroupService;
+private readonly ITenantContext _tenantContext;
+public VariantGroupsController(
+IVariantGroupService variantGroupService,
+ITenantContext tenantContext)
+{
+_variantGroupService = variantGroupService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetAll()
+{
+var groups = await _variantGroupService
+.GetByTenantAsync(RequireTenantId());
+return OkResponse(groups);
+}
+[HttpGet("{groupId:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid groupId)
+{
+var group = await _variantGroupService
+.GetByIdAsync(groupId, RequireTenantId());
+return group is null ? NotFound() : OkResponse(group);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(
+CreateVariantGroupRequest request)
+{
+var group = await _variantGroupService
+.CreateAsync(RequireTenantId(), request);
+return CreatedResponse(group);
+}
+[HttpPut("{groupId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(
+Guid groupId,
+UpdateVariantGroupRequest request)
+{
+var group = await _variantGroupService
+.UpdateAsync(groupId, RequireTenantId(), request);
+return OkResponse(group);
+}
+[HttpDelete("{groupId:guid}")]
+[RequiresPermission("catalog.products.delete")]
+public async Task<IActionResult> Delete(Guid groupId)
+{
+await _variantGroupService
+.DeleteAsync(groupId, RequireTenantId());
+return DeletedResponse();
+}
+[HttpPost("{groupId:guid}/options")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> AddOption(
+Guid groupId,
+VariantGroupOptionRequest request)
+{
+var group = await _variantGroupService
+.AddOptionAsync(groupId, RequireTenantId(), request);
+return OkResponse(group);
+}
+[HttpPut("{groupId:guid}/options/{optionId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> UpdateOption(
+Guid groupId,
+Guid optionId,
+VariantGroupOptionRequest request)
+{
+var group = await _variantGroupService
+.UpdateOptionAsync(groupId, optionId, RequireTenantId(), request);
+return OkResponse(group);
+}
+[HttpDelete("{groupId:guid}/options/{optionId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> RemoveOption(
+Guid groupId,
+Guid optionId)
+{
+var group = await _variantGroupService
+.RemoveOptionAsync(groupId, optionId, RequireTenantId());
+return OkResponse(group);
+}
+private Guid RequireTenantId() =>
+_tenantContext.TenantId
+?? throw new UnauthorizedAccessException(
+"Tenant context is missing.");
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using CoreKit.Catalog.Abstractions;
+using CoreKit.Catalog.Extensions;
+using CoreKit.Catalog.Services;
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+namespace SaaSPlatform.Tenant.Api;
+public class Program
+{
+public static async Task Main(string[] args)
+{
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode =
+StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType =
+"application/json";
+var retryAfter =
+ctx.Lease.TryGetMetadata(
+MetadataName.RetryAfter,
+out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] =
+retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. " +
+$"Please wait {retryAfter} seconds.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("store-create", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 50 : 10;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("store-update", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 100 : 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("product-create", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 100 : 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("product-update", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 200 : 60;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
+builder.Services.AddHttpContextAccessor();
+var connStr =
+builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"));
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddCatalogModule(connStr, services =>
+{
+services.AddScoped<IStoreInfoProvider,
+TenantStoreInfoProvider>();
+});
+builder.Services.AddCoreKitControllers();
+builder.ValidateCoreKitConfiguration();
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize =
+10 * 1024 * 1024;
+});
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+options.SuppressModelStateInvalidFilter = true;
+options.InvalidModelStateResponseFactory = context =>
+{
+var errors = context.ModelState
+.Where(e => e.Value?.Errors.Count > 0)
+.SelectMany(e => e.Value!.Errors.Select(x => new
+{
+field = e.Key,
+message = x.ErrorMessage
+}))
+.ToList();
+return new ObjectResult(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "One or more validation errors occurred.",
+errors
+})
+{
+StatusCode = 422
+};
+};
+});
+var app = builder.Build();
+app.UseForwardedHeaders(
+new ForwardedHeadersOptions
+{
+ForwardedHeaders =
+ForwardedHeaders.XForwardedFor |
+ForwardedHeaders.XForwardedProto
+});
+if (!app.Environment.IsDevelopment())
+{
+app.UseHsts();
+}
+app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] =
+"DENY";
+context.Response.Headers["X-Content-Type-Options"] =
+"nosniff";
+context.Response.Headers["Referrer-Policy"] =
+"strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] =
+"none";
+context.Response.Headers["X-XSS-Protection"] =
+"0";
+context.Response.Headers["Permissions-Policy"] =
+"camera=(), microphone=(), geolocation=(), interest-cohort=()";
+await next();
+});
+await app.PerformBootCheckAsync();
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
+app.MapControllers();
+await app.RunAsync();
+}
+}
+

@@ -1,4 +1,4 @@
-﻿using CoreKit.Catalog.Abstractions;
+﻿using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Interfaces;
 
 namespace CoreKit.Catalog.Services;

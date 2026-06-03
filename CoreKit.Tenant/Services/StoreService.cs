@@ -4,7 +4,6 @@ using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
-using CoreKit.Tenant.Abstractions;
 using CoreKit.Tenant.Entities;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;

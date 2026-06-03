@@ -5,7 +5,7 @@ using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.Catalog.Persistence;
 using CoreKit.SharedKernel.Exceptions;
-using CoreKit.Tenant.Abstractions;
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.Catalog.Services;

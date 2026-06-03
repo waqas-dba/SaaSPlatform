@@ -1,9 +1,9 @@
-using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Extensions;
 using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
+using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Subscription.Extensions;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
