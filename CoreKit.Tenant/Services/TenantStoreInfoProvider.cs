@@ -1,14 +1,8 @@
 ﻿using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Interfaces;
 
-namespace CoreKit.Catalog.Services;
+namespace CoreKit.Tenant.Services;
 
-/// <summary>
-/// Resolves store info (TenantId, StoreTypeCode) from the Tenant module's
-/// IStoreRepository. This is the single canonical implementation — all API
-/// projects register this type via AddCatalogModule's configureStoreInfo
-/// callback instead of maintaining per-project copies.
-/// </summary>
 public sealed class TenantStoreInfoProvider : IStoreInfoProvider
 {
     private readonly IStoreRepository _storeRepo;
