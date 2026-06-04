@@ -1,6 +1,5 @@
 ﻿using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
-using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
 using CoreKit.Infrastructure.Controllers;
 using Microsoft.AspNetCore.Authorization;
