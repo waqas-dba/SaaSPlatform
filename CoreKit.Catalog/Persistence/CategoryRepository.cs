@@ -20,18 +20,39 @@ public class CategoryRepository : ICategoryRepository
 
     public async Task<List<Category>> GetTreeAsync(Guid tenantId, Guid? storeId, CancellationToken ct)
     {
-        var sql = @"
-            WITH RECURSIVE category_tree AS (
-                SELECT * FROM ""Catalog_Categories"" 
-                WHERE ""TenantId"" = {0} AND (""StoreId"" = {1} OR {1} IS NULL) AND ""ParentCategoryId"" IS NULL
-                UNION ALL
-                SELECT c.* FROM ""Catalog_Categories"" c
-                INNER JOIN category_tree ct ON c.""ParentCategoryId"" = ct.""Id""
-            )
-            SELECT * FROM category_tree ORDER BY ""Level"", ""Name""";
+        // Build SQL dynamically to avoid parameter issues with null
+        string sql;
+        object[] parameters;
+
+        if (storeId.HasValue)
+        {
+            sql = @"
+                WITH RECURSIVE category_tree AS (
+                    SELECT * FROM ""Catalog_Categories""
+                    WHERE ""TenantId"" = {0} AND ""StoreId"" = {1} AND ""ParentCategoryId"" IS NULL
+                    UNION ALL
+                    SELECT c.* FROM ""Catalog_Categories"" c
+                    INNER JOIN category_tree ct ON c.""ParentCategoryId"" = ct.""Id""
+                )
+                SELECT * FROM category_tree ORDER BY ""Level"", ""Name""";
+            parameters = new object[] { tenantId, storeId.Value };
+        }
+        else
+        {
+            sql = @"
+                WITH RECURSIVE category_tree AS (
+                    SELECT * FROM ""Catalog_Categories""
+                    WHERE ""TenantId"" = {0} AND ""StoreId"" IS NULL AND ""ParentCategoryId"" IS NULL
+                    UNION ALL
+                    SELECT c.* FROM ""Catalog_Categories"" c
+                    INNER JOIN category_tree ct ON c.""ParentCategoryId"" = ct.""Id""
+                )
+                SELECT * FROM category_tree ORDER BY ""Level"", ""Name""";
+            parameters = new object[] { tenantId };
+        }
 
         return await _db.Categories
-            .FromSqlRaw(sql, tenantId, storeId ?? (object)DBNull.Value)
+            .FromSqlRaw(sql, parameters)
             .AsNoTracking()
             .ToListAsync(ct);
     }
@@ -43,8 +64,9 @@ public class CategoryRepository : ICategoryRepository
     public void Update(Category category) => _db.Categories.Update(category);
     public void Delete(Category category) => _db.Categories.Remove(category);
 
+    // FIXED: return type matches interface
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default)
-         => _db.Database.BeginTransactionAsync(ct);
+        => _db.Database.BeginTransactionAsync(ct);
 
     public Task CommitAsync(CancellationToken ct = default)
         => _db.Database.CommitTransactionAsync(ct);

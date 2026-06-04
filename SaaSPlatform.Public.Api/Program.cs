@@ -13,6 +13,7 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ------------------- Rate Limiting -------------------
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -56,6 +57,7 @@ var connStr = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "Connection string 'Postgres' is missing from configuration.");
 
+// ------------------- Module Registration -------------------
 builder.Services.AddCoreKitIAM(
     connStr,
     builder.Configuration.GetSection("Jwt"));
@@ -75,21 +77,19 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
 });
 
-// Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
-// The per-project SaaSPlatform.Public.api/v{version:apiVersion}/Services/TenantStoreInfoProvider.cs
-// must be deleted — it is now superseded by this shared implementation.
+// The Catalog module is required because AuthService (and others) depend on
+// IStoreInfoProvider, which is implemented by TenantStoreInfoProvider.
 builder.Services.AddCatalogModule(connStr, services =>
 {
     services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
-// In the service configuration (before builder.Build()):
+// ------------------- Model Validation Errors -------------------
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.SuppressModelStateInvalidFilter = true;
     options.InvalidModelStateResponseFactory = context =>
     {
-        // This catches both body and route/query parameter validation errors
         var errors = context.ModelState
             .Where(e => e.Value?.Errors.Count > 0)
             .SelectMany(e => e.Value!.Errors.Select(x => new
@@ -112,28 +112,27 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
-builder.Services
-    .AddApiVersioning(options =>
-    {
-        options.DefaultApiVersion = new ApiVersion(1, 0);
-        options.AssumeDefaultVersionWhenUnspecified = true;
-        options.ReportApiVersions = true;
-    })
-    .AddMvc()
-    .AddApiExplorer(options =>
-    {
-        options.GroupNameFormat = "'v'VVV";
-        options.SubstituteApiVersionInUrl = true;
-    });
-
+// ------------------- API Versioning -------------------
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+})
+.AddApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
 
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
-
 }
+
+// Security headers
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Frame-Options"] = "DENY";
@@ -153,8 +152,11 @@ app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseRouting();
 app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseMiddleware<TenantAuthorizationMiddleware>();   // <-- cross-tenant enforcement
+
 app.UseAuthorization();
 
 app.MapGet("/ping", () => "pong");

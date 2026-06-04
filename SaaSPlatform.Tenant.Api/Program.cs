@@ -20,6 +20,7 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        // ------------------- Rate Limiting -------------------
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -28,9 +29,7 @@ public class Program
             {
                 ctx.HttpContext.Response.StatusCode =
                     StatusCodes.Status429TooManyRequests;
-
-                ctx.HttpContext.Response.ContentType =
-                    "application/json";
+                ctx.HttpContext.Response.ContentType = "application/json";
 
                 var retryAfter =
                     ctx.Lease.TryGetMetadata(
@@ -54,7 +53,6 @@ public class Program
             {
                 cfg.PermitLimit =
                     builder.Environment.IsDevelopment() ? 50 : 10;
-
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
 
@@ -62,7 +60,6 @@ public class Program
             {
                 cfg.PermitLimit =
                     builder.Environment.IsDevelopment() ? 100 : 30;
-
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
 
@@ -70,7 +67,6 @@ public class Program
             {
                 cfg.PermitLimit =
                     builder.Environment.IsDevelopment() ? 100 : 30;
-
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
 
@@ -78,18 +74,19 @@ public class Program
             {
                 cfg.PermitLimit =
                     builder.Environment.IsDevelopment() ? 200 : 60;
-
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
         });
 
         builder.Services.AddHttpContextAccessor();
 
+        // ------------------- Database -------------------
         var connStr =
             builder.Configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException(
                 "Connection string 'Postgres' is missing from configuration.");
 
+        // ------------------- Module Registration -------------------
         builder.Services.AddCoreKitIAM(
             connStr,
             builder.Configuration.GetSection("Jwt"));
@@ -103,26 +100,25 @@ public class Program
 
         builder.Services.AddCatalogModule(connStr, services =>
         {
-            services.AddScoped<IStoreInfoProvider,
-                TenantStoreInfoProvider>();
+            services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
         });
 
         builder.Services.AddCoreKitControllers();
 
         builder.ValidateCoreKitConfiguration();
 
+        // ------------------- Kestrel -------------------
         builder.WebHost.ConfigureKestrel(options =>
         {
-            options.Limits.MaxRequestBodySize =
-                10 * 1024 * 1024;
+            options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
         });
-        // In the service configuration (before builder.Build()):
+
+        // ------------------- Model Validation Errors -------------------
         builder.Services.Configure<ApiBehaviorOptions>(options =>
         {
             options.SuppressModelStateInvalidFilter = true;
             options.InvalidModelStateResponseFactory = context =>
             {
-                // This catches both body and route/query parameter validation errors
                 var errors = context.ModelState
                     .Where(e => e.Value?.Errors.Count > 0)
                     .SelectMany(e => e.Value!.Errors.Select(x => new
@@ -144,23 +140,25 @@ public class Program
                 };
             };
         });
+
+        // ------------------- API Versioning -------------------
         builder.Services.AddApiVersioning(options =>
         {
             options.DefaultApiVersion = new Asp.Versioning.ApiVersion(1, 0);
             options.AssumeDefaultVersionWhenUnspecified = true;
             options.ReportApiVersions = true;
+            options.ApiVersionReader = Asp.Versioning.ApiVersionReader.Combine(
+                new Asp.Versioning.UrlSegmentApiVersionReader(),
+                new Asp.Versioning.HeaderApiVersionReader("x-api-version"),
+                new Asp.Versioning.QueryStringApiVersionReader("api-version"));
+        })
+        .AddApiExplorer(options =>
+        {
+            options.GroupNameFormat = "'v'VVV";
+            options.SubstituteApiVersionInUrl = true;
+        });
 
-            options.ApiVersionReader = ApiVersionReader.Combine(
-                new UrlSegmentApiVersionReader(),
-                new HeaderApiVersionReader("x-api-version"),
-                new QueryStringApiVersionReader("api-version"));
-        }).AddMvc()
-    .AddApiExplorer(options =>
-    {
-        options.GroupNameFormat = "'v'VVV";
-        options.SubstituteApiVersionInUrl = true;
-    });
-
+        // ------------------- App Pipeline -------------------
         var app = builder.Build();
 
         // Reverse proxy support
@@ -172,7 +170,6 @@ public class Program
                     ForwardedHeaders.XForwardedProto
             });
 
-        // Production security
         if (!app.Environment.IsDevelopment())
         {
             app.UseHsts();
@@ -180,47 +177,34 @@ public class Program
 
         app.UseHttpsRedirection();
 
+        // Security headers
         app.Use(async (context, next) =>
         {
-            context.Response.Headers["X-Frame-Options"] =
-                "DENY";
-
-            context.Response.Headers["X-Content-Type-Options"] =
-                "nosniff";
-
-            context.Response.Headers["Referrer-Policy"] =
-                "strict-origin-when-cross-origin";
-
-            context.Response.Headers["X-Permitted-Cross-Domain-Policies"] =
-                "none";
-
-            context.Response.Headers["X-XSS-Protection"] =
-                "0";
-
+            context.Response.Headers["X-Frame-Options"] = "DENY";
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+            context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+            context.Response.Headers["X-XSS-Protection"] = "0";
             context.Response.Headers["Permissions-Policy"] =
                 "camera=(), microphone=(), geolocation=(), interest-cohort=()";
-
             await next();
         });
 
         await app.PerformBootCheckAsync();
 
         app.UseMiddleware<RequestTracingMiddleware>();
-
         app.UseMiddleware<ExceptionMiddleware>();
 
         app.UseRouting();
-
         app.UseRateLimiter();
 
         app.UseAuthentication();
-
         app.UseMiddleware<TenantResolutionMiddleware>();
+        app.UseMiddleware<TenantAuthorizationMiddleware>();
 
         app.UseAuthorization();
 
         app.MapGet("/ping", () => "pong");
-
         app.MapControllers();
 
         await app.RunAsync();

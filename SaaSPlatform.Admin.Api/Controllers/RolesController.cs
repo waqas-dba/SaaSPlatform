@@ -1,5 +1,4 @@
-﻿using Asp.Versioning;
-using CoreKit.IAM.Authorization;
+﻿using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.Infrastructure.Controllers;
@@ -10,9 +9,8 @@ using SaaSPlatform.Admin.Api.Models;
 namespace SaaSPlatform.Admin.Api.Controllers;
 
 [ApiController]
-[Route("api/v{version:apiVersion}/admin/roles")]
+[Route("api/v1/admin/roles")]
 [Authorize]
-[Asp.Versioning.ApiVersion("1.0")]
 public class RolesController : ApiControllerBase
 {
     private readonly IRoleManagementService _roleService;
@@ -46,10 +44,7 @@ public class RolesController : ApiControllerBase
 
     [HttpPut("{roleId:guid}")]
     [RequiresPermission(Permissions.Roles.Update)]
-    public async Task<IActionResult> Update(
-        Guid roleId,
-        [FromBody] CreateRoleRequest request,
-        CancellationToken ct)
+    public async Task<IActionResult> Update(Guid roleId, [FromBody] CreateRoleRequest request, CancellationToken ct)
     {
         await _roleService.UpdateRoleAsync(roleId, request.Name, request.Description, request.TenantId);
         return UpdatedResponse();
@@ -65,10 +60,7 @@ public class RolesController : ApiControllerBase
 
     [HttpPost("{roleId}/permissions")]
     [RequiresPermission(Permissions.Roles.AssignPermission)]
-    public async Task<IActionResult> AssignPermission(
-        Guid roleId,
-        [FromBody] AssignPermissionRequest request,
-        CancellationToken ct)
+    public async Task<IActionResult> AssignPermission(Guid roleId, [FromBody] AssignPermissionRequest request, CancellationToken ct)
     {
         await _roleService.AssignPermissionAsync(roleId, request.PermissionId);
         return UpdatedResponse("Permission assigned successfully.");
@@ -76,10 +68,7 @@ public class RolesController : ApiControllerBase
 
     [HttpDelete("{roleId}/permissions/{permissionId:guid}")]
     [RequiresPermission(Permissions.Roles.RemovePermission)]
-    public async Task<IActionResult> RemovePermission(
-        Guid roleId,
-        Guid permissionId,
-        CancellationToken ct)
+    public async Task<IActionResult> RemovePermission(Guid roleId, Guid permissionId, CancellationToken ct)
     {
         await _roleService.RemovePermissionAsync(roleId, permissionId);
         return DeletedResponse("Permission removed successfully.");

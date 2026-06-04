@@ -17,6 +17,7 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ------------------- Rate Limiting -------------------
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -46,7 +47,6 @@ builder.Services.AddRateLimiter(options =>
         cfg.Window = TimeSpan.FromMinutes(1);
     });
 
-    // Required by ProductsController (Admin) which uses [EnableRateLimiting("product-create")]
     options.AddFixedWindowLimiter("product-create", cfg =>
     {
         cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 20;
@@ -54,7 +54,10 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+// ------------------- FluentValidation -------------------
 builder.Services.AddValidatorsFromAssemblyContaining<AdminCreateUserRequestValidator>();
+
+// ------------------- Core Services -------------------
 builder.Services.AddHttpContextAccessor();
 
 var connStr = builder.Configuration.GetConnectionString("Postgres")
@@ -76,31 +79,29 @@ builder.Services.AddSubscriptionModule(connStr);
 builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 
-// Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
-// The per-project SaaSPlatform.Admin.api/v{version:apiVersion}/Services/TenantStoreInfoProvider.cs
-// must be deleted — it is now superseded by this shared implementation.
 builder.Services.AddCatalogModule(connStr, services =>
 {
     services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
 });
 
+// ------------------- Kestrel -------------------
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
 });
 
+// ------------------- JSON Options -------------------
 builder.Services.Configure<JsonOptions>(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 });
 
-// In the service configuration (before builder.Build()):
+// ------------------- Model Validation Errors -------------------
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.SuppressModelStateInvalidFilter = true;
     options.InvalidModelStateResponseFactory = context =>
     {
-        // This catches both body and route/query parameter validation errors
         var errors = context.ModelState
             .Where(e => e.Value?.Errors.Count > 0)
             .SelectMany(e => e.Value!.Errors.Select(x => new
@@ -123,21 +124,20 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
+// ------------------- API Versioning -------------------
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+})
+.AddApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
 
-builder.Services
-    .AddApiVersioning(options =>
-    {
-        options.DefaultApiVersion = new ApiVersion(1, 0);
-        options.AssumeDefaultVersionWhenUnspecified = true;
-        options.ReportApiVersions = true;
-    })
-    .AddMvc()
-    .AddApiExplorer(options =>
-    {
-        options.GroupNameFormat = "'v'VVV";
-        options.SubstituteApiVersionInUrl = true;
-    });
-
+// ------------------- App Pipeline -------------------
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -164,8 +164,11 @@ app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseRouting();
 app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseMiddleware<TenantAuthorizationMiddleware>();
+
 app.UseAuthorization();
 
 app.MapGet("/ping", () => "pong");
