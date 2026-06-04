@@ -6,6 +6,7 @@ namespace CoreKit.Infrastructure.Controllers;
 [ApiController]
 public abstract class ApiControllerBase : ControllerBase
 {
+
     protected IActionResult OkResponse(string? message = null)
         => Ok(ApiResponse.Ok(message));
 

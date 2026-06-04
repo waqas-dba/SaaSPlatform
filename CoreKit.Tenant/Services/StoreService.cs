@@ -1,6 +1,7 @@
 ﻿using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Exceptions;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
@@ -28,7 +29,6 @@ public class StoreService : IStoreService
         ICurrentUserService currentUser,
         IPlanLimitProvider? planLimit = null)
     {
-        // BUG FIX: all injected dependencies were previously ignored
         _db = db;
         _tenantContext = tenantContext;
         _options = options.Value;
@@ -37,29 +37,20 @@ public class StoreService : IStoreService
     }
 
     public async Task<StoreDto?> GetByIdAsync(
-     Guid storeId,
-     CancellationToken cancellationToken = default)
+        Guid storeId,
+        CancellationToken cancellationToken = default)
     {
-        // Single scope-resolution path for all callers.
-        // ResolveStoreScopeAsync already returns StoreScope.All for
-        // users with store.view_all or platform.stores.view.
         var storeScope = await ResolveStoreScopeAsync();
-
         IQueryable<Store> query = _db.Stores.Include(x => x.StoreType);
-
-        // Tenant filter: platform admins with All scope skip this
         if (!storeScope.IsAllStores)
         {
             var tenantId = _tenantContext.TenantId;
             if (tenantId.HasValue)
                 query = query.Where(x => x.TenantId == tenantId.Value);
-
             query = query.Where(x => storeScope.StoreIds.Contains(x.Id));
         }
 
-        var store = await query
-            .FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
-
+        var store = await query.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
         return store == null ? null : Map(store);
     }
 
@@ -68,7 +59,6 @@ public class StoreService : IStoreService
         CancellationToken cancellationToken = default)
     {
         var storeScope = await ResolveStoreScopeAsync();
-
         IQueryable<Store> query = _db.Stores
             .Include(x => x.StoreType)
             .Where(x => x.TenantId == tenantId);
@@ -81,24 +71,38 @@ public class StoreService : IStoreService
         var stores = await query
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
-
         return stores.Select(Map).ToList();
     }
 
     public async Task<List<StoreDto>> GetAllStoresAsync(
         CancellationToken cancellationToken = default)
     {
+        if (!_currentUser.HasPermission(Permissions.Platform.ViewAllStores) &&
+            !_currentUser.HasPermission(Permissions.Platform.ManageAnyStore))
+        {
+            throw new ForbiddenException("Access to all stores across tenants requires a platform-level permission.");
+        }
+
         var stores = await _db.Stores
             .Include(x => x.StoreType)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
+        return stores.Select(Map).ToList();
+    }
 
+    internal async Task<List<StoreDto>> GetAllStoresInternalAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var stores = await _db.Stores
+            .Include(x => x.StoreType)
+            .OrderBy(x => x.Name)
+            .ToListAsync(cancellationToken);
         return stores.Select(Map).ToList();
     }
 
     public async Task<StoreDto> CreateAsync(
-     CreateStoreRequest request,
-     CancellationToken cancellationToken = default)
+        CreateStoreRequest request,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentNullException(nameof(request.Name), "Store name is required.");
@@ -109,11 +113,8 @@ public class StoreService : IStoreService
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            // -------------------------------------------------------
-            // FIX: endian-safe advisory lock key
-            var lockKey = LockKeyHelper.GuidToLockKey(tenantId);   // was BitConverter.ToInt64(...)
+            var lockKey = LockKeyHelper.GuidToLockKey(tenantId);
             await _db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", lockKey);
-            // -------------------------------------------------------
 
             await EnforceStoreLimitAsync(tenantId, cancellationToken);
 
@@ -167,7 +168,6 @@ public class StoreService : IStoreService
         CancellationToken cancellationToken = default)
     {
         Store store;
-
         if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
             _currentUser.HasPermission(Permissions.Store.ViewAll))
         {
@@ -188,8 +188,7 @@ public class StoreService : IStoreService
         if (!string.IsNullOrWhiteSpace(request.Name))
         {
             store.Name = request.Name.Trim();
-            store.Slug = await GenerateUniqueSlugAsync(
-                request.Name, store.TenantId, cancellationToken, store.Id);
+            store.Slug = await GenerateUniqueSlugAsync(request.Name, store.TenantId, cancellationToken, store.Id);
         }
 
         if (request.StoreTypeId.HasValue)
@@ -197,7 +196,6 @@ public class StoreService : IStoreService
             var storeType = await _db.StoreTypes
                 .FirstOrDefaultAsync(x => x.Id == request.StoreTypeId.Value && x.IsActive, cancellationToken)
                 ?? throw new InvalidOperationException("Invalid store type.");
-
             store.StoreTypeId = request.StoreTypeId.Value;
             store.StoreType = storeType;
         }
@@ -223,7 +221,6 @@ public class StoreService : IStoreService
         CancellationToken cancellationToken = default)
     {
         Store store;
-
         if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
             _currentUser.HasPermission(Permissions.Store.ViewAll))
         {
@@ -249,7 +246,6 @@ public class StoreService : IStoreService
         CancellationToken cancellationToken = default)
     {
         Store store;
-
         if (_currentUser.HasPermission(Permissions.Platform.ManageAnyStore) ||
             _currentUser.HasPermission(Permissions.Store.ViewAll))
         {
@@ -269,21 +265,15 @@ public class StoreService : IStoreService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    // ---------------------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------------------
-
     private async Task EnforceStoreLimitAsync(Guid tenantId, CancellationToken ct)
     {
         if (_planLimit == null) return;
-
         var maxStores = await _planLimit.GetMaxStoresAsync(tenantId, ct);
         if (maxStores.HasValue)
         {
             var count = await _db.Stores.CountAsync(x => x.TenantId == tenantId, ct);
             if (count >= maxStores.Value)
-                throw new InvalidOperationException(
-                    $"Store limit of {maxStores.Value} reached. Upgrade your plan.");
+                throw new InvalidOperationException($"Store limit of {maxStores.Value} reached. Upgrade your plan.");
         }
     }
 
@@ -305,17 +295,15 @@ public class StoreService : IStoreService
         var baseSlug = SlugHelper.Generate(name);
         var slug = baseSlug;
         var counter = 1;
-
         while (true)
         {
-            IQueryable<Store> query = _db.Stores
-                .Where(x => x.TenantId == tenantId && x.Slug == slug);
-
+            IQueryable<Store> query = _db.Stores.Where(x => x.TenantId == tenantId && x.Slug == slug);
             if (excludeStoreId.HasValue)
                 query = query.Where(x => x.Id != excludeStoreId.Value);
 
             var exists = await query.AnyAsync(cancellationToken);
-            if (!exists) return slug;
+            if (!exists)
+                return slug;
 
             slug = $"{baseSlug}-{counter++}";
         }

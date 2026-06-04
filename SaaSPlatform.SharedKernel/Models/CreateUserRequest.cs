@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace CoreKit.IAM.Models;
+﻿namespace CoreKit.IAM.Models;
 
 public class CreateUserRequest
 {

@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Authorization;
+﻿using Asp.Versioning;
+using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.Infrastructure.Controllers;
 using CoreKit.Subscription.Interfaces;
@@ -8,8 +9,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Admin.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/subscription")]
+[Route("api/v{version:apiVersion}/admin/subscription")]
 [Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
 public class SubscriptionController : ApiControllerBase
 {
     private readonly IPlanService _planService;
@@ -25,40 +27,33 @@ public class SubscriptionController : ApiControllerBase
 
     [HttpGet("plans")]
     [RequiresPermission(Permissions.Platform.ManageBilling)]
-    public async Task<IActionResult> GetAllPlans()
+    public async Task<IActionResult> GetAllPlans(CancellationToken ct)
     {
         var plans = await _planService.GetAllAsync();
-        return Ok(plans);
+        return OkResponse(plans);
     }
 
     [HttpPost("assign")]
     [RequiresPermission(Permissions.Platform.ManageBilling)]
-    public async Task<IActionResult> AssignSubscription([FromBody] AssignSubscriptionRequest request)
+    public async Task<IActionResult> AssignSubscription([FromBody] AssignSubscriptionRequest request, CancellationToken ct)
     {
         await _subService.AssignSubscriptionAsync(
             request.TenantId,
             request.PlanId,
             startDate: request.StartDate,
             endDate: request.EndDate);
-
         var active = await _subService.GetActiveSubscriptionForTenantAsync(request.TenantId);
-        return Ok(active);
+        return OkResponse(active);
     }
 
     [HttpGet("tenant/{tenantId}/active")]
     [RequiresPermission(Permissions.Platform.ManageBilling)]
-    public async Task<IActionResult> GetActiveSubscription(Guid tenantId)
+    public async Task<IActionResult> GetActiveSubscription(Guid tenantId, CancellationToken ct)
     {
         var sub = await _subService.GetActiveSubscriptionForTenantAsync(tenantId);
         if (sub is null)
-            return NotFound(new
-            {
-                success = false,
-                errorCode = "NOT_FOUND",
-                message = "No active subscription found."
-            });
-
-        return Ok(sub);
+            return NotFound(new { success = false, errorCode = "NOT_FOUND", message = "No active subscription found." });
+        return OkResponse(sub);
     }
 }
 

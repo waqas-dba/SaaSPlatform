@@ -5,6 +5,7 @@ using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Services;
+using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Subscription.Persistence;
 using CoreKit.Subscription.Persistence.Seeders;
 using CoreKit.Tenant.Persistence;
@@ -73,7 +74,7 @@ builder.Services.AddScoped<VariantAttributeTemplateSeeder>();
 // ── Optional group seeders (register them even if you don't call them) ──
 builder.Services.AddScoped<VariantGroupSeeder>();
 builder.Services.AddScoped<AddonGroupSeeder>();
-
+builder.Services.AddSingleton<ITenantContext>(new SeederTenantContext());
 var app = builder.Build();
 
 using var scope = app.Services.CreateScope();
@@ -207,7 +208,7 @@ try
     Console.WriteLine("  - No SuperAdmin bypass");
     Console.WriteLine("  - Permission‑based access control");
     Console.WriteLine("  - Subscription plans ready");
-    Console.WriteLine("  - Use /api/admin/impersonation for tenant access");
+    Console.WriteLine("  - Use /api/v{version:apiVersion}/admin/impersonation for tenant access");
     Console.WriteLine();
 }
 catch (Exception ex)
@@ -223,4 +224,8 @@ catch (Exception ex)
         Console.WriteLine($"Inner: {ex.InnerException.Message}");
     Console.WriteLine();
     throw;
+}
+internal sealed class SeederTenantContext : ITenantContext
+{
+    public Guid? TenantId => null;
 }

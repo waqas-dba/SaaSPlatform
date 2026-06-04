@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Authorization;
+﻿using Asp.Versioning;
+using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.Infrastructure.Controllers;
 using CoreKit.Subscription.Interfaces;
@@ -8,8 +9,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Admin.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/plans")]
+[Route("api/v{version:apiVersion}/admin/plans")]
 [Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
 public class PlansController : ApiControllerBase
 {
     private readonly IPlanService _planService;
@@ -18,15 +20,15 @@ public class PlansController : ApiControllerBase
 
     [HttpGet]
     [RequiresPermission(Permissions.Platform.ManageSystemSettings)]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(CancellationToken ct)
     {
         var plans = await _planService.GetAllAsync();
-        return Ok(plans.Select(p => new { p.Id, p.Name, p.Code, p.MonthlyPrice, p.MaxStores, p.MaxProducts, p.CustomDomainEnabled, p.ThemeCustomizationEnabled }));
+        return OkResponse(plans.Select(p => new { p.Id, p.Name, p.Code, p.MonthlyPrice, p.MaxStores, p.MaxProducts, p.CustomDomainEnabled, p.ThemeCustomizationEnabled }));
     }
 
     [HttpPost]
     [RequiresPermission(Permissions.Platform.ManageSystemSettings)]
-    public async Task<IActionResult> Create([FromBody] CreatePlanRequest request)
+    public async Task<IActionResult> Create([FromBody] CreatePlanRequest request, CancellationToken ct)
     {
         var plan = await _planService.CreateAsync(
             request.Name, request.Code, request.Description,

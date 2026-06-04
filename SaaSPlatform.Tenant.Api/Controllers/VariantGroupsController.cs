@@ -1,4 +1,4 @@
-﻿// SaaSPlatform.Tenant.Api/Controllers/VariantGroupsController.cs
+﻿using Asp.Versioning;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
@@ -10,115 +10,81 @@ using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
 [ApiController]
-[Route("api/variant-groups")]
+[Route("api/v{version:apiVersion}/variant-groups")]
 [Authorize]
-public class VariantGroupsController : ApiControllerBase
+[Asp.Versioning.ApiVersion("1.0")]
+public class VariantGroupsController : TenantApiControllerBase
 {
     private readonly IVariantGroupService _variantGroupService;
-    private readonly ITenantContext _tenantContext;
 
     public VariantGroupsController(
         IVariantGroupService variantGroupService,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext) : base(tenantContext)
     {
         _variantGroupService = variantGroupService;
-        _tenantContext = tenantContext;
     }
 
     [HttpGet]
     [RequiresPermission("catalog.products.view")]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var groups = await _variantGroupService
-            .GetByTenantAsync(RequireTenantId());
-
+        var groups = await _variantGroupService.GetByTenantAsync(RequireTenantId(), ct);
         return OkResponse(groups);
     }
 
     [HttpGet("{groupId:guid}")]
     [RequiresPermission("catalog.products.view")]
-    public async Task<IActionResult> GetById(Guid groupId)
+    public async Task<IActionResult> GetById(Guid groupId, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .GetByIdAsync(groupId, RequireTenantId());
-
+        var group = await _variantGroupService.GetByIdAsync(groupId, RequireTenantId(), ct);
         return group is null ? NotFound() : OkResponse(group);
     }
 
     [HttpPost]
     [RequiresPermission("catalog.products.create")]
-    public async Task<IActionResult> Create(
-        CreateVariantGroupRequest request)
+    public async Task<IActionResult> Create(CreateVariantGroupRequest request, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .CreateAsync(RequireTenantId(), request);
-
+        var group = await _variantGroupService.CreateAsync(RequireTenantId(), request, ct);
         return CreatedResponse(group);
     }
 
     [HttpPut("{groupId:guid}")]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> Update(
-        Guid groupId,
-        UpdateVariantGroupRequest request)
+    public async Task<IActionResult> Update(Guid groupId, UpdateVariantGroupRequest request, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .UpdateAsync(groupId, RequireTenantId(), request);
-
+        var group = await _variantGroupService.UpdateAsync(groupId, RequireTenantId(), request, ct);
         return OkResponse(group);
     }
 
     [HttpDelete("{groupId:guid}")]
     [RequiresPermission("catalog.products.delete")]
-    public async Task<IActionResult> Delete(Guid groupId)
+    public async Task<IActionResult> Delete(Guid groupId, CancellationToken ct)
     {
-        await _variantGroupService
-            .DeleteAsync(groupId, RequireTenantId());
-
+        await _variantGroupService.DeleteAsync(groupId, RequireTenantId(), ct);
         return DeletedResponse();
     }
 
-    // ── Options ──────────────────────────────────────────────────────
-
     [HttpPost("{groupId:guid}/options")]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> AddOption(
-        Guid groupId,
-        VariantGroupOptionRequest request)
+    public async Task<IActionResult> AddOption(Guid groupId, VariantGroupOptionRequest request, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .AddOptionAsync(groupId, RequireTenantId(), request);
-
+        var group = await _variantGroupService.AddOptionAsync(groupId, RequireTenantId(), request, ct);
         return OkResponse(group);
     }
 
     [HttpPut("{groupId:guid}/options/{optionId:guid}")]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> UpdateOption(
-        Guid groupId,
-        Guid optionId,
-        VariantGroupOptionRequest request)
+    public async Task<IActionResult> UpdateOption(Guid groupId, Guid optionId, VariantGroupOptionRequest request, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .UpdateOptionAsync(groupId, optionId, RequireTenantId(), request);
-
+        var group = await _variantGroupService.UpdateOptionAsync(groupId, optionId, RequireTenantId(), request, ct);
         return OkResponse(group);
     }
 
     [HttpDelete("{groupId:guid}/options/{optionId:guid}")]
     [RequiresPermission("catalog.products.update")]
-    public async Task<IActionResult> RemoveOption(
-        Guid groupId,
-        Guid optionId)
+    public async Task<IActionResult> RemoveOption(Guid groupId, Guid optionId, CancellationToken ct)
     {
-        var group = await _variantGroupService
-            .RemoveOptionAsync(groupId, optionId, RequireTenantId());
-
+        var group = await _variantGroupService.RemoveOptionAsync(groupId, optionId, RequireTenantId(), ct);
         return OkResponse(group);
     }
-
-    private Guid RequireTenantId() =>
-        _tenantContext.TenantId
-        ?? throw new UnauthorizedAccessException(
-            "Tenant context is missing.");
 }

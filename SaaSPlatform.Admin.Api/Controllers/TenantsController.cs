@@ -1,4 +1,4 @@
-﻿// SaaSPlatform.Admin.Api/Controllers/TenantsController.cs
+﻿using Asp.Versioning;
 using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
@@ -11,7 +11,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace SaaSPlatform.Admin.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/tenants")]
+[Route("api/v{version:apiVersion}/admin/tenants")]
+[Asp.Versioning.ApiVersion("1.0")]
 public class TenantsController : ApiControllerBase
 {
     private readonly ITenantService _tenantService;
@@ -30,15 +31,10 @@ public class TenantsController : ApiControllerBase
 
     [HttpPost("register")]
     [AllowAnonymous]
-    public async Task<IActionResult> Register(TenantRegistrationRequest request)
+    public async Task<IActionResult> Register(TenantRegistrationRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
-            return BadRequest(new
-            {
-                success = false,
-                errorCode = "VALIDATION_ERROR",
-                message = "Tenant name is required."
-            });
+            return BadRequest(new { success = false, errorCode = "VALIDATION_ERROR", message = "Tenant name is required." });
 
         var result = await _tenantService.RegisterAsync(request);
         return Ok(result);
@@ -47,46 +43,32 @@ public class TenantsController : ApiControllerBase
     [HttpPost("{tenantId}/approve")]
     [Authorize]
     [RequiresPermission(Permissions.Tenants.Approve)]
-    public async Task<IActionResult> Approve(Guid tenantId)
+    public async Task<IActionResult> Approve(Guid tenantId, CancellationToken ct)
     {
         await _tenantService.ApproveAsync(tenantId);
-        // Automatically create a default TenantAdmin role for this tenant
         await EnsureDefaultTenantRoleAsync(tenantId);
-
-        return Ok(new
-        {
-            tenantId,
-            status = "Approved",
-            message = "Tenant approved successfully"
-        });
+        return Ok(new { tenantId, status = "Approved", message = "Tenant approved successfully" });
     }
 
     [HttpGet]
     [Authorize]
     [RequiresPermission(Permissions.Tenants.View)]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(CancellationToken ct)
     {
         var tenants = await _tenantService.GetAllAsync();
-        return Ok(tenants.Select(t => new { t.Id, t.Name, t.Status }));
+        return OkResponse(tenants.Select(t => new { t.Id, t.Name, t.Status }));
     }
 
     private async Task EnsureDefaultTenantRoleAsync(Guid tenantId)
     {
         const string roleName = "TenantAdmin";
-
-        // Skip if the role already exists
         var existingRoles = await _roleManagementService.GetRolesAsync(tenantId);
-        if (existingRoles.Any(r => r.Name == roleName))
+        if (existingRoles.Any(r => r.Name.Equals(roleName, StringComparison.OrdinalIgnoreCase)))
             return;
 
-        var role = await _roleManagementService.CreateRoleAsync(
-            roleName,
-            tenantId,
-            "Default tenant administrator – full store and catalog management");
-
+        var role = await _roleManagementService.CreateRoleAsync(roleName, tenantId, "Default tenant administrator – full store and catalog management");
         var allPermissions = await _roleRepository.GetAllPermissionsAsync();
 
-        // Standard tenant‑level permissions
         string[] requiredPermissions =
         {
             "store.view", "store.update",

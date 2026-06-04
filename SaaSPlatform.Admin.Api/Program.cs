@@ -1,5 +1,5 @@
+using Asp.Versioning;
 using CoreKit.Catalog.Extensions;
-using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -9,7 +9,6 @@ using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Services;
 using FluentValidation;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SaaSPlatform.Admin.Api.Validators;
@@ -78,7 +77,7 @@ builder.Services.AddCoreKitControllers();
 builder.ValidateCoreKitConfiguration();
 
 // Use the shared canonical TenantStoreInfoProvider from CoreKit.Catalog.Services.
-// The per-project SaaSPlatform.Admin.Api/Services/TenantStoreInfoProvider.cs
+// The per-project SaaSPlatform.Admin.api/v{version:apiVersion}/Services/TenantStoreInfoProvider.cs
 // must be deleted — it is now superseded by this shared implementation.
 builder.Services.AddCatalogModule(connStr, services =>
 {
@@ -123,6 +122,21 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
         };
     };
 });
+
+
+builder.Services
+    .AddApiVersioning(options =>
+    {
+        options.DefaultApiVersion = new ApiVersion(1, 0);
+        options.AssumeDefaultVersionWhenUnspecified = true;
+        options.ReportApiVersions = true;
+    })
+    .AddMvc()
+    .AddApiExplorer(options =>
+    {
+        options.GroupNameFormat = "'v'VVV";
+        options.SubstituteApiVersionInUrl = true;
+    });
 
 var app = builder.Build();
 

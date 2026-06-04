@@ -1,46 +1,67 @@
-﻿// SaaSPlatform.Tenant.Api/Controllers/TenantCategoriesController.cs
+﻿using Asp.Versioning;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
 using CoreKit.Infrastructure.Controllers;
 using CoreKit.SharedKernel.Tenancy;
-using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
 [ApiController]
-[Route("api/categories")]
+[Route("api/v{version:apiVersion}/categories")]
 [Authorize]
-public class TenantCategoriesController : ApiControllerBase
+[Asp.Versioning.ApiVersion("1.0")]
+public class TenantCategoriesController : TenantApiControllerBase
 {
     private readonly ICategoryService _categoryService;
-    private readonly ITenantContext _tenantContext;
 
-    public TenantCategoriesController(ICategoryService categoryService, ITenantContext tenantContext)
+    public TenantCategoriesController(
+        ICategoryService categoryService,
+        ITenantContext tenantContext) : base(tenantContext)
     {
         _categoryService = categoryService;
-        _tenantContext = tenantContext;
     }
 
     [HttpGet]
     [RequiresPermission("catalog.categories.view")]
-    public async Task<IActionResult> GetForTenant([FromQuery] Guid? storeId)
+    public async Task<IActionResult> GetForTenant(
+        [FromQuery] Guid? storeId,
+        CancellationToken ct)
     {
-        if (!_tenantContext.TenantId.HasValue)
-            return Unauthorized(new { success = false, errorCode = "UNAUTHORIZED", message = "Missing tenant context." });
-
-        var categories = await _categoryService.GetByTenantAsync(_tenantContext.TenantId.Value, storeId);
+        var tenantId = RequireTenantId();
+        var categories = await _categoryService.GetByTenantAsync(tenantId, storeId, ct);
         return OkResponse(categories);
     }
 
     [HttpPost]
     [RequiresPermission("catalog.categories.create")]
-    public async Task<IActionResult> Create(CreateCategoryRequest request)
+    public async Task<IActionResult> Create(
+        CreateCategoryRequest request,
+        CancellationToken ct)
     {
-        request.TenantId = _tenantContext.TenantId ?? throw new UnauthorizedAccessException("Missing tenant context.");
-        var category = await _categoryService.CreateAsync(request);
+        request.TenantId = RequireTenantId();
+        var category = await _categoryService.CreateAsync(request, ct);
         return CreatedResponse(category);
+    }
+
+    [HttpPut("{id:guid}")]                                           // NEW
+    [RequiresPermission("catalog.categories.update")]
+    public async Task<IActionResult> Update(
+        Guid id,
+        UpdateCategoryRequest request,
+        CancellationToken ct)
+    {
+        await _categoryService.UpdateAsync(id, request, ct);
+        return UpdatedResponse();
+    }
+
+    [HttpDelete("{id:guid}")]                                        // NEW
+    [RequiresPermission("catalog.categories.delete")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        await _categoryService.DeleteAsync(id, ct);
+        return DeletedResponse();
     }
 }

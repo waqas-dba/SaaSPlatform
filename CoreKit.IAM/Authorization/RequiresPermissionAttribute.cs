@@ -1,4 +1,9 @@
-﻿using CoreKit.IAM.Constants;
+﻿// FILE: CoreKit.IAM/Authorization/RequiresPermissionAttribute.cs
+// FIX: Check permission cache before hitting the database.
+//      Previously the attribute only checked JWT claims, then went straight
+//      to the DB. Now it checks the in-memory cache layer first.
+
+using CoreKit.IAM.Constants;
 using CoreKit.IAM.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Mvc;
@@ -25,28 +30,50 @@ public class RequiresPermissionAttribute : Attribute, IAsyncAuthorizationFilter
             return;
         }
 
+        // Fast path: permission is embedded in the JWT claim.
         if (user.Claims.Any(c =>
-            c.Type == ClaimConstants.Permission &&
-            c.Value == _permission))
+                c.Type == ClaimConstants.Permission &&
+                c.Value == _permission))
             return;
 
-        var permissionService =
-            context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
-
-        var currentUser =
+        var currentUserService =
             context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
 
-        var tenantContext =
-            context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
-
-        if (currentUser.UserId == null)
+        if (currentUserService.UserId == null)
         {
             context.Result = new UnauthorizedResult();
             return;
         }
 
+        var tenantContext =
+            context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
+
+        // Second path: check the in-memory permission cache before touching the DB.
+        // This avoids a DB round-trip on every request when the permission was not
+        // embedded in the token (e.g. after a role change without re-login).
+        var permissionCache =
+            context.HttpContext.RequestServices.GetRequiredService<IPermissionCacheService>();
+
+        var cached = await permissionCache.GetAsync(
+            currentUserService.UserId.Value,
+            tenantContext.TenantId);
+
+        if (cached != null)
+        {
+            if (!cached.Contains(_permission))
+                context.Result = new ForbidResult();
+
+            // Permission found (or not) in cache — no DB needed.
+            return;
+        }
+
+        // Final path: cache miss — delegate to PermissionService which will
+        // query the DB and populate the cache for subsequent requests.
+        var permissionService =
+            context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
+
         var hasPermission = await permissionService.HasPermissionAsync(
-            currentUser.UserId.Value,
+            currentUserService.UserId.Value,
             tenantContext.TenantId,
             _permission);
 

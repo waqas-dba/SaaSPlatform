@@ -12,10 +12,10 @@ public class CatalogDbContext : AuditableDbContext
     private readonly ITenantContext _tenantContext;
 
     public CatalogDbContext(
-        DbContextOptions<CatalogDbContext> options,
-        ITenantContext tenantContext,
-        ICurrentUser? currentUser = null)
-        : base(options, currentUser)
+         DbContextOptions<CatalogDbContext> options,
+         ITenantContext? tenantContext = null,          // made optional
+         ICurrentUser? currentUser = null)
+         : base(options, currentUser)
     {
         _tenantContext = tenantContext;
     }
@@ -41,22 +41,20 @@ public class CatalogDbContext : AuditableDbContext
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CatalogDbContext).Assembly);
 
-        modelBuilder.Entity<Product>().HasQueryFilter(p =>
-            _tenantContext.TenantId == null || p.TenantId == _tenantContext.TenantId);
-
-        modelBuilder.Entity < Category > ().HasQueryFilter(c =>
-            _tenantContext.TenantId == null || c.TenantId == _tenantContext.TenantId);
-
-        modelBuilder.Entity < AddonGroup > ().HasQueryFilter(a =>
-            _tenantContext.TenantId == null || a.TenantId == _tenantContext.TenantId);
-
-        modelBuilder.Entity < VariantGroup > ().HasQueryFilter(v =>
-            _tenantContext.TenantId == null || v.TenantId == _tenantContext.TenantId);
-
-        modelBuilder.Entity<ProductAttributeTemplate>().HasQueryFilter(t =>
-            t.TenantId == null || t.TenantId == _tenantContext.TenantId);
-
-        modelBuilder.Entity<ProductAttributeGroup>().HasQueryFilter(g =>
-            g.TenantId == null || g.TenantId == _tenantContext.TenantId);
+        if (_tenantContext != null)                     // guard
+        {
+            modelBuilder.Entity<Product>().HasQueryFilter(p =>
+                _tenantContext.TenantId == null || p.TenantId == _tenantContext.TenantId);
+            modelBuilder.Entity<Category>().HasQueryFilter(c =>
+                _tenantContext.TenantId == null || c.TenantId == _tenantContext.TenantId);
+            modelBuilder.Entity<AddonGroup>().HasQueryFilter(a =>
+                _tenantContext.TenantId == null || a.TenantId == _tenantContext.TenantId);
+            modelBuilder.Entity<VariantGroup>().HasQueryFilter(v =>
+                _tenantContext.TenantId == null || v.TenantId == _tenantContext.TenantId);
+            modelBuilder.Entity<ProductAttributeTemplate>().HasQueryFilter(t =>
+                t.TenantId == null || t.TenantId == _tenantContext.TenantId);
+            modelBuilder.Entity<ProductAttributeGroup>().HasQueryFilter(g =>
+                g.TenantId == null || g.TenantId == _tenantContext.TenantId);
+        }
     }
 }

@@ -1,5 +1,5 @@
+using Asp.Versioning;
 using CoreKit.Catalog.Extensions;
-using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
@@ -7,7 +7,6 @@ using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
 using CoreKit.Tenant.Services;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -145,6 +144,22 @@ public class Program
                 };
             };
         });
+        builder.Services.AddApiVersioning(options =>
+        {
+            options.DefaultApiVersion = new Asp.Versioning.ApiVersion(1, 0);
+            options.AssumeDefaultVersionWhenUnspecified = true;
+            options.ReportApiVersions = true;
+
+            options.ApiVersionReader = ApiVersionReader.Combine(
+                new UrlSegmentApiVersionReader(),
+                new HeaderApiVersionReader("x-api-version"),
+                new QueryStringApiVersionReader("api-version"));
+        }).AddMvc()
+    .AddApiExplorer(options =>
+    {
+        options.GroupNameFormat = "'v'VVV";
+        options.SubstituteApiVersionInUrl = true;
+    });
 
         var app = builder.Build();
 

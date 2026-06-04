@@ -86,6 +86,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
         services.AddScoped<IPermissionService, PermissionService>();
 
+        services.AddScoped<IUserStoreAssignmentService, UserStoreAssignmentService>();
+
         // ── Optional features ─────────────────────────────────────────────────
         if (iamOptions.EnableUserDocuments)
             services.AddScoped<IUserDocumentService, UserDocumentService>();

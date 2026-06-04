@@ -1,11 +1,10 @@
-﻿using CoreKit.IAM.Authorization;
+﻿using Asp.Versioning;
+using CoreKit.IAM.Authorization;
 using CoreKit.IAM.Constants;
 using CoreKit.Infrastructure.Controllers;
-using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Tenant.Interfaces;
 using CoreKit.Tenant.Models;
-using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -13,117 +12,72 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace SaaSPlatform.Tenant.Api.Controllers;
 
 [ApiController]
-[Route("api/stores")]
+[Route("api/v{version:apiVersion}/stores")]
 [Authorize]
-public class StoresController : ApiControllerBase
+[Asp.Versioning.ApiVersion("1.0")]
+public class StoresController : TenantApiControllerBase
 {
     private readonly IStoreService _storeService;
-    private readonly ITenantContext _tenantContext;
 
     public StoresController(
         IStoreService storeService,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext) : base(tenantContext)
     {
         _storeService = storeService;
-        _tenantContext = tenantContext;
     }
 
     [HttpGet]
     [RequiresPermission(Permissions.Store.View)]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        if (_tenantContext.TenantId == null)
-        {
-            return Unauthorized(new
-            {
-                success = false,
-                errorCode = "UNAUTHORIZED",
-                message = "Missing tenant context."
-            });
-        }
-
-        var stores =
-            await _storeService.GetAllByTenantAsync(
-                _tenantContext.TenantId.Value);
-
-        return Ok(stores);
+        var tenantId = RequireTenantId();
+        var stores = await _storeService.GetAllByTenantAsync(tenantId, ct);
+        return OkResponse(stores);
     }
 
     [HttpPost]
     [EnableRateLimiting("store-create")]
     [RequiresPermission(Permissions.Store.Update)]
-    public async Task<IActionResult> Create(
-        CreateStoreRequest request)
+    public async Task<IActionResult> Create(CreateStoreRequest request, CancellationToken ct)
     {
-        if (_tenantContext.TenantId == null)
-        {
-            return Unauthorized(new
-            {
-                success = false,
-                errorCode = "UNAUTHORIZED",
-                message = "Missing tenant context."
-            });
-        }
-
-        var store = await _storeService.CreateAsync(request);
-
-        return Ok(store);
+        var tenantId = RequireTenantId();
+        var store = await _storeService.CreateAsync(request, ct);
+        return CreatedResponse(store);
     }
 
     [HttpPut("{storeId:guid}")]
     [EnableRateLimiting("store-update")]
     [RequiresPermission(Permissions.Store.Update)]
-    public async Task<IActionResult> Update(
-        Guid storeId,
-        UpdateStoreRequest request)
+    public async Task<IActionResult> Update(Guid storeId, UpdateStoreRequest request, CancellationToken ct)
     {
-        await _storeService.UpdateAsync(storeId, request);
-
-        return NoContent();
+        await _storeService.UpdateAsync(storeId, request, ct);
+        return UpdatedResponse();
     }
 
     [HttpDelete("{storeId:guid}")]
     [EnableRateLimiting("store-update")]
     [RequiresPermission(Permissions.Store.Update)]
-    public async Task<IActionResult> Delete(Guid storeId)
+    public async Task<IActionResult> Delete(Guid storeId, CancellationToken ct)
     {
-        await _storeService.DeleteAsync(storeId);
-
-        return NoContent();
+        await _storeService.DeleteAsync(storeId, ct);
+        return DeletedResponse();
     }
 
     [HttpPut("{storeId:guid}/marketplace")]
     [EnableRateLimiting("store-update")]
     [RequiresPermission(Permissions.Store.Update)]
-    public async Task<IActionResult> SetMarketplaceListing(
-        Guid storeId,
-        bool isListed)
+    public async Task<IActionResult> SetMarketplaceListing(Guid storeId, bool isListed, CancellationToken ct)
     {
-        await _storeService.SetMarketplaceListingAsync(
-            storeId,
-            isListed);
-
-        return NoContent();
+        await _storeService.SetMarketplaceListingAsync(storeId, isListed, ct);
+        return UpdatedResponse();
     }
 
     [HttpGet("my")]
     [RequiresPermission(Permissions.Store.View)]
-    public async Task<IActionResult> GetMine()
+    public async Task<IActionResult> GetMine(CancellationToken ct)
     {
-        if (_tenantContext.TenantId == null)
-        {
-            return Unauthorized(new
-            {
-                success = false,
-                errorCode = "UNAUTHORIZED",
-                message = "Missing tenant context."
-            });
-        }
-
-        var stores =
-            await _storeService.GetAllByTenantAsync(
-                _tenantContext.TenantId.Value);
-
-        return Ok(stores);
+        var tenantId = RequireTenantId();
+        var stores = await _storeService.GetAllByTenantAsync(tenantId, ct);
+        return OkResponse(stores);
     }
 }

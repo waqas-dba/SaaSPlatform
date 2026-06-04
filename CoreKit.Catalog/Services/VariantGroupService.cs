@@ -1,5 +1,4 @@
-﻿// CoreKit.Catalog/Services/VariantGroupService.cs
-using System.Text.Json;
+﻿using System.Text.Json;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
@@ -29,7 +28,7 @@ public class VariantGroupService : IVariantGroupService
     {
         var groups = await _db.VariantGroups
             .Include(g => g.Options)
-                .ThenInclude(o => o.Template)
+            .ThenInclude(o => o.Template)
             .Where(g => g.TenantId == tenantId)
             .OrderBy(g => g.Name)
             .ToListAsync(ct);
@@ -59,7 +58,6 @@ public class VariantGroupService : IVariantGroupService
         var duplicate = await _db.VariantGroups.AnyAsync(g =>
             g.TenantId == tenantId &&
             g.Name == request.Name.Trim(), ct);
-
         if (duplicate)
             throw new InvalidOperationException(
                 "A variant group with this name already exists.");
@@ -88,7 +86,6 @@ public class VariantGroupService : IVariantGroupService
 
         _db.VariantGroups.Add(group);
         await _db.SaveChangesAsync(ct);
-
         return MapToDto(await FindAsync(group.Id, tenantId, ct)!);
     }
 
@@ -116,7 +113,6 @@ public class VariantGroupService : IVariantGroupService
         var group = await FindAsync(groupId, tenantId, ct)
             ?? throw new KeyNotFoundException("Variant group not found.");
 
-        // Detach from products before deleting
         await _db.Products
             .Where(p => p.VariantGroupId == groupId)
             .ExecuteUpdateAsync(
@@ -137,7 +133,6 @@ public class VariantGroupService : IVariantGroupService
 
         var alreadyHasTemplate = group.Options
             .Any(o => o.TemplateId == request.TemplateId);
-
         if (alreadyHasTemplate)
             throw new InvalidOperationException(
                 "This template is already an option in the group.");
@@ -198,15 +193,13 @@ public class VariantGroupService : IVariantGroupService
         return MapToDto(group);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
-
     private async Task<VariantGroup?> FindAsync(
         Guid groupId,
         Guid tenantId,
         CancellationToken ct)
         => await _db.VariantGroups
             .Include(g => g.Options)
-                .ThenInclude(o => o.Template)
+            .ThenInclude(o => o.Template)
             .FirstOrDefaultAsync(
                 g => g.Id == groupId && g.TenantId == tenantId, ct);
 
@@ -219,7 +212,6 @@ public class VariantGroupService : IVariantGroupService
             .AnyAsync(t =>
                 t.Id == templateId &&
                 t.StoreTypeCode == storeTypeCode, ct);
-
         if (!exists)
             throw new InvalidOperationException(
                 $"Variant template '{templateId}' does not exist " +

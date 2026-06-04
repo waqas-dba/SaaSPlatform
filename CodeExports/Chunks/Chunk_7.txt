@@ -1,4 +1,788 @@
 ﻿
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\AddonGroupsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/addon-groups")]
+[Authorize]
+public class AddonGroupsController : ApiControllerBase
+{
+private readonly IAddonService _addonService;
+private readonly ITenantContext _tenantContext;
+public AddonGroupsController(
+IAddonService addonService,
+ITenantContext tenantContext)
+{
+_addonService = addonService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetAll()
+{
+var groups = await _addonService
+.GetGroupsByTenantAsync(RequireTenantId());
+return OkResponse(groups);
+}
+[HttpGet("{groupId:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid groupId)
+{
+var group = await _addonService
+.GetGroupByIdAsync(groupId, RequireTenantId());
+return group is null ? NotFound() : OkResponse(group);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(
+CreateAddonGroupRequest request)
+{
+var group = await _addonService
+.CreateGroupAsync(RequireTenantId(), request);
+return CreatedResponse(group);
+}
+[HttpPut("{groupId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(
+Guid groupId,
+UpdateAddonGroupRequest request)
+{
+var group = await _addonService
+.UpdateGroupAsync(groupId, RequireTenantId(), request);
+return OkResponse(group);
+}
+[HttpDelete("{groupId:guid}")]
+[RequiresPermission("catalog.products.delete")]
+public async Task<IActionResult> Delete(Guid groupId)
+{
+await _addonService.DeleteGroupAsync(groupId, RequireTenantId());
+return DeletedResponse();
+}
+[HttpPost("{groupId:guid}/addons")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> AddAddon(
+Guid groupId,
+AddAddonToGroupRequest request)
+{
+var addon = await _addonService
+.AddToGroupAsync(groupId, RequireTenantId(), request);
+return CreatedResponse(addon);
+}
+[HttpPut("{groupId:guid}/addons/{addonId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> UpdateAddon(
+Guid groupId,
+Guid addonId,
+AddAddonToGroupRequest request)
+{
+var addon = await _addonService
+.UpdateAddonAsync(addonId, RequireTenantId(), request);
+return OkResponse(addon);
+}
+[HttpDelete("{groupId:guid}/addons/{addonId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> RemoveAddon(
+Guid groupId,
+Guid addonId)
+{
+await _addonService
+.RemoveFromGroupAsync(addonId, RequireTenantId());
+return DeletedResponse();
+}
+private Guid RequireTenantId() =>
+_tenantContext.TenantId
+?? throw new UnauthorizedAccessException(
+"Tenant context is missing.");
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\ProductsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products")]
+[Authorize]
+public class ProductsController : ApiControllerBase
+{
+private readonly IProductService _productService;
+public ProductsController(IProductService productService)
+=> _productService = productService;
+[HttpPost]
+[EnableRateLimiting("product-create")]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(
+CreateProductRequest request,
+CancellationToken ct)
+{
+var product = await _productService.CreateAsync(request, ct);
+return CreatedResponse(product);
+}
+[HttpPut("{id:guid}")]
+[EnableRateLimiting("product-update")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(
+Guid id,
+UpdateProductRequest request,
+CancellationToken ct)
+{
+var product = await _productService.UpdateAsync(id, request, ct);
+return OkResponse(product);
+}
+[HttpGet("{id:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
+{
+var product = await _productService.GetByIdAsync(id, ct);
+return product is null ? NotFound() : OkResponse(product);
+}
+[HttpGet("store/{storeId:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByStore(
+Guid storeId,
+[FromQuery] PagedQuery query,
+CancellationToken ct)
+{
+var result = await _productService.GetByStorePagedAsync(storeId, query, ct);
+return OkResponse(result);
+}
+[HttpDelete("{id:guid}")]
+[RequiresPermission("catalog.products.delete")]
+public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+{
+await _productService.DeleteAsync(id, ct);
+return DeletedResponse();
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\ProductVariantsController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/products/{productId}/variants")]
+[Authorize]
+public class ProductVariantsController : ApiControllerBase
+{
+private readonly IProductVariantService _variantService;
+public ProductVariantsController(IProductVariantService variantService)
+=> _variantService = variantService;
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetByProduct(Guid productId)
+{
+var variants = await _variantService.GetByProductAsync(productId);
+return Ok(variants);
+}
+[HttpGet("{id:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid id)
+{
+var variant = await _variantService.GetByIdAsync(id);
+return variant is null ? NotFound() : Ok(variant);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Create(Guid productId, CreateVariantRequest request)
+{
+var variant = await _variantService.CreateAsync(productId, request);
+return CreatedResponse(variant);
+}
+[HttpPut("{id:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(Guid id, UpdateVariantRequest request)
+{
+await _variantService.UpdateAsync(id, request);
+return UpdatedResponse();
+}
+[HttpDelete("{id:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Delete(Guid id)
+{
+await _variantService.DeleteAsync(id);
+return DeletedResponse();
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoresController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Tenancy;
+using CoreKit.Tenant.Interfaces;
+using CoreKit.Tenant.Models;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/stores")]
+[Authorize]
+public class StoresController : ApiControllerBase
+{
+private readonly IStoreService _storeService;
+private readonly ITenantContext _tenantContext;
+public StoresController(
+IStoreService storeService,
+ITenantContext tenantContext)
+{
+_storeService = storeService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetAll()
+{
+if (_tenantContext.TenantId == null)
+{
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+}
+var stores =
+await _storeService.GetAllByTenantAsync(
+_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+[HttpPost]
+[EnableRateLimiting("store-create")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Create(
+CreateStoreRequest request)
+{
+if (_tenantContext.TenantId == null)
+{
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+}
+var store = await _storeService.CreateAsync(request);
+return Ok(store);
+}
+[HttpPut("{storeId:guid}")]
+[EnableRateLimiting("store-update")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Update(
+Guid storeId,
+UpdateStoreRequest request)
+{
+await _storeService.UpdateAsync(storeId, request);
+return NoContent();
+}
+[HttpDelete("{storeId:guid}")]
+[EnableRateLimiting("store-update")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> Delete(Guid storeId)
+{
+await _storeService.DeleteAsync(storeId);
+return NoContent();
+}
+[HttpPut("{storeId:guid}/marketplace")]
+[EnableRateLimiting("store-update")]
+[RequiresPermission(Permissions.Store.Update)]
+public async Task<IActionResult> SetMarketplaceListing(
+Guid storeId,
+bool isListed)
+{
+await _storeService.SetMarketplaceListingAsync(
+storeId,
+isListed);
+return NoContent();
+}
+[HttpGet("my")]
+[RequiresPermission(Permissions.Store.View)]
+public async Task<IActionResult> GetMine()
+{
+if (_tenantContext.TenantId == null)
+{
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+}
+var stores =
+await _storeService.GetAllByTenantAsync(
+_tenantContext.TenantId.Value);
+return Ok(stores);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\StoreTypesController.cs =====
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.Tenant.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/storetypes")]
+[Authorize]
+public class StoreTypesController : ApiControllerBase
+{
+private readonly IStoreTypeService _storeTypeService;
+public StoreTypesController(IStoreTypeService storeTypeService)
+=> _storeTypeService = storeTypeService;
+[HttpGet]
+public async Task<IActionResult> GetAll()
+{
+var types = await _storeTypeService.GetAllActiveAsync();
+return Ok(types);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantAttributeTemplatesController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/tenant/catalog/attribute-templates")]
+[Authorize]
+public class TenantAttributeTemplatesController : ApiControllerBase
+{
+private readonly IProductAttributeTemplateService _templateService;
+private readonly IProductAttributeGroupService _groupService;
+private readonly ICurrentUserService _currentUser;
+private readonly ITenantContext _tenantContext;
+public TenantAttributeTemplatesController(
+IProductAttributeTemplateService templateService,
+IProductAttributeGroupService groupService,
+ICurrentUserService currentUser,
+ITenantContext tenantContext)
+{
+_templateService = templateService;
+_groupService = groupService;
+_currentUser = currentUser;
+_tenantContext = tenantContext;
+}
+[HttpGet("platform/{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetPlatformTemplates(string storeTypeCode)
+{
+var templates =
+await _templateService.GetPlatformTemplatesAsync(storeTypeCode);
+return OkResponse(templates);
+}
+[HttpGet("{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetTenantTemplates(string storeTypeCode)
+{
+var tenantId = RequireTenantId();
+var templates = await _templateService.GetTenantTemplatesAsync(
+tenantId, storeTypeCode);
+return OkResponse(templates);
+}
+[HttpPost("override")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> OverridePlatformTemplate(
+[FromBody] OverrideAttributeTemplateRequest request)
+{
+request.TenantId = RequireTenantId();
+var template =
+await _templateService.OverridePlatformTemplateAsync(request);
+return CreatedResponse(template);
+}
+[HttpPost("custom")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> CreateCustomTemplate(
+[FromBody] CreateAttributeTemplateRequest request)
+{
+request.TenantId = RequireTenantId();
+var template =
+await _templateService.CreateTenantTemplateAsync(request);
+return CreatedResponse(template);
+}
+[HttpPut("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> UpdateTenantTemplate(
+Guid templateId,
+[FromBody] UpdateAttributeTemplateRequest request)
+{
+await _templateService.UpdateTenantTemplateAsync(
+templateId, RequireTenantId(), request);
+return UpdatedResponse();
+}
+[HttpDelete("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> DeleteTenantTemplate(Guid templateId)
+{
+await _templateService.DeleteTenantTemplateAsync(
+templateId, RequireTenantId());
+return DeletedResponse();
+}
+[HttpPost("groups")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> CreateGroup(
+[FromBody] CreateAttributeGroupRequest request)
+{
+request.TenantId = RequireTenantId();
+var group = await _groupService.CreateAsync(request);
+return CreatedResponse(group);
+}
+[HttpPost("assign")]
+[RequiresPermission(Permissions.Catalog.TemplatesAssign)]
+public async Task<IActionResult> AssignTemplate(
+[FromBody] AssignTemplateRequest request)
+{
+request.TenantId = RequireTenantId();
+await _templateService.AssignTemplateAsync(request);
+return OkResponse("Template assigned successfully.");
+}
+[HttpDelete("assign")]
+[RequiresPermission(Permissions.Catalog.TemplatesAssign)]
+public async Task<IActionResult> UnassignTemplate(
+[FromBody] UnassignTemplateRequest request)
+{
+await _templateService.UnassignTemplateAsync(
+RequireTenantId(), request.StoreId, request.TemplateId);
+return DeletedResponse();
+}
+[HttpGet("resolved/{storeId}/{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetResolved(
+Guid storeId,
+string storeTypeCode)
+{
+var resolved = await _templateService.GetResolvedAttributesAsync(
+storeId, RequireTenantId(), storeTypeCode);
+return OkResponse(resolved);
+}
+[HttpPost("store-override")]
+[RequiresPermission(Permissions.Catalog.TemplatesToggleStore)]
+public async Task<IActionResult> SetStoreOverride(
+[FromBody] StoreAttributeOverrideRequest request)
+{
+await _templateService.SetStoreAttributeOverrideAsync(request);
+return OkResponse("Store attribute override saved.");
+}
+private Guid RequireTenantId() =>
+_tenantContext.TenantId
+?? throw new UnauthorizedAccessException("Tenant context is missing.");
+}
+public record UnassignTemplateRequest(Guid? StoreId, Guid TemplateId);
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantCategoriesController.cs =====
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/categories")]
+[Authorize]
+public class TenantCategoriesController : ApiControllerBase
+{
+private readonly ICategoryService _categoryService;
+private readonly ITenantContext _tenantContext;
+public TenantCategoriesController(
+ICategoryService categoryService,
+ITenantContext tenantContext)
+{
+_categoryService = categoryService;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetForTenant(
+[FromQuery] Guid? storeId,
+CancellationToken ct)
+{
+if (!_tenantContext.TenantId.HasValue)
+return Unauthorized(new
+{
+success = false,
+errorCode = "UNAUTHORIZED",
+message = "Missing tenant context."
+});
+var categories = await _categoryService
+.GetByTenantAsync(_tenantContext.TenantId.Value, storeId, ct);
+return OkResponse(categories);
+}
+[HttpPost]
+[RequiresPermission("catalog.categories.create")]
+public async Task<IActionResult> Create(
+CreateCategoryRequest request,
+CancellationToken ct)
+{
+request.TenantId = _tenantContext.TenantId
+?? throw new UnauthorizedAccessException("Missing tenant context.");
+var category = await _categoryService.CreateAsync(request, ct);
+return CreatedResponse(category);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantUsersController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/users")]
+[Authorize]
+public class TenantUsersController : ApiControllerBase
+{
+private readonly IUserManagementService _userService;
+private readonly IRoleManagementService _roleService;
+private readonly ITenantContext _tenantContext;
+private readonly ICurrentUserService _currentUser;
+public TenantUsersController(
+IUserManagementService userService,
+IRoleManagementService roleService,
+ITenantContext tenantContext,
+ICurrentUserService currentUser)
+{
+_userService = userService;
+_roleService = roleService;
+_tenantContext = tenantContext;
+_currentUser = currentUser;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Users.View)]
+public async Task<IActionResult> GetAll(CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var users = await _userService.GetUsersAsync(tenantId);
+return OkResponse(users.Select(u => new
+{
+u.Id,
+u.Name,
+u.Email,
+u.Phone,
+u.IsActive
+}));
+}
+[HttpPost]
+[RequiresPermission(Permissions.Users.Create)]
+public async Task<IActionResult> Create(
+[FromBody] CreateTenantUserRequest request,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var user = await _userService.CreateUserAsync(
+request.Name,
+request.Phone,
+request.Email,
+request.Password,
+tenantId);
+return CreatedResponse(new { user.Id, user.Name, user.Phone });
+}
+[HttpPut("{userId:guid}")]
+[RequiresPermission(Permissions.Users.Update)]
+public async Task<IActionResult> Update(
+Guid userId,
+[FromBody] UpdateTenantUserRequest request,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.UpdateUserAsync(
+userId,
+request.Name,
+request.Email,
+request.Phone,
+tenantId);
+return UpdatedResponse();
+}
+[HttpDelete("{userId:guid}")]
+[RequiresPermission(Permissions.Users.Delete)]
+public async Task<IActionResult> Delete(Guid userId, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.DeleteUserAsync(userId, tenantId, ct);
+return DeletedResponse();
+}
+[HttpPost("{userId:guid}/roles")]
+[RequiresPermission(Permissions.Users.AssignRole)]
+public async Task<IActionResult> AssignRole(
+Guid userId,
+[FromBody] AssignTenantRoleRequest request,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.AssignRoleAsync(
+userId,
+request.RoleId,
+tenantId,
+callerIsPlatformAdmin: false);
+return UpdatedResponse("Role assigned.");
+}
+[HttpDelete("{userId:guid}/roles/{roleId:guid}")]
+[RequiresPermission(Permissions.Users.RemoveRole)]
+public async Task<IActionResult> RemoveRole(
+Guid userId,
+Guid roleId,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.RemoveRoleAsync(userId, roleId, tenantId);
+return DeletedResponse("Role removed.");
+}
+[HttpGet("roles")]
+[RequiresPermission(Permissions.Roles.View)]
+public async Task<IActionResult> GetRoles(CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var roles = await _roleService.GetRolesAsync(tenantId);
+return OkResponse(roles.Select(r => new { r.Id, r.Name, r.Description }));
+}
+private Guid RequireTenantId() =>
+_tenantContext.TenantId
+?? throw new UnauthorizedAccessException("Tenant context is missing.");
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\UserStoreAssignmentsController.cs =====
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+using CoreKit.IAM.Entities;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/users/{userId:guid}/stores")]
+[Authorize]
+public class UserStoreAssignmentsController : ApiControllerBase
+{
+private readonly IamDbContext _iamDb;
+private readonly ITenantContext _tenantContext;
+public UserStoreAssignmentsController(
+IamDbContext iamDb,
+ITenantContext tenantContext)
+{
+_iamDb = iamDb;
+_tenantContext = tenantContext;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Users.View)]
+public async Task<IActionResult> GetAssignments(
+Guid userId,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var userExists = await _iamDb.Users
+.AnyAsync(u => u.Id == userId && u.TenantId == tenantId, ct);
+if (!userExists)
+return NotFound(new
+{
+success = false,
+errorCode = "NOT_FOUND",
+message = "User not found in this tenant."
+});
+var assignments = await _iamDb.UserStoreAssignments
+.Where(a => a.UserId == userId && a.TenantId == tenantId)
+.Select(a => new { a.StoreId })
+.ToListAsync(ct);
+return OkResponse(assignments);
+}
+[HttpPost]
+[RequiresPermission(Permissions.Users.AssignRole)]
+public async Task<IActionResult> Assign(
+Guid userId,
+[FromBody] AssignUserToStoreRequest request,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var userExists = await _iamDb.Users
+.AnyAsync(u => u.Id == userId && u.TenantId == tenantId, ct);
+if (!userExists)
+return NotFound(new
+{
+success = false,
+errorCode = "NOT_FOUND",
+message = "User not found in this tenant."
+});
+var alreadyAssigned = await _iamDb.UserStoreAssignments
+.AnyAsync(a =>
+a.UserId == userId &&
+a.StoreId == request.StoreId &&
+a.TenantId == tenantId, ct);
+if (!alreadyAssigned)
+{
+_iamDb.UserStoreAssignments.Add(new UserStoreAssignment
+{
+UserId = userId,
+StoreId = request.StoreId,
+TenantId = tenantId
+});
+await _iamDb.SaveChangesAsync(ct);
+}
+return OkResponse($"User assigned to store {request.StoreId}.");
+}
+[HttpDelete("{storeId:guid}")]
+[RequiresPermission(Permissions.Users.RemoveRole)]
+public async Task<IActionResult> Unassign(
+Guid userId,
+Guid storeId,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var assignment = await _iamDb.UserStoreAssignments
+.FirstOrDefaultAsync(a =>
+a.UserId == userId &&
+a.StoreId == storeId &&
+a.TenantId == tenantId, ct);
+if (assignment is null)
+return NotFound(new
+{
+success = false,
+errorCode = "NOT_FOUND",
+message = "Store assignment not found."
+});
+_iamDb.UserStoreAssignments.Remove(assignment);
+await _iamDb.SaveChangesAsync(ct);
+return DeletedResponse("User removed from store.");
+}
+private Guid RequireTenantId() =>
+_tenantContext.TenantId
+?? throw new UnauthorizedAccessException("Tenant context is missing.");
+}
+public class AssignUserToStoreRequest
+{
+public Guid StoreId { get; set; }
+}
+
 ===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\VariantGroupsController.cs =====
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
@@ -102,15 +886,36 @@ _tenantContext.TenantId
 "Tenant context is missing.");
 }
 
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Models.cs =====
+namespace SaaSPlatform.Tenant.Api;
+public class CreateTenantUserRequest
+{
+public string Name { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string? Email { get; set; }
+public string Password { get; set; } = default!;
+}
+public class UpdateTenantUserRequest
+{
+public string? Name { get; set; }
+public string? Email { get; set; }
+public string? Phone { get; set; }
+}
+public class AssignTenantRoleRequest
+{
+public Guid RoleId { get; set; }
+}
+
 ===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
-using CoreKit.Catalog.Abstractions;
 using CoreKit.Catalog.Extensions;
 using CoreKit.Catalog.Services;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
+using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
+using CoreKit.Tenant.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;

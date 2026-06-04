@@ -1,10 +1,9 @@
-﻿// SaaSPlatform.Admin.Api/Validators/AdminCreateUserRequestValidator.cs
+﻿// SaaSPlatform.Admin.api/v{version:apiVersion}/Validators/AdminCreateUserRequestValidator.cs
 using FluentValidation;
-using SaaSPlatform.Admin.Api.Models;
 
 namespace SaaSPlatform.Admin.Api.Validators;
 
-public class AdminCreateUserRequestValidator : AbstractValidator<CreateUserRequest>
+public class AdminCreateUserRequestValidator : AbstractValidator<CoreKit.IAM.Models.CreateUserRequest>
 {
     public AdminCreateUserRequestValidator()
     {
