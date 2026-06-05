@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAddonService, AddonService>();
         services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateService>();
         services.AddScoped<IVariantGroupService, VariantGroupService>();
+        services.AddScoped<IVariantValidationService, VariantValidationService>();
 
         configureStoreInfo(services);
 

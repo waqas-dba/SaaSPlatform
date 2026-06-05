@@ -1,4 +1,5 @@
-﻿using CoreKit.SharedKernel.Interfaces;
+﻿// SaaSPlatform.SharedKernel/Common/AuditableDbContext.cs
+using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
@@ -29,13 +30,22 @@ public abstract class AuditableDbContext : DbContext
         return base.SaveChangesAsync(cancellationToken);
     }
 
+    // FIX: missing overload — EF calls this internally
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        ApplyAuditRules();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     private void ApplyAuditRules()
     {
         var utcNow = DateTime.UtcNow;
+
         foreach (var entry in ChangeTracker.Entries())
         {
-            if (entry.State == EntityState.Unchanged)
-                continue;
+            if (entry.State == EntityState.Unchanged) continue;
 
             if (entry.Entity is AuditableEntity auditable)
             {
@@ -44,6 +54,7 @@ public abstract class AuditableDbContext : DbContext
                     auditable.CreatedAt = utcNow;
                     auditable.CreatedBy = _currentUser?.UserId;
                 }
+
                 if (entry.State == EntityState.Modified)
                 {
                     auditable.UpdatedAt = utcNow;
@@ -51,25 +62,21 @@ public abstract class AuditableDbContext : DbContext
                 }
             }
 
-            if (entry.Entity is ISoftDelete softDelete)
+            if (entry.Entity is ISoftDelete softDelete &&
+                entry.State == EntityState.Deleted)
             {
-                if (entry.State == EntityState.Deleted)
-                {
-                    entry.State = EntityState.Modified;
-                    softDelete.IsDeleted = true;
-                    softDelete.DeletedAtUtc = utcNow;
-                    softDelete.DeletedBy = _currentUser?.UserId;
-                }
+                entry.State = EntityState.Modified;
+                softDelete.IsDeleted = true;
+                softDelete.DeletedAtUtc = utcNow;
+                softDelete.DeletedBy = _currentUser?.UserId;
             }
 
-            if (entry.Entity is ITenantScoped tenantEntity)
+            if (entry.Entity is ITenantScoped tenantEntity &&
+                entry.State == EntityState.Added &&
+                tenantEntity.TenantId == Guid.Empty)
             {
-                if (entry.State == EntityState.Added &&
-                    tenantEntity.TenantId == Guid.Empty)
-                {
-                    throw new InvalidOperationException(
-                        $"TenantId is required for {entry.Entity.GetType().Name}");
-                }
+                throw new InvalidOperationException(
+                    $"TenantId is required for {entry.Entity.GetType().Name}");
             }
         }
     }
@@ -83,22 +90,16 @@ public abstract class AuditableDbContext : DbContext
             var clrType = entityType.ClrType;
 
             if (typeof(ISoftDelete).IsAssignableFrom(clrType))
-            {
                 modelBuilder.Entity(clrType)
                     .HasQueryFilter(BuildSoftDeleteFilter(clrType));
-            }
 
-            // PostgreSQL xmin as concurrency token (optimistic concurrency)
-            var rowVersionProp = clrType.GetProperty(nameof(AuditableEntity.RowVersion));
-            if (rowVersionProp != null)
-            {
+            if (clrType.GetProperty(nameof(AuditableEntity.RowVersion)) != null)
                 modelBuilder.Entity(clrType)
                     .Property<uint>(nameof(AuditableEntity.RowVersion))
                     .IsRowVersion()
                     .HasColumnName("xmin")
                     .HasColumnType("xid")
                     .ValueGeneratedOnAddOrUpdate();
-            }
         }
     }
 

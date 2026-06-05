@@ -1,4 +1,164 @@
 ﻿
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductVariantService.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Services;
+public class ProductVariantService : IProductVariantService
+{
+private readonly CatalogDbContext _db;
+private readonly IStoreInfoProvider _storeInfoProvider;
+public ProductVariantService(
+CatalogDbContext db,
+IStoreInfoProvider storeInfoProvider)
+{
+_db = db;
+_storeInfoProvider = storeInfoProvider;
+}
+public async Task<List<ProductVariantDto>> GetByProductAsync(Guid productId)
+{
+return await _db.ProductVariants
+.Where(v => v.ProductId == productId)
+.Include(v => v.AttributeValues)
+.ThenInclude(av => av.Template)
+.Select(v => MapToDto(v))
+.ToListAsync();
+}
+public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
+{
+var variant = await _db.ProductVariants
+.Include(v => v.AttributeValues)
+.ThenInclude(av => av.Template)
+.FirstOrDefaultAsync(v => v.Id == id);
+return variant is null ? null : MapToDto(variant);
+}
+public async Task<ProductVariantDto> CreateAsync(
+Guid productId,
+CreateVariantRequest request)
+{
+var product = await _db.Products
+.FirstOrDefaultAsync(p => p.Id == productId)
+?? throw new KeyNotFoundException("Product not found.");
+var storeInfo = await _storeInfoProvider
+.GetStoreInfoAsync(product.StoreId)
+?? throw new KeyNotFoundException("Store not found.");
+var variant = new ProductVariant
+{
+Id = Guid.NewGuid(),
+ProductId = productId,
+Sku = request.Sku,
+Price = request.Price
+};
+foreach (var attr in request.Attributes)
+{
+var template = await ResolveVariantTemplateAsync(
+attr, storeInfo.StoreTypeCode);
+variant.AttributeValues.Add(new VariantAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = template.Id,
+Value = attr.Value
+});
+}
+_db.ProductVariants.Add(variant);
+await _db.SaveChangesAsync();
+await _db.Entry(variant)
+.Collection(v => v.AttributeValues)
+.Query()
+.Include(av => av.Template)
+.LoadAsync();
+return MapToDto(variant);
+}
+public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
+{
+await using var tx = await _db.Database.BeginTransactionAsync();
+try
+{
+var variant = await _db.ProductVariants
+.Include(v => v.AttributeValues)
+.FirstOrDefaultAsync(v => v.Id == id)
+?? throw new KeyNotFoundException("Variant not found.");
+if (request.Sku is not null)
+variant.Sku = request.Sku;
+if (request.Price.HasValue)
+variant.Price = request.Price.Value;
+if (request.Attributes is not null)
+{
+var product = await _db.Products
+.FirstOrDefaultAsync(p => p.Id == variant.ProductId)
+?? throw new KeyNotFoundException("Product not found.");
+var storeInfo = await _storeInfoProvider
+.GetStoreInfoAsync(product.StoreId)
+?? throw new KeyNotFoundException("Store not found.");
+if (variant.AttributeValues.Any())
+_db.VariantAttributeValues
+.RemoveRange(variant.AttributeValues);
+variant.AttributeValues.Clear();
+foreach (var attr in request.Attributes)
+{
+var template = await ResolveVariantTemplateAsync(
+attr, storeInfo.StoreTypeCode);
+variant.AttributeValues.Add(new VariantAttributeValue
+{
+Id = Guid.NewGuid(),
+TemplateId = template.Id,
+Value = attr.Value
+});
+}
+}
+await _db.SaveChangesAsync();
+await tx.CommitAsync();
+}
+catch
+{
+await tx.RollbackAsync();
+throw;
+}
+}
+public async Task DeleteAsync(Guid id)
+{
+var variant = await _db.ProductVariants.FindAsync(id)
+?? throw new KeyNotFoundException("Variant not found.");
+_db.ProductVariants.Remove(variant);
+await _db.SaveChangesAsync();
+}
+private async Task<VariantAttributeTemplate> ResolveVariantTemplateAsync(
+VariantAttributeItem attr,
+string storeTypeCode)
+{
+if (attr.TemplateId.HasValue)
+{
+return await _db.VariantAttributeTemplates
+.FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
+?? throw new InvalidOperationException(
+$"Variant attribute template '{attr.TemplateId}' not found.");
+}
+return await _db.VariantAttributeTemplates
+.FirstOrDefaultAsync(t =>
+t.Name == attr.Name &&
+t.StoreTypeCode == storeTypeCode)
+?? throw new InvalidOperationException(
+$"Variant attribute '{attr.Name}' not defined " +
+$"for store type '{storeTypeCode}'.");
+}
+private static ProductVariantDto MapToDto(ProductVariant variant) => new()
+{
+Id = variant.Id,
+Sku = variant.Sku,
+Price = variant.Price,
+IsActive = variant.IsActive,
+Attributes = variant.AttributeValues.Select(av =>
+new VariantAttributeValueDto
+{
+Name = av.Template.Name,
+Value = av.Value
+}).ToList()
+};
+}
+
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\VariantAttributeTemplateService.cs =====
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
@@ -352,36 +512,27 @@ context.Result = new UnauthorizedResult();
 return;
 }
 if (user.Claims.Any(c =>
-c.Type == ClaimConstants.Permission &&
-c.Value == _permission))
+c.Type == ClaimConstants.Permission && c.Value == _permission))
 return;
-var currentUserService =
-context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
+var services = context.HttpContext.RequestServices;
+var currentUserService = services.GetRequiredService<ICurrentUserService>();
 if (currentUserService.UserId == null)
 {
 context.Result = new UnauthorizedResult();
 return;
 }
-var tenantContext =
-context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
-var permissionCache =
-context.HttpContext.RequestServices.GetRequiredService<IPermissionCacheService>();
-var cached = await permissionCache.GetAsync(
-currentUserService.UserId.Value,
-tenantContext.TenantId);
-if (cached != null)
+var tenantContext = services.GetRequiredService<ITenantContext>();
+var permissionCache = services.GetRequiredService<IPermissionCacheService>();
+var permissionService = services.GetRequiredService<IPermissionService>();
+var userId = currentUserService.UserId.Value;
+var tenantId = tenantContext.TenantId;
+var permissions = await permissionCache.GetAsync(userId, tenantId);
+if (permissions == null)
 {
-if (!cached.Contains(_permission))
-context.Result = new ForbidResult();
-return;
+permissions = await permissionService.GetUserPermissionsAsync(userId, tenantId);
+await permissionCache.SetAsync(userId, tenantId, permissions);
 }
-var permissionService =
-context.HttpContext.RequestServices.GetRequiredService<IPermissionService>();
-var hasPermission = await permissionService.HasPermissionAsync(
-currentUserService.UserId.Value,
-tenantContext.TenantId,
-_permission);
-if (!hasPermission)
+if (!permissions.Contains(_permission))
 context.Result = new ForbidResult();
 }
 }
@@ -996,6 +1147,7 @@ services.AddScoped<IUserManagementService, UserManagementService>();
 services.AddScoped<IRoleManagementService, RoleManagementService>();
 services.AddSingleton<IPermissionCacheService, PermissionCacheService>();
 services.AddScoped<IPermissionService, PermissionService>();
+services.AddScoped<IUserStoreAssignmentService, UserStoreAssignmentService>();
 if (iamOptions.EnableUserDocuments)
 services.AddScoped<IUserDocumentService, UserDocumentService>();
 if (iamOptions.EnableUserIdentities)
@@ -1414,6 +1566,15 @@ Task<List<Guid>> GetStoreIdsByUserAsync(
 Guid userId, Guid tenantId, CancellationToken ct = default);
 }
 
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserStoreAssignmentService.cs =====
+namespace CoreKit.IAM.Interfaces;
+public interface IUserStoreAssignmentService
+{
+Task<List<Guid>> GetStoresForUserAsync(Guid userId, Guid tenantId, CancellationToken ct = default);
+Task AssignUserToStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct = default);
+Task UnassignUserFromStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct = default);
+}
+
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignPermissionRequest.cs =====
 using System;
 using System.Collections.Generic;
@@ -1442,20 +1603,6 @@ public class CreateRoleRequest
 public string Name { get; set; } = default!;
 public Guid? TenantId { get; set; }
 public string? Description { get; set; }
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\CreateUserRequest.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace CoreKit.IAM.Models;
-public class CreateUserRequest
-{
-public string Name { get; set; } = default!;
-public string Phone { get; set; } = default!;
-public string? Email { get; set; }
-public string Password { get; set; } = default!;
-public Guid? TenantId { get; set; }
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
@@ -1755,124 +1902,6 @@ RoleId = platformAdmin.Id,
 TenantId = null
 });
 await _db.SaveChangesAsync();
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserSeeder.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.IAM.Persistence.Seeders;
-public sealed class UserSeeder
-{
-private readonly IamDbContext _db;
-private readonly IPasswordHasher _hasher;
-private readonly IConfiguration _configuration;
-private readonly ILogger<UserSeeder> _logger;
-public UserSeeder(
-IamDbContext db,
-IPasswordHasher hasher,
-IConfiguration configuration,
-ILogger<UserSeeder> logger)
-{
-_db = db;
-_hasher = hasher;
-_configuration = configuration;
-_logger = logger;
-}
-public async Task SeedAsync()
-{
-var adminExists = await _db.Users
-.IgnoreQueryFilters()
-.AnyAsync(u => u.Phone == "0000000000" || u.Email == "admin@system.com");
-if (adminExists) return;
-var seedPassword = _configuration["Seeder:AdminPassword"];
-var passwordWasGenerated = false;
-if (string.IsNullOrWhiteSpace(seedPassword))
-{
-seedPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16] + "A1!";
-passwordWasGenerated = true;
-}
-var adminUser = new User
-{
-Id = Guid.NewGuid(),
-Name = "System Admin",
-Phone = "0000000000",
-Email = "admin@system.com",
-PasswordHash = _hasher.Hash(seedPassword),
-TenantId = null,
-IsActive = true,
-FailedLoginAttempts = 0
-};
-_db.Users.Add(adminUser);
-await _db.SaveChangesAsync();
-if (passwordWasGenerated)
-{
-const string passwordFilePath = "admin_seed_password.txt";
-try
-{
-await File.WriteAllTextAsync(
-passwordFilePath,
-$"GENERATED ADMIN PASSWORD: {seedPassword}{Environment.NewLine}" +
-$"Generated at (UTC): {DateTime.UtcNow:O}{Environment.NewLine}" +
-$"DELETE THIS FILE IMMEDIATELY after first login.{Environment.NewLine}");
-_logger.LogWarning(
-"Seeder:AdminPassword was not configured. " +
-"A random password has been generated and written to '{FilePath}'. " +
-"Set 'Seeder:AdminPassword' in your secrets store before running in production. " +
-"Delete the file immediately after retrieving the password.",
-passwordFilePath);
-}
-catch (Exception ex)
-{
-_logger.LogWarning(ex,
-"Could not write generated admin password to file. " +
-"Printing to console as fallback.");
-Console.Error.WriteLine("==============================================");
-Console.Error.WriteLine("  GENERATED ADMIN PASSWORD (retrieve now)");
-Console.Error.WriteLine($"  {seedPassword}");
-Console.Error.WriteLine("  Set Seeder:AdminPassword and rotate immediately.");
-Console.Error.WriteLine("==============================================");
-}
-}
-_logger.LogInformation("System admin user seeded successfully.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.SharedKernel.Common;
-using CoreKit.SharedKernel.Interfaces;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Persistence;
-public class IamDbContext : AuditableDbContext
-{
-public IamDbContext(
-DbContextOptions<IamDbContext> options,
-ICurrentUser? currentUser = null)
-: base(options, currentUser)
-{
-}
-public DbSet<User> Users => Set<User>();
-public DbSet<Role> Roles => Set<Role>();
-public DbSet<UserRole> UserRoles => Set<UserRole>();
-public DbSet<Permission> Permissions => Set<Permission>();
-public DbSet<PermissionModule> PermissionModules => Set<PermissionModule>();
-public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
-public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
-public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
-public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
-public DbSet<RoleDocumentRequirement> RoleDocumentRequirements
-=> Set<RoleDocumentRequirement>();
-public DbSet<UserStoreAssignment> UserStoreAssignments
-=> Set<UserStoreAssignment>();
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-base.OnModelCreating(modelBuilder);
-modelBuilder.ApplyConfigurationsFromAssembly(
-typeof(IamDbContext).Assembly);
 }
 }
 
