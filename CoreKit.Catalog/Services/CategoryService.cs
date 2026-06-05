@@ -1,4 +1,5 @@
-﻿using CoreKit.Catalog.Entities;
+﻿// CoreKit.Catalog | Services/CategoryService.cs
+using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Exceptions;
@@ -6,7 +7,6 @@ using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-
 namespace CoreKit.Catalog.Services;
 
 public class CategoryService : ICategoryService
@@ -14,7 +14,6 @@ public class CategoryService : ICategoryService
     private readonly ICategoryRepository _categoryRepo;
     private readonly IPlanLimitProvider? _planLimit;
     private readonly ILogger<CategoryService> _logger;
-
     public CategoryService(
         ICategoryRepository categoryRepo,
         ILogger<CategoryService> logger,
@@ -24,7 +23,6 @@ public class CategoryService : ICategoryService
         _logger = logger;
         _planLimit = planLimit;
     }
-
     public async Task<List<CategoryDto>> GetByTenantAsync(
         Guid tenantId,
         Guid? storeId = null,
@@ -33,49 +31,38 @@ public class CategoryService : ICategoryService
         var all = await _categoryRepo.GetTreeAsync(tenantId, storeId, ct);
         return BuildTree(all, parentId: null);
     }
-
     public async Task<CategoryDto?> GetByIdAsync(
         Guid id,
         CancellationToken ct = default)
     {
         var root = await _categoryRepo.GetByIdAsync(id, ct);
         if (root is null) return null;
-
-        // Load the full tree for the tenant that owns this category
         var allTenant = await _categoryRepo.GetTreeAsync(root.TenantId, root.StoreId, ct);
         var subtree = ExtractSubtree(allTenant, id);
         return MapToDto(subtree.First(c => c.Id == id), subtree);
     }
-
     public async Task<CategoryDto> CreateAsync(
         CreateCategoryRequest request,
         CancellationToken ct = default)
     {
-        // Advisory lock is managed inside the repository, but we keep transaction logic here for simplicity
         var lockKey = LockKeyHelper.GuidToLockKey(request.TenantId);
-
-        // Use EF Core transaction for the lock and save
         using var tx = await _categoryRepo.BeginTransactionAsync(ct);
         try
         {
             await _categoryRepo.ExecuteAdvisoryLockAsync(lockKey, ct);
-
             int level = 1;
             if (request.ParentCategoryId.HasValue)
             {
                 var parent = await _categoryRepo.GetByIdAsync(request.ParentCategoryId.Value, ct)
                     ?? throw new KeyNotFoundException("Parent category not found.");
-
                 if (_planLimit is not null)
                 {
                     var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(request.TenantId, ct);
                     if (maxLevel > 0 && parent.Level >= maxLevel)
                         throw new ForbiddenException($"Category depth limited to {maxLevel} level(s) by your subscription.");
                 }
-
                 level = parent.Level + 1;
             }
-
             var category = new Category
             {
                 Id = Guid.NewGuid(),
@@ -88,11 +75,9 @@ public class CategoryService : ICategoryService
                 TenantId = request.TenantId,
                 Level = level
             };
-
             _categoryRepo.Add(category);
             await _categoryRepo.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
-
             return MapToDto(category, new List<Category>());
         }
         catch
@@ -101,7 +86,6 @@ public class CategoryService : ICategoryService
             throw;
         }
     }
-
     public async Task UpdateAsync(
         Guid id,
         UpdateCategoryRequest request,
@@ -109,7 +93,6 @@ public class CategoryService : ICategoryService
     {
         var category = await _categoryRepo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException("Category not found.");
-
         if (request.Name is not null)
         {
             category.Name = request.Name;
@@ -119,27 +102,25 @@ public class CategoryService : ICategoryService
             category.IconUrl = request.IconUrl;
         if (request.StoreTypeCode is not null)
             category.StoreTypeCode = request.StoreTypeCode;
-
         _categoryRepo.Update(category);
         await _categoryRepo.SaveChangesAsync(ct);
     }
-
     public async Task DeleteAsync(Guid id, CancellationToken ct = default)
     {
         var hasChildren = await _categoryRepo.HasChildrenAsync(id, ct);
         if (hasChildren)
             throw new InvalidOperationException("Cannot delete a category with subcategories.");
 
+        // FIX: Check for existing products before deletion
+        var hasProducts = await _categoryRepo.HasProductsAsync(id, ct);
+        if (hasProducts)
+            throw new InvalidOperationException("Cannot delete a category that still contains products.");
+
         var category = await _categoryRepo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException("Category not found.");
-
         _categoryRepo.Delete(category);
         await _categoryRepo.SaveChangesAsync(ct);
     }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
     private static List<Category> ExtractSubtree(List<Category> all, Guid rootId)
     {
         var result = new List<Category>();
@@ -156,13 +137,11 @@ public class CategoryService : ICategoryService
         }
         return result;
     }
-
     private static List<CategoryDto> BuildTree(List<Category> all, Guid? parentId)
         => all
             .Where(c => c.ParentCategoryId == parentId)
             .Select(c => MapToDto(c, all))
             .ToList();
-
     private static CategoryDto MapToDto(Category category, List<Category> all) => new()
     {
         Id = category.Id,

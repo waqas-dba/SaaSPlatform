@@ -18,7 +18,4 @@
   <Folder Name="/src/seeders/">
     <Project Path="SaaSPlatform.Seeder/SaaSPlatform.Seeder.csproj" />
   </Folder>
-  <Folder Name="/src/Tools/">
-    <Project Path="SaaSPlatform.Migrator/SaaSPlatform.Migrator.csproj" Id="a56e6825-f98d-4218-a325-bfa87fadaec9" />
-  </Folder>
 </Solution>

@@ -88,8 +88,15 @@ public class Program
 
         // ------------------- Module Registration -------------------
         builder.Services.AddCoreKitIAM(
-            connStr,
-            builder.Configuration.GetSection("Jwt"));
+    connStr,
+    builder.Configuration.GetSection("Jwt"),
+    options =>
+    {
+        options.EnableUserDocuments = true;
+        options.EnableUserIdentities = true;
+        options.EnableRoleDocumentRequirements = true;
+        options.EnableImpersonation = true;
+    });
 
         builder.Services.AddTenantKit(connStr, options =>
         {

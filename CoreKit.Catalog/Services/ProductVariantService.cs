@@ -1,7 +1,9 @@
-﻿using CoreKit.Catalog.Entities;
+﻿// CoreKit.Catalog/Services/ProductVariantService.cs
+using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,14 +23,12 @@ public class ProductVariantService : IProductVariantService
     }
 
     public async Task<List<ProductVariantDto>> GetByProductAsync(Guid productId)
-    {
-        return await _db.ProductVariants
+        => await _db.ProductVariants
             .Where(v => v.ProductId == productId)
             .Include(v => v.AttributeValues)
                 .ThenInclude(av => av.Template)
             .Select(v => MapToDto(v))
             .ToListAsync();
-    }
 
     public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
     {
@@ -36,7 +36,6 @@ public class ProductVariantService : IProductVariantService
             .Include(v => v.AttributeValues)
                 .ThenInclude(av => av.Template)
             .FirstOrDefaultAsync(v => v.Id == id);
-
         return variant is null ? null : MapToDto(variant);
     }
 
@@ -52,42 +51,65 @@ public class ProductVariantService : IProductVariantService
             .GetStoreInfoAsync(product.StoreId)
             ?? throw new KeyNotFoundException("Store not found.");
 
-        var variant = new ProductVariant
+        // Transaction must wrap the advisory lock so the lock
+        // is held until the transaction commits or rolls back.
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
         {
-            Id = Guid.NewGuid(),
-            ProductId = productId,
-            Sku = request.Sku,
-            Price = request.Price
-        };
+            var lockKey = LockKeyHelper.GuidToLockKey(product.StoreId);
+            await _db.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock({0})", lockKey);
 
-        foreach (var attr in request.Attributes)
-        {
-            var template = await ResolveVariantTemplateAsync(
-                attr, storeInfo.StoreTypeCode);
+            bool skuExists = await _db.ProductVariants
+                .AnyAsync(v =>
+                    v.Product.StoreId == product.StoreId &&
+                    v.Sku == request.Sku);
 
-            variant.AttributeValues.Add(new VariantAttributeValue
+            if (skuExists)
+                throw new InvalidOperationException(
+                    $"A variant with SKU '{request.Sku}' already exists in this store.");
+
+            var variant = new ProductVariant
             {
                 Id = Guid.NewGuid(),
-                TemplateId = template.Id,
-                Value = attr.Value
-            });
+                ProductId = productId,
+                Sku = request.Sku,
+                Price = request.Price
+            };
+
+            foreach (var attr in request.Attributes)
+            {
+                var template = await ResolveVariantTemplateAsync(
+                    attr, storeInfo.StoreTypeCode);
+                variant.AttributeValues.Add(new VariantAttributeValue
+                {
+                    Id = Guid.NewGuid(),
+                    TemplateId = template.Id,
+                    Value = attr.Value
+                });
+            }
+
+            _db.ProductVariants.Add(variant);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            await _db.Entry(variant)
+                .Collection(v => v.AttributeValues)
+                .Query()
+                .Include(av => av.Template)
+                .LoadAsync();
+
+            return MapToDto(variant);
         }
-
-        _db.ProductVariants.Add(variant);
-        await _db.SaveChangesAsync();
-
-        await _db.Entry(variant)
-            .Collection(v => v.AttributeValues)
-            .Query()
-            .Include(av => av.Template)
-            .LoadAsync();
-
-        return MapToDto(variant);
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
     public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
     {
-        // Single transaction covering ALL mutations — SKU/price + attributes
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
@@ -96,25 +118,41 @@ public class ProductVariantService : IProductVariantService
                 .FirstOrDefaultAsync(v => v.Id == id)
                 ?? throw new KeyNotFoundException("Variant not found.");
 
+            var product = await _db.Products
+                .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
+                ?? throw new KeyNotFoundException("Product not found.");
+
+            var storeInfo = await _storeInfoProvider
+                .GetStoreInfoAsync(product.StoreId)
+                ?? throw new KeyNotFoundException("Store not found.");
+
             if (request.Sku is not null)
+            {
+                // Advisory lock must be inside the transaction
+                var lockKey = LockKeyHelper.GuidToLockKey(product.StoreId);
+                await _db.Database.ExecuteSqlRawAsync(
+                    "SELECT pg_advisory_xact_lock({0})", lockKey);
+
+                bool skuExists = await _db.ProductVariants
+                    .AnyAsync(v =>
+                        v.Product.StoreId == product.StoreId &&
+                        v.Sku == request.Sku &&
+                        v.Id != id);
+
+                if (skuExists)
+                    throw new InvalidOperationException(
+                        $"A variant with SKU '{request.Sku}' already exists in this store.");
+
                 variant.Sku = request.Sku;
+            }
 
             if (request.Price.HasValue)
                 variant.Price = request.Price.Value;
 
             if (request.Attributes is not null)
             {
-                var product = await _db.Products
-                    .FirstOrDefaultAsync(p => p.Id == variant.ProductId)
-                    ?? throw new KeyNotFoundException("Product not found.");
-
-                var storeInfo = await _storeInfoProvider
-                    .GetStoreInfoAsync(product.StoreId)
-                    ?? throw new KeyNotFoundException("Store not found.");
-
                 if (variant.AttributeValues.Any())
-                    _db.VariantAttributeValues
-                        .RemoveRange(variant.AttributeValues);
+                    _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
 
                 variant.AttributeValues.Clear();
 
@@ -122,7 +160,6 @@ public class ProductVariantService : IProductVariantService
                 {
                     var template = await ResolveVariantTemplateAsync(
                         attr, storeInfo.StoreTypeCode);
-
                     variant.AttributeValues.Add(new VariantAttributeValue
                     {
                         Id = Guid.NewGuid(),
@@ -132,7 +169,6 @@ public class ProductVariantService : IProductVariantService
                 }
             }
 
-            // One SaveChanges covers both scalar and attribute changes
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
         }
@@ -147,7 +183,6 @@ public class ProductVariantService : IProductVariantService
     {
         var variant = await _db.ProductVariants.FindAsync(id)
             ?? throw new KeyNotFoundException("Variant not found.");
-
         _db.ProductVariants.Remove(variant);
         await _db.SaveChangesAsync();
     }
@@ -157,12 +192,10 @@ public class ProductVariantService : IProductVariantService
         string storeTypeCode)
     {
         if (attr.TemplateId.HasValue)
-        {
             return await _db.VariantAttributeTemplates
                 .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
                 ?? throw new InvalidOperationException(
                     $"Variant attribute template '{attr.TemplateId}' not found.");
-        }
 
         return await _db.VariantAttributeTemplates
             .FirstOrDefaultAsync(t =>

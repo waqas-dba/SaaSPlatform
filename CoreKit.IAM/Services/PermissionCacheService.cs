@@ -1,28 +1,15 @@
 ﻿// CoreKit.IAM/Services/PermissionCacheService.cs
-
 using System.Collections.Concurrent;
 using CoreKit.IAM.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace CoreKit.IAM.Services;
 
-/// <summary>
-/// In-process permission cache backed by <see cref="IMemoryCache"/>.
-/// <para>
-/// <b>Single-node deployments only.</b>  In a horizontally-scaled environment
-/// every node maintains its own independent cache, so a role change on one
-/// node will not immediately invalidate caches on other nodes.  For
-/// multi-instance deployments replace this registration with a distributed
-/// implementation (e.g. Redis via <c>IDistributedCache</c>) and register it
-/// against <c>IPermissionCacheService</c> in <c>ServiceCollectionExtensions</c>.
-/// </para>
-/// </summary>
 public class PermissionCacheService : IPermissionCacheService
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
 
-    // Tracks every cache key per user so InvalidateUserAsync can sweep all
-    // tenant-scoped entries without knowing the tenant IDs in advance.
+    // userId -> set of cache keys owned by that user
     private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>>
         _userKeys = new();
 
@@ -39,6 +26,7 @@ public class PermissionCacheService : IPermissionCacheService
     public Task SetAsync(Guid userId, Guid? tenantId, List<string> permissions)
     {
         var key = CacheKey(userId, tenantId);
+
         var keySet = _userKeys.GetOrAdd(
             userId, _ => new ConcurrentDictionary<string, byte>());
         keySet.TryAdd(key, 0);
@@ -48,19 +36,17 @@ public class PermissionCacheService : IPermissionCacheService
             AbsoluteExpirationRelativeToNow = Ttl
         };
 
-        options.RegisterPostEvictionCallback((evictedKey, _, _, _) =>
+        // Use a local copy of userId so the closure doesn't capture
+        // a mutable struct from the outer scope.
+        var capturedUserId = userId;
+        var capturedKey = key;
+
+        options.RegisterPostEvictionCallback((_, _, _, _) =>
         {
-            if (evictedKey is not string k) return;
-
-            var parts = k.Split(':');
-            if (parts.Length < 2 || !Guid.TryParse(parts[1], out var evictedUserId))
-                return;
-
-            if (!_userKeys.TryGetValue(evictedUserId, out var set)) return;
-            set.TryRemove(k, out _);
-
+            if (!_userKeys.TryGetValue(capturedUserId, out var set)) return;
+            set.TryRemove(capturedKey, out _);
             if (set.IsEmpty)
-                _userKeys.TryRemove(evictedUserId, out _);
+                _userKeys.TryRemove(capturedUserId, out _);
         });
 
         _cache.Set(key, permissions, options);
@@ -93,6 +79,7 @@ public class PermissionCacheService : IPermissionCacheService
         return Task.CompletedTask;
     }
 
+    // Stable, unambiguous key — does not embed colons inside variable segments
     private static string CacheKey(Guid userId, Guid? tenantId)
-        => $"perm:{userId}:{tenantId?.ToString() ?? "global"}";
+        => $"perm|{userId:N}|{(tenantId.HasValue ? tenantId.Value.ToString("N") : "global")}";
 }

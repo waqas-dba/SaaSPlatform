@@ -1,5 +1,6 @@
 ﻿// CoreKit.Catalog/Entities/Product.cs
 using CoreKit.SharedKernel.Common;
+using NpgsqlTypes;
 
 namespace CoreKit.Catalog.Entities;
 
@@ -31,4 +32,6 @@ public class Product : AuditableEntity, ITenantScoped, IStoreScoped
         = new List<ProductAttributeValue>();
     public ICollection<ProductVariant> Variants { get; set; }
         = new List<ProductVariant>();
+
+    public NpgsqlTsVector SearchVector { get; set; } = null!;
 }

@@ -88,6 +88,8 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IUserStoreAssignmentService, UserStoreAssignmentService>();
 
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+
         // ── Optional features ─────────────────────────────────────────────────
         if (iamOptions.EnableUserDocuments)
             services.AddScoped<IUserDocumentService, UserDocumentService>();

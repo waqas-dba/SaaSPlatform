@@ -1,0 +1,611 @@
+﻿
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantAttributeTemplatesController.cs =====
+using Asp.Versioning;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/v{version:apiVersion}/tenant/catalog/attribute-templates")]
+[Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
+public class TenantAttributeTemplatesController : TenantApiControllerBase
+{
+private readonly IProductAttributeTemplateService _templateService;
+private readonly IProductAttributeGroupService _groupService;
+public TenantAttributeTemplatesController(
+IProductAttributeTemplateService templateService,
+IProductAttributeGroupService groupService,
+ITenantContext tenantContext) : base(tenantContext)
+{
+_templateService = templateService;
+_groupService = groupService;
+}
+[HttpGet("platform/{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetPlatformTemplates(string storeTypeCode, CancellationToken ct)
+{
+var templates = await _templateService.GetPlatformTemplatesAsync(storeTypeCode);
+return OkResponse(templates);
+}
+[HttpGet("{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetTenantTemplates(string storeTypeCode, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var templates = await _templateService.GetTenantTemplatesAsync(tenantId, storeTypeCode);
+return OkResponse(templates);
+}
+[HttpPost("override")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> OverridePlatformTemplate(
+[FromBody] OverrideAttributeTemplateRequest request,
+CancellationToken ct)
+{
+request.TenantId = RequireTenantId();
+var template = await _templateService.OverridePlatformTemplateAsync(request);
+return CreatedResponse(template);
+}
+[HttpPost("custom")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> CreateCustomTemplate(
+[FromBody] CreateAttributeTemplateRequest request,
+CancellationToken ct)
+{
+request.TenantId = RequireTenantId();
+var template = await _templateService.CreateTenantTemplateAsync(request);
+return CreatedResponse(template);
+}
+[HttpPut("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> UpdateTenantTemplate(
+Guid templateId,
+[FromBody] UpdateAttributeTemplateRequest request,
+CancellationToken ct)
+{
+await _templateService.UpdateTenantTemplateAsync(templateId, RequireTenantId(), request);
+return UpdatedResponse();
+}
+[HttpDelete("{templateId}")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> DeleteTenantTemplate(Guid templateId, CancellationToken ct)
+{
+await _templateService.DeleteTenantTemplateAsync(templateId, RequireTenantId());
+return DeletedResponse();
+}
+[HttpPost("groups")]
+[RequiresPermission(Permissions.Catalog.TemplatesManageTenant)]
+public async Task<IActionResult> CreateGroup(
+[FromBody] CreateAttributeGroupRequest request,
+CancellationToken ct)
+{
+request.TenantId = RequireTenantId();
+var group = await _groupService.CreateAsync(request);
+return CreatedResponse(group);
+}
+[HttpPost("assign")]
+[RequiresPermission(Permissions.Catalog.TemplatesAssign)]
+public async Task<IActionResult> AssignTemplate(
+[FromBody] AssignTemplateRequest request,
+CancellationToken ct)
+{
+request.TenantId = RequireTenantId();
+await _templateService.AssignTemplateAsync(request);
+return OkResponse("Template assigned successfully.");
+}
+[HttpDelete("assign")]
+[RequiresPermission(Permissions.Catalog.TemplatesAssign)]
+public async Task<IActionResult> UnassignTemplate(
+[FromBody] UnassignTemplateRequest request,
+CancellationToken ct)
+{
+await _templateService.UnassignTemplateAsync(RequireTenantId(), request.StoreId, request.TemplateId);
+return DeletedResponse();
+}
+[HttpGet("resolved/{storeId}/{storeTypeCode}")]
+[RequiresPermission(Permissions.Catalog.TemplatesView)]
+public async Task<IActionResult> GetResolved(
+Guid storeId,
+string storeTypeCode,
+CancellationToken ct)
+{
+var resolved = await _templateService.GetResolvedAttributesAsync(storeId, RequireTenantId(), storeTypeCode);
+return OkResponse(resolved);
+}
+[HttpPost("store-override")]
+[RequiresPermission(Permissions.Catalog.TemplatesToggleStore)]
+public async Task<IActionResult> SetStoreOverride(
+[FromBody] StoreAttributeOverrideRequest request,
+CancellationToken ct)
+{
+await _templateService.SetStoreAttributeOverrideAsync(request);
+return OkResponse("Store attribute override saved.");
+}
+}
+public record UnassignTemplateRequest(Guid? StoreId, Guid TemplateId);
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantCategoriesController.cs =====
+using Asp.Versioning;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/v{version:apiVersion}/categories")]
+[Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
+public class TenantCategoriesController : TenantApiControllerBase
+{
+private readonly ICategoryService _categoryService;
+public TenantCategoriesController(
+ICategoryService categoryService,
+ITenantContext tenantContext) : base(tenantContext)
+{
+_categoryService = categoryService;
+}
+[HttpGet]
+[RequiresPermission("catalog.categories.view")]
+public async Task<IActionResult> GetForTenant(
+[FromQuery] Guid? storeId,
+CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var categories = await _categoryService.GetByTenantAsync(tenantId, storeId, ct);
+return OkResponse(categories);
+}
+[HttpPost]
+[RequiresPermission("catalog.categories.create")]
+public async Task<IActionResult> Create(
+CreateCategoryRequest request,
+CancellationToken ct)
+{
+request.TenantId = RequireTenantId();
+var category = await _categoryService.CreateAsync(request, ct);
+return CreatedResponse(category);
+}
+[HttpPut("{id:guid}")]
+[RequiresPermission("catalog.categories.update")]
+public async Task<IActionResult> Update(
+Guid id,
+UpdateCategoryRequest request,
+CancellationToken ct)
+{
+await _categoryService.UpdateAsync(id, request, ct);
+return UpdatedResponse();
+}
+[HttpDelete("{id:guid}")]
+[RequiresPermission("catalog.categories.delete")]
+public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+{
+await _categoryService.DeleteAsync(id, ct);
+return DeletedResponse();
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\TenantUsersController.cs =====
+using Asp.Versioning;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/v{version:apiVersion}/users")]
+[Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
+public class TenantUsersController : TenantApiControllerBase
+{
+private readonly IUserManagementService _userService;
+private readonly IRoleManagementService _roleService;
+public TenantUsersController(
+IUserManagementService userService,
+IRoleManagementService roleService,
+ITenantContext tenantContext) : base(tenantContext)
+{
+_userService = userService;
+_roleService = roleService;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Users.View)]
+public async Task<IActionResult> GetAll(CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var users = await _userService.GetUsersAsync(tenantId);
+return OkResponse(users.Select(u => new { u.Id, u.Name, u.Email, u.Phone, u.IsActive }));
+}
+[HttpPost]
+[RequiresPermission(Permissions.Users.Create)]
+public async Task<IActionResult> Create([FromBody] CreateTenantUserRequest request, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var user = await _userService.CreateUserAsync(request.Name, request.Phone, request.Email, request.Password, tenantId);
+return CreatedResponse(new { user.Id, user.Name, user.Phone });
+}
+[HttpPut("{userId:guid}")]
+[RequiresPermission(Permissions.Users.Update)]
+public async Task<IActionResult> Update(Guid userId, [FromBody] UpdateTenantUserRequest request, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.UpdateUserAsync(userId, request.Name, request.Email, request.Phone, tenantId);
+return UpdatedResponse();
+}
+[HttpDelete("{userId:guid}")]
+[RequiresPermission(Permissions.Users.Delete)]
+public async Task<IActionResult> Delete(Guid userId, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.DeleteUserAsync(userId, tenantId, ct);
+return DeletedResponse();
+}
+[HttpPost("{userId:guid}/roles")]
+[RequiresPermission(Permissions.Users.AssignRole)]
+public async Task<IActionResult> AssignRole(Guid userId, [FromBody] AssignTenantRoleRequest request, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.AssignRoleAsync(userId, request.RoleId, tenantId, callerIsPlatformAdmin: false);
+return UpdatedResponse("Role assigned.");
+}
+[HttpDelete("{userId:guid}/roles/{roleId:guid}")]
+[RequiresPermission(Permissions.Users.RemoveRole)]
+public async Task<IActionResult> RemoveRole(Guid userId, Guid roleId, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _userService.RemoveRoleAsync(userId, roleId, tenantId);
+return DeletedResponse("Role removed.");
+}
+[HttpGet("roles")]
+[RequiresPermission(Permissions.Roles.View)]
+public async Task<IActionResult> GetRoles(CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var roles = await _roleService.GetRolesAsync(tenantId);
+return OkResponse(roles.Select(r => new { r.Id, r.Name, r.Description }));
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\UserStoreAssignmentsController.cs =====
+using Asp.Versioning;
+using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/v{version:apiVersion}/users/{userId:guid}/stores")]
+[Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
+public class UserStoreAssignmentsController : TenantApiControllerBase
+{
+private readonly IUserStoreAssignmentService _assignmentService;
+private readonly IUserManagementService _userService;
+public UserStoreAssignmentsController(
+IUserStoreAssignmentService assignmentService,
+IUserManagementService userService,
+ITenantContext tenantContext) : base(tenantContext)
+{
+_assignmentService = assignmentService;
+_userService = userService;
+}
+[HttpGet]
+[RequiresPermission(Permissions.Users.View)]
+public async Task<IActionResult> GetAssignments(Guid userId, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var user = await _userService.GetUserByIdAsync(userId, tenantId);
+if (user == null)
+return NotFound(new { success = false, errorCode = "NOT_FOUND", message = "User not found." });
+var storeIds = await _assignmentService.GetStoresForUserAsync(userId, tenantId, ct);
+return OkResponse(storeIds.Select(id => new { StoreId = id }));
+}
+[HttpPost]
+[RequiresPermission(Permissions.Users.AssignRole)]
+public async Task<IActionResult> Assign(Guid userId, [FromBody] AssignUserToStoreRequest request, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+var user = await _userService.GetUserByIdAsync(userId, tenantId);
+if (user == null)
+return NotFound(new { success = false, errorCode = "NOT_FOUND", message = "User not found." });
+await _assignmentService.AssignUserToStoreAsync(userId, request.StoreId, tenantId, ct);
+return OkResponse($"User assigned to store {request.StoreId}.");
+}
+[HttpDelete("{storeId:guid}")]
+[RequiresPermission(Permissions.Users.RemoveRole)]
+public async Task<IActionResult> Unassign(Guid userId, Guid storeId, CancellationToken ct)
+{
+var tenantId = RequireTenantId();
+await _assignmentService.UnassignUserFromStoreAsync(userId, storeId, tenantId, ct);
+return DeletedResponse("User removed from store.");
+}
+}
+public class AssignUserToStoreRequest
+{
+public Guid StoreId { get; set; }
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Controllers\VariantGroupsController.cs =====
+using Asp.Versioning;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+using CoreKit.IAM.Authorization;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+namespace SaaSPlatform.Tenant.Api.Controllers;
+[ApiController]
+[Route("api/v{version:apiVersion}/variant-groups")]
+[Authorize]
+[Asp.Versioning.ApiVersion("1.0")]
+public class VariantGroupsController : TenantApiControllerBase
+{
+private readonly IVariantGroupService _variantGroupService;
+public VariantGroupsController(
+IVariantGroupService variantGroupService,
+ITenantContext tenantContext) : base(tenantContext)
+{
+_variantGroupService = variantGroupService;
+}
+[HttpGet]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetAll(CancellationToken ct)
+{
+var groups = await _variantGroupService.GetByTenantAsync(RequireTenantId(), ct);
+return OkResponse(groups);
+}
+[HttpGet("{groupId:guid}")]
+[RequiresPermission("catalog.products.view")]
+public async Task<IActionResult> GetById(Guid groupId, CancellationToken ct)
+{
+var group = await _variantGroupService.GetByIdAsync(groupId, RequireTenantId(), ct);
+return group is null ? NotFound() : OkResponse(group);
+}
+[HttpPost]
+[RequiresPermission("catalog.products.create")]
+public async Task<IActionResult> Create(CreateVariantGroupRequest request, CancellationToken ct)
+{
+var group = await _variantGroupService.CreateAsync(RequireTenantId(), request, ct);
+return CreatedResponse(group);
+}
+[HttpPut("{groupId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> Update(Guid groupId, UpdateVariantGroupRequest request, CancellationToken ct)
+{
+var group = await _variantGroupService.UpdateAsync(groupId, RequireTenantId(), request, ct);
+return OkResponse(group);
+}
+[HttpDelete("{groupId:guid}")]
+[RequiresPermission("catalog.products.delete")]
+public async Task<IActionResult> Delete(Guid groupId, CancellationToken ct)
+{
+await _variantGroupService.DeleteAsync(groupId, RequireTenantId(), ct);
+return DeletedResponse();
+}
+[HttpPost("{groupId:guid}/options")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> AddOption(Guid groupId, VariantGroupOptionRequest request, CancellationToken ct)
+{
+var group = await _variantGroupService.AddOptionAsync(groupId, RequireTenantId(), request, ct);
+return OkResponse(group);
+}
+[HttpPut("{groupId:guid}/options/{optionId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> UpdateOption(Guid groupId, Guid optionId, VariantGroupOptionRequest request, CancellationToken ct)
+{
+var group = await _variantGroupService.UpdateOptionAsync(groupId, optionId, RequireTenantId(), request, ct);
+return OkResponse(group);
+}
+[HttpDelete("{groupId:guid}/options/{optionId:guid}")]
+[RequiresPermission("catalog.products.update")]
+public async Task<IActionResult> RemoveOption(Guid groupId, Guid optionId, CancellationToken ct)
+{
+var group = await _variantGroupService.RemoveOptionAsync(groupId, optionId, RequireTenantId(), ct);
+return OkResponse(group);
+}
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Models.cs =====
+namespace SaaSPlatform.Tenant.Api;
+public class CreateTenantUserRequest
+{
+public string Name { get; set; } = default!;
+public string Phone { get; set; } = default!;
+public string? Email { get; set; }
+public string Password { get; set; } = default!;
+}
+public class UpdateTenantUserRequest
+{
+public string? Name { get; set; }
+public string? Email { get; set; }
+public string? Phone { get; set; }
+}
+public class AssignTenantRoleRequest
+{
+public Guid RoleId { get; set; }
+}
+
+===== SaaSPlatform.Tenant.Api | D:\waqas-dba\SaaSPlatform\SaaSPlatform.Tenant.Api\Program.cs =====
+using Asp.Versioning;
+using CoreKit.Catalog.Extensions;
+using CoreKit.IAM.Extensions;
+using CoreKit.Infrastructure.Extensions;
+using CoreKit.Infrastructure.Middleware;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.Tenant.Extensions;
+using CoreKit.Tenant.Middleware;
+using CoreKit.Tenant.Services;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+namespace SaaSPlatform.Tenant.Api;
+public class Program
+{
+public static async Task Main(string[] args)
+{
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+options.OnRejected = async (ctx, token) =>
+{
+ctx.HttpContext.Response.StatusCode =
+StatusCodes.Status429TooManyRequests;
+ctx.HttpContext.Response.ContentType = "application/json";
+var retryAfter =
+ctx.Lease.TryGetMetadata(
+MetadataName.RetryAfter,
+out var retryDelay)
+? (int)retryDelay.TotalSeconds
+: 60;
+ctx.HttpContext.Response.Headers["Retry-After"] =
+retryAfter.ToString();
+await ctx.HttpContext.Response.WriteAsync(
+$"{{\"success\":false," +
+$"\"errorCode\":\"RATE_LIMITED\"," +
+$"\"message\":\"Too many requests. " +
+$"Please wait {retryAfter} seconds.\"}}",
+token);
+};
+options.AddFixedWindowLimiter("store-create", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 50 : 10;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("store-update", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 100 : 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("product-create", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 100 : 30;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+options.AddFixedWindowLimiter("product-update", cfg =>
+{
+cfg.PermitLimit =
+builder.Environment.IsDevelopment() ? 200 : 60;
+cfg.Window = TimeSpan.FromMinutes(1);
+});
+});
+builder.Services.AddHttpContextAccessor();
+var connStr =
+builder.Configuration.GetConnectionString("Postgres")
+?? throw new InvalidOperationException(
+"Connection string 'Postgres' is missing from configuration.");
+builder.Services.AddCoreKitIAM(
+connStr,
+builder.Configuration.GetSection("Jwt"));
+builder.Services.AddTenantKit(connStr, options =>
+{
+options.AutoApproveTenants = false;
+options.AllowMultipleStores = true;
+options.EnableLegalInfo = true;
+});
+builder.Services.AddCatalogModule(connStr, services =>
+{
+services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
+});
+builder.Services.AddCoreKitControllers();
+builder.ValidateCoreKitConfiguration();
+builder.WebHost.ConfigureKestrel(options =>
+{
+options.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+options.SuppressModelStateInvalidFilter = true;
+options.InvalidModelStateResponseFactory = context =>
+{
+var errors = context.ModelState
+.Where(e => e.Value?.Errors.Count > 0)
+.SelectMany(e => e.Value!.Errors.Select(x => new
+{
+field = e.Key,
+message = x.ErrorMessage
+}))
+.ToList();
+return new ObjectResult(new
+{
+success = false,
+errorCode = "VALIDATION_ERROR",
+message = "One or more validation errors occurred.",
+errors
+})
+{
+StatusCode = 422
+};
+};
+});
+builder.Services.AddApiVersioning(options =>
+{
+options.DefaultApiVersion = new Asp.Versioning.ApiVersion(1, 0);
+options.AssumeDefaultVersionWhenUnspecified = true;
+options.ReportApiVersions = true;
+options.ApiVersionReader = Asp.Versioning.ApiVersionReader.Combine(
+new Asp.Versioning.UrlSegmentApiVersionReader(),
+new Asp.Versioning.HeaderApiVersionReader("x-api-version"),
+new Asp.Versioning.QueryStringApiVersionReader("api-version"));
+})
+.AddApiExplorer(options =>
+{
+options.GroupNameFormat = "'v'VVV";
+options.SubstituteApiVersionInUrl = true;
+});
+var app = builder.Build();
+app.UseForwardedHeaders(
+new ForwardedHeadersOptions
+{
+ForwardedHeaders =
+ForwardedHeaders.XForwardedFor |
+ForwardedHeaders.XForwardedProto
+});
+if (!app.Environment.IsDevelopment())
+{
+app.UseHsts();
+}
+app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+context.Response.Headers["X-Frame-Options"] = "DENY";
+context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
+context.Response.Headers["X-XSS-Protection"] = "0";
+context.Response.Headers["Permissions-Policy"] =
+"camera=(), microphone=(), geolocation=(), interest-cohort=()";
+await next();
+});
+await app.PerformBootCheckAsync();
+app.UseMiddleware<RequestTracingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseMiddleware<TenantAuthorizationMiddleware>();
+app.UseAuthorization();
+app.MapGet("/ping", () => "pong");
+app.MapControllers();
+await app.RunAsync();
+}
+}
+

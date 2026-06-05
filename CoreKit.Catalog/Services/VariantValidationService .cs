@@ -1,4 +1,4 @@
-﻿// CoreKit.Catalog/Services/VariantValidationService.cs  (NEW — extracted from ProductService)
+﻿// CoreKit.Catalog/Services/VariantValidationService.cs
 using System.Text.Json;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
@@ -33,9 +33,12 @@ public class VariantValidationService : IVariantValidationService
         var optionMap = BuildOptionMap(group);
 
         foreach (var variant in variants)
+        {
             foreach (var attr in variant.Attributes)
             {
-                var templateId = await ResolveTemplateIdAsync(attr, group.StoreTypeCode, ct);
+                // Resolve without mutating attr
+                var templateId = await ResolveTemplateIdAsync(
+                    attr, group.StoreTypeCode, ct);
 
                 if (!optionMap.ContainsKey(templateId))
                     throw new InvalidOperationException(
@@ -47,6 +50,7 @@ public class VariantValidationService : IVariantValidationService
                     throw new InvalidOperationException(
                         $"Value '{attr.Value}' is not allowed for this variant option.");
             }
+        }
     }
 
     public async Task<VariantAttributeTemplate> ResolveTemplateAsync(
@@ -66,8 +70,6 @@ public class VariantValidationService : IVariantValidationService
                 $"for store type '{storeTypeCode}'.");
     }
 
-    // --- private ---
-
     private static Dictionary<Guid, List<string>?> BuildOptionMap(VariantGroup group)
         => group.Options.ToDictionary(
             o => o.TemplateId,
@@ -75,15 +77,14 @@ public class VariantValidationService : IVariantValidationService
                 ? null
                 : JsonSerializer.Deserialize<List<string>>(o.AllowedValuesJson));
 
+    // Returns the resolved template ID without mutating the attr object
     private async Task<Guid> ResolveTemplateIdAsync(
         VariantAttributeItem attr,
         string storeTypeCode,
         CancellationToken ct)
     {
         if (attr.TemplateId.HasValue)
-        {
             return attr.TemplateId.Value;
-        }
 
         var template = await _variantTemplateRepo
             .GetByNameAndStoreTypeAsync(attr.Name, storeTypeCode, ct)
@@ -91,7 +92,6 @@ public class VariantValidationService : IVariantValidationService
                 $"Variant attribute '{attr.Name}' not found " +
                 $"for store type '{storeTypeCode}'.");
 
-        attr.TemplateId = template.Id; // cache resolved id back on the item
         return template.Id;
     }
 }

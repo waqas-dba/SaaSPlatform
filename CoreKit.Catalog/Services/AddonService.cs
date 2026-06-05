@@ -1,4 +1,5 @@
-﻿using CoreKit.Catalog.Entities;
+﻿// CoreKit.Catalog/Services/AddonService.cs
+using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.Catalog.Persistence;
@@ -23,8 +24,10 @@ public class AddonService : IAddonService
         _db = db;
         _logger = logger;
         _planLimit = planLimit;
+
         if (_planLimit == null)
-            _logger.LogWarning("IPlanLimitProvider not registered. Add-on limits will not be enforced.");
+            _logger.LogWarning(
+                "IPlanLimitProvider not registered. Add-on limits will not be enforced.");
     }
 
     public async Task<AddonGroupDto> CreateGroupAsync(
@@ -41,8 +44,8 @@ public class AddonService : IAddonService
             Name = request.Name.Trim(),
             TenantId = tenantId
         };
+
         foreach (var item in request.Addons)
-        {
             group.Addons.Add(new Addon
             {
                 Id = Guid.NewGuid(),
@@ -50,11 +53,10 @@ public class AddonService : IAddonService
                 AdditionalPrice = item.AdditionalPrice,
                 IsActive = true
             });
-        }
 
         _db.AddonGroups.Add(group);
         await _db.SaveChangesAsync(ct);
-        return MapGroupToDto(group);
+        return await LoadGroupDtoAsync(group.Id, ct);
     }
 
     public async Task<AddonGroupDto> UpdateGroupAsync(
@@ -64,7 +66,6 @@ public class AddonService : IAddonService
         CancellationToken ct = default)
     {
         var group = await _db.AddonGroups
-            .Include(g => g.Addons)
             .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
             ?? throw new KeyNotFoundException("Addon group not found.");
 
@@ -72,7 +73,7 @@ public class AddonService : IAddonService
             group.Name = request.Name.Trim();
 
         await _db.SaveChangesAsync(ct);
-        return MapGroupToDto(group);
+        return await LoadGroupDtoAsync(group.Id, ct);
     }
 
     public async Task DeleteGroupAsync(
@@ -81,7 +82,6 @@ public class AddonService : IAddonService
         CancellationToken ct = default)
     {
         var group = await _db.AddonGroups
-            .Include(g => g.Addons)
             .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
             ?? throw new KeyNotFoundException("Addon group not found.");
 
@@ -97,12 +97,26 @@ public class AddonService : IAddonService
         Guid tenantId,
         CancellationToken ct = default)
     {
-        var groups = await _db.AddonGroups
-            .Include(g => g.Addons)
+        // Project in the database — only fetch active addons
+        return await _db.AddonGroups
             .Where(g => g.TenantId == tenantId)
             .OrderBy(g => g.Name)
+            .Select(g => new AddonGroupDto
+            {
+                Id = g.Id,
+                Name = g.Name,
+                Addons = g.Addons
+                    .Where(a => a.IsActive)
+                    .OrderBy(a => a.Name)
+                    .Select(a => new AddonDto
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        AdditionalPrice = a.AdditionalPrice
+                    })
+                    .ToList()
+            })
             .ToListAsync(ct);
-        return groups.Select(MapGroupToDto).ToList();
     }
 
     public async Task<AddonGroupDto?> GetGroupByIdAsync(
@@ -110,10 +124,10 @@ public class AddonService : IAddonService
         Guid tenantId,
         CancellationToken ct = default)
     {
-        var group = await _db.AddonGroups
-            .Include(g => g.Addons)
-            .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct);
-        return group is null ? null : MapGroupToDto(group);
+        var exists = await _db.AddonGroups
+            .AnyAsync(g => g.Id == groupId && g.TenantId == tenantId, ct);
+
+        return exists ? await LoadGroupDtoAsync(groupId, ct) : null;
     }
 
     public async Task<AddonDto> AddToGroupAsync(
@@ -123,16 +137,22 @@ public class AddonService : IAddonService
         CancellationToken ct = default)
     {
         var group = await _db.AddonGroups
-            .Include(g => g.Addons)
             .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
             ?? throw new KeyNotFoundException("Addon group not found.");
 
         if (_planLimit != null)
         {
             var max = await _planLimit.GetMaxAddonsPerProductAsync(tenantId, ct);
-            if (max.HasValue && group.Addons.Count >= max.Value)
-                throw new InvalidOperationException(
-                    $"This group already has the maximum of {max.Value} add-ons allowed by your plan.");
+            if (max.HasValue)
+            {
+                var activeCount = await _db.Addons
+                    .CountAsync(a => a.AddonGroupId == groupId && a.IsActive, ct);
+
+                if (activeCount >= max.Value)
+                    throw new InvalidOperationException(
+                        $"This group already has the maximum of {max.Value} " +
+                        "add-ons allowed by your plan.");
+            }
         }
 
         var addon = new Addon
@@ -188,16 +208,33 @@ public class AddonService : IAddonService
         await _db.SaveChangesAsync(ct);
     }
 
-    private static AddonGroupDto MapGroupToDto(AddonGroup g) => new()
+    // ---------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------
+
+    // Single place that loads a group with only active addons from the DB
+    private async Task<AddonGroupDto> LoadGroupDtoAsync(
+        Guid groupId, CancellationToken ct)
     {
-        Id = g.Id,
-        Name = g.Name,
-        Addons = g.Addons
-            .Where(a => a.IsActive)
-            .OrderBy(a => a.Name)
-            .Select(MapAddonToDto)
-            .ToList()
-    };
+        return await _db.AddonGroups
+            .Where(g => g.Id == groupId)
+            .Select(g => new AddonGroupDto
+            {
+                Id = g.Id,
+                Name = g.Name,
+                Addons = g.Addons
+                    .Where(a => a.IsActive)
+                    .OrderBy(a => a.Name)
+                    .Select(a => new AddonDto
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        AdditionalPrice = a.AdditionalPrice
+                    })
+                    .ToList()
+            })
+            .FirstAsync(ct);
+    }
 
     private static AddonDto MapAddonToDto(Addon a) => new()
     {

@@ -53,7 +53,7 @@ builder.Property(x => x.StoreTypeCode).HasMaxLength(50);
 builder.HasMany(x => x.Products)
 .WithOne(x => x.Category)
 .HasForeignKey(x => x.CategoryId)
-.OnDelete(DeleteBehavior.Cascade);
+.OnDelete(DeleteBehavior.Restrict);
 builder.HasMany(x => x.AttributeTemplates)
 .WithOne()
 .HasForeignKey("CategoryId")
@@ -97,16 +97,10 @@ public void Configure(EntityTypeBuilder<ProductAttributeTemplate> builder)
 {
 builder.ToTable("Catalog_AttributeTemplates");
 builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.IsRequired()
-.HasMaxLength(200);
-builder.Property(x => x.StoreTypeCode)
-.IsRequired()
-.HasMaxLength(50);
-builder.Property(x => x.OptionsJson)
-.HasMaxLength(2000);
-builder.Property(x => x.IsVisible)
-.HasDefaultValue(true);
+builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
+builder.Property(x => x.StoreTypeCode).IsRequired().HasMaxLength(50);
+builder.Property(x => x.OptionsJson).HasMaxLength(2000);
+builder.Property(x => x.IsVisible).HasDefaultValue(true);
 builder.HasIndex(x => new { x.StoreTypeCode, x.TenantId, x.Name })
 .IsUnique()
 .HasFilter("\"TenantId\" IS NOT NULL")
@@ -125,6 +119,30 @@ builder.HasOne(x => x.Group)
 .HasForeignKey(x => x.GroupId)
 .OnDelete(DeleteBehavior.SetNull)
 .IsRequired(false);
+builder.HasMany(x => x.ProductAttributeValues)
+.WithOne(av => av.Template)
+.HasForeignKey(av => av.TemplateId)
+.OnDelete(DeleteBehavior.Restrict);
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductAttributeValueConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductAttributeValueConfiguration : IEntityTypeConfiguration<ProductAttributeValue>
+{
+public void Configure(EntityTypeBuilder<ProductAttributeValue> builder)
+{
+builder.ToTable("Catalog_ProductAttributeValues");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Value).IsRequired().HasMaxLength(500);
+builder.HasIndex(x => new { x.ProductId, x.TemplateId }).IsUnique();
+builder.HasOne(x => x.Template)
+.WithMany(t => t.ProductAttributeValues)
+.HasForeignKey(x => x.TemplateId)
+.OnDelete(DeleteBehavior.Restrict);
 }
 }
 
@@ -175,6 +193,38 @@ builder.HasMany(x => x.AttributeValues)
 builder.HasMany(x => x.Variants)
 .WithOne(x => x.Product)
 .HasForeignKey(x => x.ProductId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.Property(x => x.SearchVector)
+.HasColumnType("tsvector")
+.IsRequired()
+.HasComputedColumnSql("to_tsvector('english', coalesce(\"Name\", '') || ' ' || coalesce(\"Description\", ''))", stored: true);
+builder.HasIndex(x => x.SearchVector)
+.HasMethod("GIN");
+}
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Configuration\ProductVariantConfiguration.cs =====
+using CoreKit.Catalog.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Catalog.Configuration;
+public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVariant>
+{
+public void Configure(EntityTypeBuilder<ProductVariant> builder)
+{
+builder.ToTable("Catalog_ProductVariants");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.Sku).IsRequired().HasMaxLength(100);
+builder.HasIndex(x => new { x.ProductId, x.Sku }).IsUnique();
+builder.Property(x => x.Price).HasColumnType("decimal(18,2)").IsRequired();
+builder.Property(x => x.IsActive).HasDefaultValue(true);
+builder.HasOne(x => x.Product)
+.WithMany(p => p.Variants)
+.HasForeignKey(x => x.ProductId)
+.OnDelete(DeleteBehavior.Cascade);
+builder.HasMany(x => x.AttributeValues)
+.WithOne(av => av.Variant)
+.HasForeignKey(av => av.VariantId)
 .OnDelete(DeleteBehavior.Cascade);
 }
 }
@@ -276,6 +326,7 @@ builder.HasKey(x => x.Id);
 builder.Property(x => x.Value)
 .IsRequired()
 .HasMaxLength(500);
+builder.HasIndex(x => new { x.VariantId, x.TemplateId }).IsUnique();
 builder.HasOne(x => x.Variant)
 .WithMany(x => x.AttributeValues)
 .HasForeignKey(x => x.VariantId)
@@ -387,6 +438,7 @@ public ICollection<ProductAttributeTemplate> AttributeTemplates { get; set; }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\Product.cs =====
 using CoreKit.SharedKernel.Common;
+using NpgsqlTypes;
 namespace CoreKit.Catalog.Entities;
 public class Product : AuditableEntity, ITenantScoped, IStoreScoped
 {
@@ -410,6 +462,7 @@ public ICollection<ProductAttributeValue> AttributeValues { get; set; }
 = new List<ProductAttributeValue>();
 public ICollection<ProductVariant> Variants { get; set; }
 = new List<ProductVariant>();
+public NpgsqlTsVector SearchVector { get; set; } = null!;
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Entities\ProductAttributeGroup.cs =====
@@ -597,6 +650,8 @@ services.AddScoped<IProductAttributeGroupService, ProductAttributeGroupService>(
 services.AddScoped<IAddonService, AddonService>();
 services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateService>();
 services.AddScoped<IVariantGroupService, VariantGroupService>();
+services.AddScoped<IVariantValidationService, VariantValidationService>();
+services.AddScoped<IProductImageService, ProductImageService>();
 configureStoreInfo(services);
 services.AddValidatorsFromAssemblyContaining < CreateProductRequestValidator > ();
 return services;
@@ -635,6 +690,7 @@ Task<Category?> GetByIdAsync(Guid id, CancellationToken ct = default);
 Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
 Task<List<Category>> GetTreeAsync(Guid tenantId, Guid? storeId, CancellationToken ct = default);
 Task<bool> HasChildrenAsync(Guid categoryId, CancellationToken ct = default);
+Task<bool> HasProductsAsync(Guid categoryId, CancellationToken ct = default);
 void Add(Category category);
 void Update(Category category);
 void Delete(Category category);
@@ -715,6 +771,21 @@ Guid tenantId,
 string storeTypeCode);
 }
 
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductImageService.cs =====
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Interfaces;
+public interface IProductImageService
+{
+Task<ProductImageDto> AddAsync(
+Guid productId, AddProductImageRequest request,
+CancellationToken ct = default);
+Task RemoveAsync(Guid imageId, CancellationToken ct = default);
+Task ReorderAsync(
+Guid productId, ReorderImagesRequest request,
+CancellationToken ct = default);
+Task SetPrimaryAsync(Guid imageId, CancellationToken ct = default);
+}
+
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductRepository.cs =====
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Models;
@@ -722,15 +793,22 @@ using CoreKit.SharedKernel.Models;
 namespace CoreKit.Catalog.Interfaces;
 public interface IProductRepository
 {
-Task<Product?> GetByIdAsync(Guid id, CancellationToken ct = default);
-Task<Product?> GetByIdWithDetailsAsync(Guid id, CancellationToken ct = default);
-Task<IReadOnlyList<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
+Task<Product?> GetByIdAsync(
+Guid id, CancellationToken ct = default);
+Task<Product?> GetByIdWithDetailsAsync(
+Guid id, CancellationToken ct = default);
+Task<IReadOnlyList<Product>> GetByStoreAsync(
+Guid storeId, CancellationToken ct = default);
 Task<PagedResult<Product>> GetByStorePagedAsync(
-Guid storeId,
-PagedQuery query,
-CancellationToken ct = default);
-Task<int> CountByStoreAsync(Guid storeId, CancellationToken ct = default);
-Task<bool> ExistsBySlugAsync(string slug, Guid storeId, CancellationToken ct = default);
+Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(
+Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task<PagedResult<ProductListDto>> SearchAsync(
+Guid storeId, ProductFilterQuery filter, CancellationToken ct = default);
+Task<int> CountByStoreAsync(
+Guid storeId, CancellationToken ct = default);
+Task<bool> ExistsBySlugAsync(
+string slug, Guid storeId, CancellationToken ct = default);
 void Add(Product product);
 void Update(Product product);
 void Remove(Product product);
@@ -739,7 +817,6 @@ Task CommitAsync(CancellationToken ct = default);
 Task RollbackAsync(CancellationToken ct = default);
 Task ExecuteAdvisoryLockAsync(long lockKey, CancellationToken ct = default);
 Task<int> SaveChangesAsync(CancellationToken ct = default);
-Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductService.cs =====
@@ -755,7 +832,9 @@ Task<ProductDto> UpdateAsync(
 Guid id,
 UpdateProductRequest request,
 CancellationToken ct = default);
-Task<ProductDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+Task<ProductDto?> GetByIdAsync(
+Guid id,
+CancellationToken ct = default);
 Task<IReadOnlyList<ProductDto>> GetByStoreAsync(
 Guid storeId,
 CancellationToken ct = default);
@@ -763,7 +842,13 @@ Task<PagedResult<ProductDto>> GetByStorePagedAsync(
 Guid storeId,
 PagedQuery query,
 CancellationToken ct = default);
-Task DeleteAsync(Guid id, CancellationToken ct = default);
+Task<PagedResult<ProductListDto>> SearchAsync(
+Guid storeId,
+ProductFilterQuery filter,
+CancellationToken ct = default);
+Task DeleteAsync(
+Guid id,
+CancellationToken ct = default);
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IProductVariantService.cs =====
@@ -793,9 +878,14 @@ namespace CoreKit.Catalog.Interfaces;
 public interface IVariantAttributeTemplateService
 {
 Task<List<VariantAttributeTemplateDto>> GetByStoreTypeAsync(string storeTypeCode);
-Task<VariantAttributeTemplateDto> CreateAsync(CreateVariantAttributeTemplateRequest request);
-Task UpdateAsync(Guid id, UpdateVariantAttributeTemplateRequest request);
-Task DeleteAsync(Guid id);
+Task<List<VariantAttributeTemplateDto>> GetPlatformTemplatesAsync(string storeTypeCode);
+Task<VariantAttributeTemplateDto> CreatePlatformTemplateAsync(CreateVariantAttributeTemplateRequest request);
+Task UpdatePlatformTemplateAsync(Guid id, UpdateVariantAttributeTemplateRequest request);
+Task DeletePlatformTemplateAsync(Guid id);
+Task<List<VariantAttributeTemplateDto>> GetTenantTemplatesAsync(Guid tenantId, string storeTypeCode);
+Task<VariantAttributeTemplateDto> CreateTenantTemplateAsync(Guid tenantId, CreateVariantAttributeTemplateRequest request);
+Task UpdateTenantTemplateAsync(Guid id, Guid tenantId, UpdateVariantAttributeTemplateRequest request);
+Task DeleteTenantTemplateAsync(Guid id, Guid tenantId);
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IVariantGroupRepository.cs =====
@@ -821,6 +911,26 @@ Task<VariantGroupDto> UpdateOptionAsync(Guid groupId, Guid optionId, Guid tenant
 Task<VariantGroupDto> RemoveOptionAsync(Guid groupId, Guid optionId, Guid tenantId, CancellationToken ct = default);
 }
 
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Interfaces\IVariantValidationService.cs =====
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Models;
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Interfaces;
+public interface IVariantValidationService
+{
+Task ValidateVariantsAgainstGroupAsync(
+Guid variantGroupId,
+Guid tenantId,
+List<CreateVariantRequest> variants,
+CancellationToken ct = default);
+Task<VariantAttributeTemplate> ResolveTemplateAsync(
+VariantAttributeItem attr,
+string storeTypeCode,
+CancellationToken ct = default);
+}
+
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddonDto.cs =====
 namespace CoreKit.Catalog.Models;
 public class AddonDto
@@ -837,6 +947,20 @@ public class AddonGroupDto
 public Guid Id { get; set; }
 public string Name { get; set; } = default!;
 public List<AddonDto> Addons { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AddProductImageRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class AddProductImageRequest
+{
+public string ImageUrl { get; set; } = default!;
+public bool IsPrimary { get; set; }
+public int SortOrder { get; set; }
+}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\AssignTemplateRequest.cs =====
@@ -1018,6 +1142,19 @@ public decimal Price { get; set; }
 public List<VariantAttributeItem> Attributes { get; set; } = new();
 }
 
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ImageOrderItem.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class ImageOrderItem
+{
+public Guid ImageId { get; set; }
+public int SortOrder { get; set; }
+}
+}
+
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\OverrideAttributeTemplateRequest.cs =====
 namespace CoreKit.Catalog.Models;
 public class OverrideAttributeTemplateRequest
@@ -1097,6 +1234,25 @@ public AddonGroupDto? AddonGroup { get; set; }
 public VariantGroupDto? VariantGroup { get; set; }
 }
 
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductFilterQuery.cs =====
+using System.ComponentModel.DataAnnotations;
+namespace CoreKit.Catalog.Models;
+public class ProductFilterQuery
+{
+public string? Search { get; set; }
+public Guid? CategoryId { get; set; }
+[Range(0, double.MaxValue, ErrorMessage = "MinPrice must be >= 0.")]
+public decimal? MinPrice { get; set; }
+[Range(0, double.MaxValue, ErrorMessage = "MaxPrice must be >= 0.")]
+public decimal? MaxPrice { get; set; }
+public bool? IsActive { get; set; }
+[Range(1, int.MaxValue, ErrorMessage = "Page must be >= 1.")]
+public int Page { get; set; } = 1;
+[Range(1, 100, ErrorMessage = "PageSize must be between 1 and 100.")]
+public int PageSize { get; set; } = 20;
+public int Skip => (Page - 1) * PageSize;
+}
+
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ProductImageDto.cs =====
 namespace CoreKit.Catalog.Models;
 public class ProductImageDto
@@ -1128,6 +1284,18 @@ public string Sku { get; set; } = default!;
 public decimal Price { get; set; }
 public bool IsActive { get; set; }
 public List<VariantAttributeValueDto> Attributes { get; set; } = new();
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ReorderImagesRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Catalog.Models
+{
+public class ReorderImagesRequest
+{
+public List<ImageOrderItem> Images { get; set; } = new();
+}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\ResolvedAttributeDto.cs =====

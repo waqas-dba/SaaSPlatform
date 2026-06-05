@@ -1,4 +1,268 @@
 ﻿
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginResponse.cs =====
+namespace CoreKit.IAM.Models;
+public class LoginResponse
+{
+public string AccessToken { get; set; } = default!;
+public string RefreshToken { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LogoutRequest.cs =====
+namespace CoreKit.IAM.Models
+{
+public class LogoutRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\RefreshTokenRequest.cs =====
+namespace CoreKit.IAM.Models;
+public class RefreshTokenRequest
+{
+public string RefreshToken { get; set; } = default!;
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\UserListItem.cs =====
+namespace CoreKit.IAM.Models;
+public class UserListItem
+{
+public Guid Id { get; set; }
+public string Name { get; set; } = default!;
+public string? Email { get; set; }
+public string Phone { get; set; } = default!;
+public bool IsActive { get; set; }
+public Guid? TenantId { get; set; }
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\IamBootstrap.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using CoreKit.IAM.Models;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class IamBootstrap
+{
+private readonly IamDbContext _db;
+private readonly PermissionSeeder _permissionSeeder;
+private readonly RoleSeeder _roleSeeder;
+private readonly UserSeeder _userSeeder;
+private readonly RolePermissionSeeder _rolePermissionSeeder;
+private readonly UserRoleSeeder _userRoleSeeder;
+private readonly IamOptions _options;
+private readonly ILogger<IamBootstrap> _logger;
+public IamBootstrap(
+IamDbContext db,
+PermissionSeeder permissionSeeder,
+RoleSeeder roleSeeder,
+UserSeeder userSeeder,
+RolePermissionSeeder rolePermissionSeeder,
+UserRoleSeeder userRoleSeeder,
+IamOptions options,
+ILogger<IamBootstrap> logger)
+{
+_db = db;
+_permissionSeeder = permissionSeeder;
+_roleSeeder = roleSeeder;
+_userSeeder = userSeeder;
+_rolePermissionSeeder = rolePermissionSeeder;
+_userRoleSeeder = userRoleSeeder;
+_options = options;
+_logger = logger;
+}
+public async Task RunAsync()
+{
+if (!await _db.Database.CanConnectAsync())
+{
+_logger.LogCritical("Cannot connect to database.");
+throw new InvalidOperationException("Database connection failed.");
+}
+if (_options.RunMigrationsOnBootstrap)
+{
+var pendingMigrations = await _db.Database.GetPendingMigrationsAsync();
+if (pendingMigrations.Any())
+{
+_logger.LogInformation("Applying {Count} pending migration(s)...", pendingMigrations.Count());
+await _db.Database.MigrateAsync();
+}
+else
+{
+_logger.LogInformation("No pending migrations.");
+}
+}
+else
+{
+_logger.LogInformation("RunMigrationsOnBootstrap is disabled — skipping migration check.");
+}
+_logger.LogInformation("Starting IAM bootstrap...");
+await _permissionSeeder.SeedAsync();
+await _roleSeeder.SeedAsync();
+await _userSeeder.SeedAsync();
+await _rolePermissionSeeder.SeedAsync();
+await _userRoleSeeder.SeedAsync();
+_logger.LogInformation("IAM bootstrap completed successfully.");
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\PermissionSeeder.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class PermissionSeeder
+{
+private readonly IamDbContext _db;
+private static readonly IReadOnlyDictionary<string, (Guid Id, string Name)>
+WellKnownModules = new Dictionary<string, (Guid, string)>
+{
+["iam"] = (Guid.Parse("30000000-0000-0000-0000-000000000004"), "IAM"),
+["catalog"] = (Guid.Parse("30000000-0000-0000-0000-000000000005"), "Catalog"),
+["store"] = (Guid.Parse("30000000-0000-0000-0000-000000000006"), "Store"),
+["platform"] = (Guid.Parse("30000000-0000-0000-0000-000000000007"), "Platform"),
+["users"] = (Guid.Parse("30000000-0000-0000-0000-000000000008"), "Users"),
+["roles"] = (Guid.Parse("30000000-0000-0000-0000-000000000009"), "Roles"),
+};
+public PermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var moduleCache = new Dictionary<string, PermissionModule>();
+foreach (var permissionName in Permissions.All)
+{
+var moduleCode = ExtractModuleCode(permissionName);
+if (!moduleCache.ContainsKey(moduleCode))
+{
+var module = await _db.PermissionModules
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(m => m.Code == moduleCode);
+if (module is null)
+{
+WellKnownModules.TryGetValue(
+moduleCode,
+out var meta);
+module = new PermissionModule
+{
+Id = meta.Id != Guid.Empty ? meta.Id : Guid.NewGuid(),
+Name = string.IsNullOrEmpty(meta.Name)
+? moduleCode
+: meta.Name,
+Code = moduleCode
+};
+_db.PermissionModules.Add(module);
+await _db.SaveChangesAsync();
+}
+moduleCache[moduleCode] = module;
+}
+var exists = await _db.Permissions
+.IgnoreQueryFilters()
+.AnyAsync(p => p.Name == permissionName);
+if (exists) continue;
+_db.Permissions.Add(new Permission
+{
+Id = Guid.NewGuid(),
+Name = permissionName,
+PermissionModuleId = moduleCache[moduleCode].Id
+});
+}
+await _db.SaveChangesAsync();
+}
+private static string ExtractModuleCode(string permissionName)
+{
+var dot = permissionName.IndexOf('.');
+return dot < 0 ? permissionName : permissionName[..dot];
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RolePermissionSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RolePermissionSeeder
+{
+private readonly IamDbContext _db;
+public RolePermissionSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null) return;
+var allPermissions = await _db.Permissions.ToListAsync();
+foreach (var permission in allPermissions)
+{
+var exists = await _db.RolePermissions
+.AnyAsync(rp => rp.RoleId == platformAdmin.Id && rp.PermissionId == permission.Id);
+if (exists) continue;
+_db.RolePermissions.Add(new RolePermission
+{
+RoleId = platformAdmin.Id,
+PermissionId = permission.Id
+});
+}
+await _db.SaveChangesAsync();
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\RoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class RoleSeeder
+{
+private readonly IamDbContext _db;
+public RoleSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r => r.Name == "PlatformAdmin" && r.TenantId == null);
+if (platformAdmin == null)
+{
+_db.Roles.Add(new Role
+{
+Id = Guid.Parse("40000000-0000-0000-0000-000000000001"),
+Name = "PlatformAdmin",
+Description = "Platform administrator with full platform permissions",
+TenantId = null,
+IsSystem = true
+});
+await _db.SaveChangesAsync();
+}
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserRoleSeeder.cs =====
+using CoreKit.IAM.Entities;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Persistence.Seeders;
+public sealed class UserRoleSeeder
+{
+private readonly IamDbContext _db;
+public UserRoleSeeder(IamDbContext db) => _db = db;
+public async Task SeedAsync()
+{
+var adminUser = await _db.Users
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(u =>
+u.Phone == "0000000000" || u.Email == "admin@system.com");
+var platformAdmin = await _db.Roles
+.IgnoreQueryFilters()
+.FirstOrDefaultAsync(r =>
+r.Name == "PlatformAdmin" && r.TenantId == null);
+if (adminUser == null || platformAdmin == null) return;
+var alreadyAssigned = await _db.UserRoles
+.AnyAsync(ur =>
+ur.UserId == adminUser.Id &&
+ur.RoleId == platformAdmin.Id);
+if (alreadyAssigned) return;
+_db.UserRoles.Add(new UserRole
+{
+UserId = adminUser.Id,
+RoleId = platformAdmin.Id,
+TenantId = null
+});
+await _db.SaveChangesAsync();
+}
+}
+
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\Seeders\UserSeeder.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
@@ -83,6 +347,7 @@ _logger.LogInformation("System admin user seeded successfully.");
 }
 
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Persistence\IamDbContext.cs =====
+using CoreKit.IAM.Configuration;
 using CoreKit.IAM.Entities;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
@@ -105,6 +370,7 @@ public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
 public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
+public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 public DbSet<RoleDocumentRequirement> RoleDocumentRequirements
 => Set<RoleDocumentRequirement>();
 public DbSet<UserStoreAssignment> UserStoreAssignments
@@ -112,6 +378,7 @@ public DbSet<UserStoreAssignment> UserStoreAssignments
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
 base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
 modelBuilder.ApplyConfigurationsFromAssembly(
 typeof(IamDbContext).Assembly);
 }
@@ -129,6 +396,39 @@ var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
 optionsBuilder.UseNpgsql(
 "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
 return new IamDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Repositories\AuditLogRepository.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Persistence;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Repositories;
+public sealed class AuditLogRepository : IAuditLogRepository
+{
+private readonly IamDbContext _db;
+public AuditLogRepository(IamDbContext db) => _db = db;
+public async Task<PagedResult<AuditLog>> GetLogsAsync(
+string? entityName = null,
+string? entityId = null,
+PagedQuery? query = null,
+CancellationToken ct = default)
+{
+query ??= new PagedQuery();
+var baseQuery = _db.Set<AuditLog>().AsNoTracking();
+if (!string.IsNullOrWhiteSpace(entityName))
+baseQuery = baseQuery.Where(l => l.EntityName == entityName);
+if (!string.IsNullOrWhiteSpace(entityId))
+baseQuery = baseQuery.Where(l => l.EntityId == entityId);
+var totalCount = await baseQuery.CountAsync(ct);
+var items = await baseQuery
+.OrderByDescending(l => l.Timestamp)
+.Skip(query.Skip)
+.Take(query.PageSize)
+.ToListAsync(ct);
+return PagedResult<AuditLog>.From(items, totalCount, query.Page, query.PageSize);
 }
 }
 
@@ -752,7 +1052,13 @@ Guid targetTenantId,
 string reason,
 CancellationToken ct = default);
 }
-public class ImpersonationService : IImpersonationService
+
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\ImpersonationService.cs =====
+using CoreKit.IAM.Interfaces;
+using CoreKit.SharedKernel.Exceptions;
+using Microsoft.Extensions.Logging;
+namespace CoreKit.IAM.Services;
+public sealed class ImpersonationService : IImpersonationService
 {
 private readonly IJwtTokenService _jwtService;
 private readonly IUserRepository _userRepo;
@@ -776,9 +1082,11 @@ string reason,
 CancellationToken ct = default)
 {
 if (string.IsNullOrWhiteSpace(reason))
-throw new ArgumentException("Impersonation reason is required.", nameof(reason));
+throw new ArgumentException(
+"Impersonation reason is required.", nameof(reason));
 var hasPermission = await _permissionService.HasPermissionAsync(
-platformUserId, null, Constants.Permissions.Platform.CreateImpersonation);
+platformUserId, null,
+Constants.Permissions.Platform.CreateImpersonation);
 if (!hasPermission)
 throw new ForbiddenException(
 "You do not have permission to impersonate tenants.");
@@ -787,72 +1095,24 @@ var platformUser = await _userRepo.GetByIdAsync(platformUserId)
 var tenantPermissions = await _permissionService
 .GetUserPermissionsAsync(platformUserId, targetTenantId);
 var scopedPermissions = tenantPermissions
-.Where(p => !p.StartsWith("platform."))
+.Where(p => !p.StartsWith("platform.", StringComparison.Ordinal))
 .ToList();
-var (token, expiresAt, _) = _jwtService.GenerateAccessToken(
+var result = _jwtService.GenerateAccessToken(
 platformUser,
 targetTenantId,
 roles: new[] { "TenantAdmin" },
 permissions: scopedPermissions,
 storeIds: null);
+string token = result.Token;
+DateTime expiresAt = result.ExpiresAt;
 _logger.LogWarning(
 "Platform user {PlatformUserId} ({Email}) created impersonation token " +
 "for tenant {TenantId}. Reason: {Reason}. Permissions granted: {Count}",
-platformUserId, platformUser.Email, targetTenantId, reason,
-scopedPermissions.Count);
-return (token, expiresAt);
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\ImpersonationService.cs =====
-using CoreKit.IAM.Interfaces;
-using CoreKit.SharedKernel.Exceptions;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.IAM.Services;
-public interface IImpersonationService
-{
-Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
-Guid platformUserId,
-Guid targetTenantId,
-string reason);
-}
-public class ImpersonationService : IImpersonationService
-{
-private readonly IJwtTokenService _jwtService;
-private readonly IUserRepository _userRepo;
-private readonly IPermissionService _permissionService;
-private readonly ILogger<ImpersonationService> _logger;
-public ImpersonationService(
-IJwtTokenService jwtService,
-IUserRepository userRepo,
-IPermissionService permissionService,
-ILogger<ImpersonationService> logger)
-{
-_jwtService = jwtService;
-_userRepo = userRepo;
-_permissionService = permissionService;
-_logger = logger;
-}
-public async Task<(string Token, DateTime ExpiresAt)> CreateImpersonationTokenAsync(
-Guid platformUserId,
-Guid targetTenantId,
-string reason)
-{
-var hasPermission = await _permissionService.HasPermissionAsync(
-platformUserId, null, Constants.Permissions.Platform.CreateImpersonation);
-if (!hasPermission)
-throw new ForbiddenException("You do not have permission to impersonate tenants.");
-var platformUser = await _userRepo.GetByIdAsync(platformUserId)
-?? throw new KeyNotFoundException("Platform user not found.");
-var (token, expiresAt, _) = _jwtService.GenerateAccessToken(
-platformUser,
+platformUserId,
+platformUser.Email,
 targetTenantId,
-new[] { "TenantAdmin" },
-permissions: null,
-storeIds: null);
-_logger.LogWarning(
-"Platform user {PlatformUserId} ({Email}) created impersonation token for tenant {TenantId}. Reason: {Reason}",
-platformUserId, platformUser.Email, targetTenantId, reason);
+reason,
+scopedPermissions.Count);
 return (token, expiresAt);
 }
 }
@@ -1675,311 +1935,5 @@ IsActive = u.IsActive,
 TenantId = u.TenantId
 })
 .ToListAsync();
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserStoreAssignmentService.cs =====
-using CoreKit.IAM.Entities;
-using CoreKit.IAM.Interfaces;
-using CoreKit.IAM.Persistence;
-using Microsoft.EntityFrameworkCore;
-namespace CoreKit.IAM.Services;
-public class UserStoreAssignmentService : IUserStoreAssignmentService
-{
-private readonly IamDbContext _db;
-public UserStoreAssignmentService(IamDbContext db) => _db = db;
-public async Task<List<Guid>> GetStoresForUserAsync(Guid userId, Guid tenantId, CancellationToken ct)
-{
-return await _db.UserStoreAssignments
-.Where(a => a.UserId == userId && a.TenantId == tenantId)
-.Select(a => a.StoreId)
-.ToListAsync(ct);
-}
-public async Task AssignUserToStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct)
-{
-var exists = await _db.UserStoreAssignments
-.AnyAsync(a => a.UserId == userId && a.StoreId == storeId && a.TenantId == tenantId, ct);
-if (!exists)
-{
-_db.UserStoreAssignments.Add(new UserStoreAssignment
-{
-UserId = userId,
-StoreId = storeId,
-TenantId = tenantId
-});
-await _db.SaveChangesAsync(ct);
-}
-}
-public async Task UnassignUserFromStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct)
-{
-var assignment = await _db.UserStoreAssignments
-.FirstOrDefaultAsync(a => a.UserId == userId && a.StoreId == storeId && a.TenantId == tenantId, ct);
-if (assignment != null)
-{
-_db.UserStoreAssignments.Remove(assignment);
-await _db.SaveChangesAsync(ct);
-}
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\CreateUserRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
-{
-public CreateUserRequestValidator()
-{
-RuleFor(x => x.Name)
-.NotEmpty()
-.WithMessage("Name is required.")
-.MaximumLength(200)
-.WithMessage("Name must not exceed 200 characters.");
-RuleFor(x => x.Phone)
-.NotEmpty()
-.WithMessage("Phone is required.")
-.Matches(@"^\+?[\d\s\-]{7,15}$")
-.WithMessage("Phone number is not valid.");
-RuleFor(x => x.Email)
-.EmailAddress()
-.WithMessage("Email is not valid.")
-.MaximumLength(200)
-.WithMessage("Email must not exceed 200 characters.")
-.When(x => !string.IsNullOrWhiteSpace(x.Email));
-RuleFor(x => x.Password)
-.NotEmpty()
-.WithMessage("Password is required.")
-.MinimumLength(8)
-.WithMessage("Password must be at least 8 characters.")
-.MaximumLength(100)
-.WithMessage("Password must not exceed 100 characters.")
-.Matches("[A-Z]")
-.WithMessage("Password must contain at least one uppercase letter.")
-.Matches("[a-z]")
-.WithMessage("Password must contain at least one lowercase letter.")
-.Matches("[0-9]")
-.WithMessage("Password must contain at least one digit.")
-.Matches("[^a-zA-Z0-9]")
-.WithMessage("Password must contain at least one special character.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\LoginRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class LoginRequestValidator : AbstractValidator<LoginRequest>
-{
-public LoginRequestValidator()
-{
-RuleFor(x => x.Login)
-.NotEmpty().WithMessage("Login is required.")
-.MaximumLength(200).WithMessage("Login must not exceed 200 characters.");
-RuleFor(x => x.Password)
-.NotEmpty().WithMessage("Password is required.")
-.MinimumLength(8).WithMessage("Password must be at least 8 characters.")
-.MaximumLength(100).WithMessage("Password must not exceed 100 characters.");
-}
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Validators\RefreshTokenRequestValidator.cs =====
-using CoreKit.IAM.Models;
-using FluentValidation;
-namespace CoreKit.IAM.Validators;
-public class RefreshTokenRequestValidator : AbstractValidator<RefreshTokenRequest>
-{
-public RefreshTokenRequestValidator()
-{
-RuleFor(x => x.RefreshToken)
-.NotEmpty().WithMessage("Refresh token is required.");
-}
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Controllers\ApiControllerBase.cs =====
-using CoreKit.Infrastructure.Models;
-using Microsoft.AspNetCore.Mvc;
-namespace CoreKit.Infrastructure.Controllers;
-[ApiController]
-public abstract class ApiControllerBase : ControllerBase
-{
-protected IActionResult OkResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message));
-protected IActionResult OkResponse<T>(T data, string? message = null)
-=> Ok(ApiResponse.Ok(data, message));
-protected IActionResult DeletedResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message ?? "Deleted successfully."));
-protected IActionResult UpdatedResponse(string? message = null)
-=> Ok(ApiResponse.Ok(message ?? "Updated successfully."));
-protected IActionResult CreatedResponse<T>(T data, string? message = null)
-=> Ok(ApiResponse.Ok(data, message ?? "Created successfully."));
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Controllers\TenantApiControllerBase.cs =====
-using CoreKit.Infrastructure.Controllers;
-using CoreKit.SharedKernel.Tenancy;
-namespace CoreKit.Infrastructure.Controllers;
-public abstract class TenantApiControllerBase : ApiControllerBase
-{
-protected ITenantContext TenantContext { get; }
-protected TenantApiControllerBase(ITenantContext tenantContext)
-{
-TenantContext = tenantContext;
-}
-protected Guid RequireTenantId() =>
-TenantContext.TenantId ?? throw new UnauthorizedAccessException("Tenant context is missing.");
-}
-
-===== CoreKit.Infrastructure | D:\waqas-dba\SaaSPlatform\CoreKit.Infrastructure\Extentions\BootCheckExtensions.cs =====
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Infrastructure.Extensions;
-public static class BootCheckExtensions
-{
-public static async Task PerformBootCheckAsync(this WebApplication app)
-{
-var logger = app.Services.GetRequiredService<ILogger<WebApplication>>();
-logger.LogInformation("===== SERVICE RESOLUTION CHECK =====");
-try
-{
-using var scope = app.Services.CreateScope();
-var sp = scope.ServiceProvider;
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IEncryptionService");
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.IAuthService");
-ResolveByName(sp, logger, "CoreKit.IAM.Interfaces.ICurrentUserService");
-ResolveByName(sp, logger, "CoreKit.SharedKernel.Tenancy.IMutableTenantContext");
-ResolveByName(sp, logger, "CoreKit.Tenant.Middleware.TenantResolutionMiddleware");
-await CheckDatabaseAsync(sp, logger);
-}
-catch (Exception ex)
-{
-logger.LogCritical(ex, "Boot check failed: {Message}", ex.Message);
-}
-finally
-{
-logger.LogInformation("===== BOOT CHECK COMPLETE =====");
-}
-}
-private static void ResolveByName(
-IServiceProvider sp,
-ILogger logger,
-string fullTypeName)
-{
-var type = FindType(fullTypeName);
-if (type == null)
-{
-logger.LogWarning("Type not found in loaded assemblies: {Type}", fullTypeName);
-return;
-}
-try
-{
-var service = sp.GetService(type);
-if (service != null)
-{
-logger.LogInformation("{ShortName,-30} OK", type.Name);
-}
-else
-{
-if (fullTypeName.Contains("TenantResolutionMiddleware"))
-logger.LogInformation("{ShortName,-30} NOT REGISTERED (expected — added via UseMiddleware)", type.Name);
-else
-logger.LogWarning("{ShortName,-30} NOT REGISTERED", type.Name);
-}
-}
-catch (Exception ex)
-{
-logger.LogError(ex, "{ShortName,-30} FAILED — {Error}", type.Name, ex.Message);
-}
-}
-private static async Task CheckDatabaseAsync(
-IServiceProvider sp,
-ILogger logger)
-{
-logger.LogInformation("Testing database connection...");
-var dbContextType = FindType("CoreKit.IAM.Persistence.IamDbContext");
-if (dbContextType == null)
-{
-logger.LogWarning("IamDbContext type not found — skipping DB check.");
-return;
-}
-var dbContext = sp.GetService(dbContextType);
-if (dbContext == null)
-{
-logger.LogWarning("IamDbContext not registered — skipping DB check.");
-return;
-}
-try
-{
-var databaseProp = dbContextType.BaseType is not null
-? GetPropertyFromHierarchy(dbContextType, "Database")
-: null;
-if (databaseProp == null)
-{
-logger.LogWarning("Could not reflect Database property on IamDbContext.");
-return;
-}
-var database = databaseProp.GetValue(dbContext);
-if (database == null)
-{
-logger.LogWarning("Database property returned null.");
-return;
-}
-var canConnectMethod = database.GetType()
-.GetMethod("CanConnectAsync",
-new[] { typeof(CancellationToken) });
-if (canConnectMethod == null)
-{
-logger.LogWarning("CanConnectAsync method not found on DatabaseFacade.");
-return;
-}
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-try
-{
-var task = (Task<bool>)canConnectMethod.Invoke(
-database, new object[] { cts.Token })!;
-var canConnect = await task;
-if (canConnect)
-logger.LogInformation("DATABASE connection             OK");
-else
-logger.LogCritical("DATABASE: CanConnect returned false. Check credentials.");
-}
-catch (OperationCanceledException)
-{
-logger.LogCritical(
-"DATABASE: connection timed out after 5 seconds. " +
-"Check SSL mode or network connectivity.");
-}
-}
-catch (Exception ex)
-{
-logger.LogError(ex, "Database check failed: {Error}", ex.Message);
-}
-}
-private static Type? FindType(string fullTypeName)
-{
-return AppDomain.CurrentDomain
-.GetAssemblies()
-.Where(a => !a.IsDynamic)
-.SelectMany(a =>
-{
-try { return a.GetExportedTypes(); }
-catch { return Array.Empty<Type>(); }
-})
-.FirstOrDefault(t => t.FullName == fullTypeName);
-}
-private static System.Reflection.PropertyInfo? GetPropertyFromHierarchy(
-Type type, string propertyName)
-{
-var current = type;
-while (current != null)
-{
-var prop = current.GetProperty(
-propertyName,
-System.Reflection.BindingFlags.Public |
-System.Reflection.BindingFlags.Instance);
-if (prop != null) return prop;
-current = current.BaseType;
-}
-return null;
-}
 }
 

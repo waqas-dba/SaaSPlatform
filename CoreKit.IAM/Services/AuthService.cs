@@ -66,14 +66,16 @@ public class AuthService : IAuthService
         Guid? tenantId,
         CancellationToken ct = default)
     {
-        // FIX: removed the unlocked preview check — all validation now
-        // happens inside RotateAsync under SELECT FOR UPDATE
-        var (newRefreshToken, userId) =
-            await _refreshTokenService.RotateAsync(request.RefreshToken, string.Empty);
+        // Step 1: load the user from the existing token before rotating
+        var tokenHash = _refreshTokenService.ComputeHash(request.RefreshToken);
+        var existingToken = await _db.RefreshTokens
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, ct)
+            ?? throw new UnauthorizedAccessException("Invalid refresh token.");
 
         var user = await _db.Users
             .Include(u => u.Roles).ThenInclude(ur => ur.Role)
-            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            .FirstOrDefaultAsync(u => u.Id == existingToken.UserId, ct)
             ?? throw new UnauthorizedAccessException("User not found.");
 
         if (!user.IsActive)
@@ -82,28 +84,32 @@ public class AuthService : IAuthService
         if (tenantId.HasValue)
             ValidateTenantAccess(user, tenantId.Value);
 
+        // Step 2: generate the new access token first so we have its JWT ID
         var roles = BuildRoleList(user, tenantId);
-        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+        var permissions = await _permissionService
+            .GetUserPermissionsAsync(user.Id, tenantId);
         var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, newJwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
-        // Rotate again with the real jwtId now that we have it
-        var (finalRefreshToken, _) = await _refreshTokenService.RotateAsync(
-            newRefreshToken, newJwtId);
+        // Step 3: rotate once with the real JWT ID
+        var (newRefreshToken, _) = await _refreshTokenService
+            .RotateAsync(request.RefreshToken, newJwtId);
 
         return new LoginResponse
         {
             AccessToken = accessToken,
-            RefreshToken = finalRefreshToken
+            RefreshToken = newRefreshToken
         };
     }
 
     public async Task LogoutAsync(string refreshToken)
         => await _refreshTokenService.RevokeAsync(refreshToken);
 
-    // --- private helpers ---
+    // ---------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------
 
     private static void ValidateUserAccess(User user)
     {
@@ -144,13 +150,15 @@ public class AuthService : IAuthService
         User user, Guid? tenantId, CancellationToken ct)
     {
         var roles = BuildRoleList(user, tenantId);
-        var permissions = await _permissionService.GetUserPermissionsAsync(user.Id, tenantId);
+        var permissions = await _permissionService
+            .GetUserPermissionsAsync(user.Id, tenantId);
         var storeIds = await ResolveStoreIdsAsync(user.Id, tenantId, ct);
 
         var (accessToken, _, jwtId) = _jwtService.GenerateAccessToken(
             user, tenantId, roles, permissions, storeIds);
 
-        var refreshToken = await _refreshTokenService.GenerateAsync(user.Id, jwtId);
+        var refreshToken = await _refreshTokenService
+            .GenerateAsync(user.Id, jwtId);
 
         return new LoginResponse
         {

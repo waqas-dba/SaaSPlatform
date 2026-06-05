@@ -59,5 +59,14 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .WithOne(x => x.Product)
             .HasForeignKey(x => x.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // CoreKit.Catalog | Configuration/ProductConfiguration.cs (add after HasMany Images)
+        builder.Property(x => x.SearchVector)
+            .HasColumnType("tsvector")
+            .IsRequired()
+            .HasComputedColumnSql("to_tsvector('english', coalesce(\"Name\", '') || ' ' || coalesce(\"Description\", ''))", stored: true);
+
+        builder.HasIndex(x => x.SearchVector)
+            .HasMethod("GIN");
     }
 }

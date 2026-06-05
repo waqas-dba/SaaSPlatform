@@ -80,4 +80,14 @@ public class StoresController : TenantApiControllerBase
         var stores = await _storeService.GetAllByTenantAsync(tenantId, ct);
         return OkResponse(stores);
     }
+
+    // Add to SaaSPlatform.Tenant.Api/Controllers/StoresController.cs
+
+    [HttpGet("{storeId:guid}")]
+    [RequiresPermission(Permissions.Store.View)]
+    public async Task<IActionResult> GetById(Guid storeId, CancellationToken ct)
+    {
+        var store = await _storeService.GetByIdAsync(storeId, ct);
+        return store is null ? NotFound() : OkResponse(store);
+    }
 }

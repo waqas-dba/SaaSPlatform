@@ -1,4 +1,5 @@
-﻿using CoreKit.IAM.Entities;
+﻿using CoreKit.IAM.Configuration;
+using CoreKit.IAM.Entities;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,9 @@ public class IamDbContext : AuditableDbContext
 
     public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
 
+    // In IamDbContext.cs
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
     public DbSet<RoleDocumentRequirement> RoleDocumentRequirements
         => Set<RoleDocumentRequirement>();
 
@@ -41,6 +45,8 @@ public class IamDbContext : AuditableDbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfiguration(new AuditLogConfiguration());
 
         modelBuilder.ApplyConfigurationsFromAssembly(
             typeof(IamDbContext).Assembly);

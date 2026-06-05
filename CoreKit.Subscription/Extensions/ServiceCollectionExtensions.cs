@@ -1,4 +1,5 @@
-﻿using CoreKit.SharedKernel.Interfaces;
+﻿// CoreKit.Subscription/Extensions/ServiceCollectionExtensions.cs
+using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Subscription.Interfaces;
 using CoreKit.Subscription.Persistence;
 using CoreKit.Subscription.Repositories;
@@ -10,7 +11,6 @@ namespace CoreKit.Subscription.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    // CoreKit.Subscription/Extensions/ServiceCollectionExtensions.cs
     public static IServiceCollection AddSubscriptionModule(
         this IServiceCollection services,
         string connectionString)
@@ -18,14 +18,19 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<SubscriptionDbContext>((sp, options) =>
             options.UseNpgsql(connectionString));
 
-        // Ensure memory cache is available (safe to call multiple times)
         services.AddMemoryCache();
 
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ITenantSubscriptionRepository, TenantSubscriptionRepository>();
-        services.AddScoped<IPlanLimitProvider, PlanLimitProvider>();
         services.AddScoped<IPlanService, PlanService>();
         services.AddScoped<ISubscriptionManagementService, SubscriptionManagementService>();
+
+        // OCP: register feature evaluators — add new plan features here only
+        services.AddSingleton<IFeatureEvaluator, CustomDomainEvaluator>();
+        services.AddSingleton<IFeatureEvaluator, ThemeCustomizationEvaluator>();
+
+        services.AddScoped<IPlanLimitProvider, PlanLimitProvider>();
+        services.AddHostedService<SubscriptionExpiryService>();
 
         return services;
     }

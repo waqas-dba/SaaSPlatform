@@ -1,6 +1,4 @@
-﻿// FILE: CoreKit.Catalog/Interfaces/IProductService.cs  (updated)
-// FIX: Added paginated overload. Non-paged version retained for compatibility.
-
+﻿// CoreKit.Catalog/Interfaces/IProductService.cs
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Models;
 
@@ -17,19 +15,26 @@ public interface IProductService
         UpdateProductRequest request,
         CancellationToken ct = default);
 
-    Task<ProductDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<ProductDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken ct = default);
 
-    /// <summary>Returns ALL products — prefer the paged overload for API endpoints.</summary>
     Task<IReadOnlyList<ProductDto>> GetByStoreAsync(
         Guid storeId,
         CancellationToken ct = default);
 
-    /// <summary>Returns a paged slice of products for a store.</summary>
     Task<PagedResult<ProductDto>> GetByStorePagedAsync(
         Guid storeId,
         PagedQuery query,
         CancellationToken ct = default);
 
-    Task DeleteAsync(Guid id, CancellationToken ct = default);
-}
+    // NEW
+    Task<PagedResult<ProductListDto>> SearchAsync(
+        Guid storeId,
+        ProductFilterQuery filter,
+        CancellationToken ct = default);
 
+    Task DeleteAsync(
+        Guid id,
+        CancellationToken ct = default);
+}

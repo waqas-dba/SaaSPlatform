@@ -1,4 +1,4 @@
-﻿// CoreKit.Catalog/Services/ProductService.cs  — simplified after extraction
+﻿// CoreKit.Catalog/Services/ProductService.cs
 using System.Text.Json;
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
@@ -65,8 +65,7 @@ public class ProductService : IProductService
                 request.VariantGroupId.Value, storeInfo.TenantId, request.Variants, ct);
 
         var lockKey = LockKeyHelper.GuidToLockKey(request.StoreId);
-        await _productRepo.BeginTransactionAsync(ct);
-
+        var tx = await _productRepo.BeginTransactionAsync(ct);
         try
         {
             await _productRepo.ExecuteAdvisoryLockAsync(lockKey, ct);
@@ -130,9 +129,7 @@ public class ProductService : IProductService
     public async Task<PagedResult<ProductDto>> GetByStorePagedAsync(
         Guid storeId, PagedQuery query, CancellationToken ct = default)
     {
-        // FIX: lightweight projected query
         var paged = await _productRepo.GetByStorePagedProjectedAsync(storeId, query, ct);
-
         var dtos = paged.Items.Select(p => new ProductDto
         {
             Id = p.Id,
@@ -150,16 +147,38 @@ public class ProductService : IProductService
             dtos, paged.TotalCount, paged.Page, paged.PageSize);
     }
 
+    public async Task<PagedResult<ProductListDto>> SearchAsync(
+        Guid storeId,
+        ProductFilterQuery filter,
+        CancellationToken ct = default)
+    {
+        if (filter.MinPrice.HasValue &&
+            filter.MaxPrice.HasValue &&
+            filter.MinPrice > filter.MaxPrice)
+            throw new ArgumentException("MinPrice cannot be greater than MaxPrice.");
+
+        filter.PageSize = filter.PageSize switch
+        {
+            < 1 => 1,
+            > 100 => 100,
+            _ => filter.PageSize
+        };
+        filter.Page = filter.Page < 1 ? 1 : filter.Page;
+
+        return await _productRepo.SearchAsync(storeId, filter, ct);
+    }
+
     public async Task DeleteAsync(Guid id, CancellationToken ct = default)
     {
         var product = await _productRepo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException("Product not found.");
-
         _productRepo.Remove(product);
         await _productRepo.SaveChangesAsync(ct);
     }
 
-    // --- private helpers ---
+    // ---------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------
 
     private async Task EnforcePlanLimitsForCreateAsync(
         CreateProductRequest request, StoreInfo storeInfo, CancellationToken ct)
@@ -188,7 +207,6 @@ public class ProductService : IProductService
         if (_planLimit is null) return;
         var maxProducts = await _planLimit.GetMaxProductsAsync(tenantId, ct);
         if (!maxProducts.HasValue) return;
-
         var count = await _productRepo.CountByStoreAsync(storeId, ct);
         if (count >= maxProducts.Value)
             throw new InvalidOperationException("Product limit reached. Upgrade your plan.");
@@ -198,10 +216,8 @@ public class ProductService : IProductService
         Guid? addonGroupId, Guid tenantId, CancellationToken ct)
     {
         if (!addonGroupId.HasValue) return;
-
         var exists = await _addonGroupRepo.ExistsForTenantAsync(
             addonGroupId.Value, tenantId, ct);
-
         if (!exists)
             throw new KeyNotFoundException(
                 "Addon group not found or does not belong to this tenant.");
@@ -317,7 +333,6 @@ public class ProductService : IProductService
         {
             var template = await _variantValidator.ResolveTemplateAsync(
                 attr, storeTypeCode, ct);
-
             target.Add(new VariantAttributeValue
             {
                 Id = Guid.NewGuid(),

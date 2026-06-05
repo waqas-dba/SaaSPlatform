@@ -34,7 +34,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateService>();
         services.AddScoped<IVariantGroupService, VariantGroupService>();
         services.AddScoped<IVariantValidationService, VariantValidationService>();
-
+        // CoreKit.Catalog/Extensions/ServiceCollectionExtensions.cs — add new registrations
+        services.AddScoped<IProductImageService, ProductImageService>();
         configureStoreInfo(services);
 
         services.AddValidatorsFromAssemblyContaining < CreateProductRequestValidator > ();

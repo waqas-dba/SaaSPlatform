@@ -61,4 +61,13 @@ public class ProductsController : ApiControllerBase
         await _productService.DeleteAsync(id, ct);
         return DeletedResponse();
     }
+    // Add to ProductsController
+    [HttpGet("store/{storeId:guid}/search")]
+    [RequiresPermission(Permissions.Catalog.ProductsView)]
+    public async Task<IActionResult> Search(
+        Guid storeId, [FromQuery] ProductFilterQuery filter, CancellationToken ct)
+    {
+        var result = await _productService.SearchAsync(storeId, filter, ct);
+        return OkResponse(result);
+    }
 }
