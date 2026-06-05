@@ -37,4 +37,6 @@ public interface IProductService
     Task DeleteAsync(
         Guid id,
         CancellationToken ct = default);
+
+
 }

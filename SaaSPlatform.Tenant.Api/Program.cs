@@ -1,8 +1,10 @@
+// SaaSPlatform.Tenant.Api/Program.cs
 using Asp.Versioning;
 using CoreKit.Catalog.Extensions;
 using CoreKit.IAM.Extensions;
 using CoreKit.Infrastructure.Extensions;
 using CoreKit.Infrastructure.Middleware;
+using CoreKit.Order.Extensions;                     // <-- added for AddOrderModule
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.Tenant.Extensions;
 using CoreKit.Tenant.Middleware;
@@ -27,53 +29,33 @@ public class Program
 
             options.OnRejected = async (ctx, token) =>
             {
-                ctx.HttpContext.Response.StatusCode =
-                    StatusCodes.Status429TooManyRequests;
+                ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                 ctx.HttpContext.Response.ContentType = "application/json";
-
-                var retryAfter =
-                    ctx.Lease.TryGetMetadata(
-                        MetadataName.RetryAfter,
-                        out var retryDelay)
-                    ? (int)retryDelay.TotalSeconds
-                    : 60;
-
-                ctx.HttpContext.Response.Headers["Retry-After"] =
-                    retryAfter.ToString();
-
+                var retryAfter = ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryDelay)
+                    ? (int)retryDelay.TotalSeconds : 60;
+                ctx.HttpContext.Response.Headers["Retry-After"] = retryAfter.ToString();
                 await ctx.HttpContext.Response.WriteAsync(
-                    $"{{\"success\":false," +
-                    $"\"errorCode\":\"RATE_LIMITED\"," +
-                    $"\"message\":\"Too many requests. " +
-                    $"Please wait {retryAfter} seconds.\"}}",
-                    token);
+                    $"{{\"success\":false,\"errorCode\":\"RATE_LIMITED\",\"message\":\"Too many requests. Please wait {retryAfter} seconds.\"}}", token);
             };
 
             options.AddFixedWindowLimiter("store-create", cfg =>
             {
-                cfg.PermitLimit =
-                    builder.Environment.IsDevelopment() ? 50 : 10;
+                cfg.PermitLimit = builder.Environment.IsDevelopment() ? 50 : 10;
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
-
             options.AddFixedWindowLimiter("store-update", cfg =>
             {
-                cfg.PermitLimit =
-                    builder.Environment.IsDevelopment() ? 100 : 30;
+                cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
-
             options.AddFixedWindowLimiter("product-create", cfg =>
             {
-                cfg.PermitLimit =
-                    builder.Environment.IsDevelopment() ? 100 : 30;
+                cfg.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 30;
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
-
             options.AddFixedWindowLimiter("product-update", cfg =>
             {
-                cfg.PermitLimit =
-                    builder.Environment.IsDevelopment() ? 200 : 60;
+                cfg.PermitLimit = builder.Environment.IsDevelopment() ? 200 : 60;
                 cfg.Window = TimeSpan.FromMinutes(1);
             });
         });
@@ -81,22 +63,17 @@ public class Program
         builder.Services.AddHttpContextAccessor();
 
         // ------------------- Database -------------------
-        var connStr =
-            builder.Configuration.GetConnectionString("Postgres")
-            ?? throw new InvalidOperationException(
-                "Connection string 'Postgres' is missing from configuration.");
+        var connStr = builder.Configuration.GetConnectionString("Postgres")
+            ?? throw new InvalidOperationException("Connection string 'Postgres' is missing from configuration.");
 
         // ------------------- Module Registration -------------------
-        builder.Services.AddCoreKitIAM(
-    connStr,
-    builder.Configuration.GetSection("Jwt"),
-    options =>
-    {
-        options.EnableUserDocuments = true;
-        options.EnableUserIdentities = true;
-        options.EnableRoleDocumentRequirements = true;
-        options.EnableImpersonation = true;
-    });
+        builder.Services.AddCoreKitIAM(connStr, builder.Configuration.GetSection("Jwt"), options =>
+        {
+            options.EnableUserDocuments = true;
+            options.EnableUserIdentities = true;
+            options.EnableRoleDocumentRequirements = true;
+            options.EnableImpersonation = true;
+        });
 
         builder.Services.AddTenantKit(connStr, options =>
         {
@@ -110,8 +87,10 @@ public class Program
             services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
         });
 
-        builder.Services.AddCoreKitControllers();
+        // Register the Order module
+        builder.Services.AddOrderModule(connStr);
 
+        builder.Services.AddCoreKitControllers();
         builder.ValidateCoreKitConfiguration();
 
         // ------------------- Kestrel -------------------
@@ -134,7 +113,6 @@ public class Program
                         message = x.ErrorMessage
                     }))
                     .ToList();
-
                 return new ObjectResult(new
                 {
                     success = false,
@@ -142,9 +120,7 @@ public class Program
                     message = "One or more validation errors occurred.",
                     errors
                 })
-                {
-                    StatusCode = 422
-                };
+                { StatusCode = 422 };
             };
         });
 
@@ -167,24 +143,13 @@ public class Program
 
         // ------------------- App Pipeline -------------------
         var app = builder.Build();
-
-        // Reverse proxy support
-        app.UseForwardedHeaders(
-            new ForwardedHeadersOptions
-            {
-                ForwardedHeaders =
-                    ForwardedHeaders.XForwardedFor |
-                    ForwardedHeaders.XForwardedProto
-            });
-
-        if (!app.Environment.IsDevelopment())
+        app.UseForwardedHeaders(new ForwardedHeadersOptions
         {
-            app.UseHsts();
-        }
-
+            ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+        });
+        if (!app.Environment.IsDevelopment()) app.UseHsts();
         app.UseHttpsRedirection();
 
-        // Security headers
         app.Use(async (context, next) =>
         {
             context.Response.Headers["X-Frame-Options"] = "DENY";
@@ -192,28 +157,22 @@ public class Program
             context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             context.Response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
             context.Response.Headers["X-XSS-Protection"] = "0";
-            context.Response.Headers["Permissions-Policy"] =
-                "camera=(), microphone=(), geolocation=(), interest-cohort=()";
+            context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), interest-cohort=()";
             await next();
         });
 
         await app.PerformBootCheckAsync();
-
         app.UseMiddleware<RequestTracingMiddleware>();
         app.UseMiddleware<ExceptionMiddleware>();
-
         app.UseRouting();
         app.UseRateLimiter();
-
         app.UseAuthentication();
         app.UseMiddleware<TenantResolutionMiddleware>();
         app.UseMiddleware<TenantAuthorizationMiddleware>();
-
         app.UseAuthorization();
 
         app.MapGet("/ping", () => "pong");
         app.MapControllers();
-
         await app.RunAsync();
     }
 }

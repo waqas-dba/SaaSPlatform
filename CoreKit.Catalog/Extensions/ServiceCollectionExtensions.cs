@@ -2,6 +2,7 @@
 using CoreKit.Catalog.Persistence;
 using CoreKit.Catalog.Services;
 using CoreKit.Catalog.Validators;
+using CoreKit.SharedKernel.Interfaces;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,8 +35,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateService>();
         services.AddScoped<IVariantGroupService, VariantGroupService>();
         services.AddScoped<IVariantValidationService, VariantValidationService>();
-        // CoreKit.Catalog/Extensions/ServiceCollectionExtensions.cs — add new registrations
         services.AddScoped<IProductImageService, ProductImageService>();
+        services.AddScoped<IProductOrderInfoProvider, CatalogProductOrderInfoProvider>();
         configureStoreInfo(services);
 
         services.AddValidatorsFromAssemblyContaining < CreateProductRequestValidator > ();

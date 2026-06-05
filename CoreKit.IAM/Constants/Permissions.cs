@@ -104,6 +104,11 @@ public static class Permissions
         public const string TemplatesAssign = "catalog.templates.assign";
         public const string TemplatesToggleStore = "catalog.templates.toggle.store";
         public const string TemplatesView = "catalog.templates.view";
+
+        public const string OrdersView = "catalog.orders.view";
+        public const string OrdersCreate = "catalog.orders.create";
+        public const string OrdersUpdate = "catalog.orders.update";
+        public const string OrdersDelete = "catalog.orders.delete";
     }
 
     // Update the All list

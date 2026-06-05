@@ -12,6 +12,7 @@
   <Folder Name="/src/Modules/">
     <Project Path="CoreKit.Catalog/CoreKit.Catalog.csproj" Id="69343311-2717-48c1-afca-a27643f36fc5" />
     <Project Path="CoreKit.IAM/CoreKit.IAM.csproj" />
+    <Project Path="CoreKit.Order/CoreKit.Order.csproj" Id="207126aa-b67a-4ac4-9365-d8f63f279684" />
     <Project Path="CoreKit.Subscription/CoreKit.Subscription.csproj" Id="29c4d424-b996-47df-8028-fa63836a4cab" />
     <Project Path="CoreKit.Tenant/CoreKit.Tenant.csproj" />
   </Folder>

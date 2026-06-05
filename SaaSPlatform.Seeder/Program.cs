@@ -1,10 +1,13 @@
-﻿using CoreKit.Catalog.Persistence;
+﻿// SaaSPlatform.Seeder/Program.cs
+using CoreKit.Catalog.Persistence;
 using CoreKit.Catalog.Persistence.Seeders;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Services;
+using CoreKit.Order.Persistence;                // added for Order module
+using CoreKit.Order.Persistence.Seeders;        // added for Order seeder
 using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Subscription.Persistence;
 using CoreKit.Subscription.Persistence.Seeders;
@@ -46,6 +49,10 @@ builder.Services.AddDbContext<SubscriptionDbContext>(options =>
 builder.Services.AddDbContext<CatalogDbContext>(options =>
     options.UseNpgsql(connStr));
 
+// ---- Order Module ----
+builder.Services.AddDbContext<OrderDbContext>(options =>
+    options.UseNpgsql(connStr));
+
 builder.Services.AddSingleton(new IamOptions
 {
     RunMigrationsOnBootstrap = true,
@@ -70,10 +77,12 @@ builder.Services.AddScoped<TenantSeeder>();
 builder.Services.AddScoped<SubscriptionSeeder>();
 builder.Services.AddScoped<AttributeTemplateSeeder>();
 builder.Services.AddScoped<VariantAttributeTemplateSeeder>();
-
-// ── Optional group seeders (register them even if you don't call them) ──
 builder.Services.AddScoped<VariantGroupSeeder>();
 builder.Services.AddScoped<AddonGroupSeeder>();
+
+// Order seeder
+builder.Services.AddScoped<OrderSeeder>();
+
 builder.Services.AddSingleton<ITenantContext>(new SeederTenantContext());
 var app = builder.Build();
 
@@ -89,6 +98,7 @@ try
     var tenantDb = services.GetRequiredService<TenantDbContext>();
     var subDb = services.GetRequiredService<SubscriptionDbContext>();
     var catalogDb = services.GetRequiredService<CatalogDbContext>();
+    var orderDb = services.GetRequiredService<OrderDbContext>();
 
     if (!await iamDb.Database.CanConnectAsync())
     {
@@ -119,6 +129,11 @@ try
     logger.LogInformation("Applying Catalog migrations...");
     await catalogDb.Database.MigrateAsync();
     logger.LogInformation("Catalog migrations applied successfully.");
+
+    // Apply Order migrations
+    logger.LogInformation("Applying Order migrations...");
+    await orderDb.Database.MigrateAsync();
+    logger.LogInformation("Order migrations applied successfully.");
 
     Console.WriteLine();
     Console.WriteLine("==============================================");
@@ -164,7 +179,6 @@ try
     await catalogSeeder.SeedAsync();
     logger.LogInformation("Catalog attribute templates seeded successfully.");
 
-    // ── Variant attribute templates ─────────────────────────────────
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING VARIANT ATTRIBUTE TEMPLATES");
@@ -174,15 +188,23 @@ try
     await variantSeeder.SeedAsync();
     logger.LogInformation("Variant attribute templates seeded successfully.");
 
-//Optional: seed variant groups(currently not used by Postman collection)
-     var variantGroupSeeder = services.GetRequiredService<VariantGroupSeeder>();
+    var variantGroupSeeder = services.GetRequiredService<VariantGroupSeeder>();
     await variantGroupSeeder.SeedAsync();
     logger.LogInformation("Variant groups seeded successfully.");
 
-//Optional: seed addon groups(currently not used by Postman collection)
-     var addonGroupSeeder = services.GetRequiredService<AddonGroupSeeder>();
+    var addonGroupSeeder = services.GetRequiredService<AddonGroupSeeder>();
     await addonGroupSeeder.SeedAsync();
     logger.LogInformation("Addon groups seeded successfully.");
+
+    // ---- Seed Orders ----
+    Console.WriteLine();
+    Console.WriteLine("==============================================");
+    Console.WriteLine("  SEEDING DEMO ORDERS");
+    Console.WriteLine("==============================================");
+
+    var orderSeeder = services.GetRequiredService<OrderSeeder>();
+    await orderSeeder.SeedAsync();
+    logger.LogInformation("Demo orders seeded successfully.");
 
     Console.WriteLine();
     Console.WriteLine("==============================================");
@@ -198,6 +220,7 @@ try
     Console.WriteLine("  ✓ Default admin user (phone: 0000000000)");
     Console.WriteLine("  ✓ Catalog attribute templates (restaurant, grocery, ...)");
     Console.WriteLine("  ✓ Variant attribute templates (restaurant, grocery, ...)");
+    Console.WriteLine("  ✓ Demo orders (collection & delivery)");
     Console.WriteLine();
     Console.WriteLine("IMPORTANT:");
     Console.WriteLine("  Set 'Seeder:AdminPassword' in your configuration");
@@ -225,6 +248,7 @@ catch (Exception ex)
     Console.WriteLine();
     throw;
 }
+
 internal sealed class SeederTenantContext : ITenantContext
 {
     public Guid? TenantId => null;
