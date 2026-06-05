@@ -230,9 +230,18 @@ public class ProductService : IProductService
             product.Name = request.Name;
             product.Slug = SlugHelper.Generate(request.Name);
         }
-        if (request.Description is not null) product.Description = request.Description;
-        if (request.BasePrice.HasValue) product.BasePrice = request.BasePrice.Value;
-        if (request.IsActive.HasValue) product.IsActive = request.IsActive.Value;
+        if (request.Description is not null)
+            product.Description = request.Description;
+        if (request.BasePrice.HasValue)
+            product.BasePrice = request.BasePrice.Value;
+        if (request.IsActive.HasValue)
+            product.IsActive = request.IsActive.Value;
+
+        // ── Apply new availability flags ─────────────────────────────────────
+        if (request.AvailableForCollection.HasValue)
+            product.AvailableForCollection = request.AvailableForCollection.Value;
+        if (request.AvailableForDelivery.HasValue)
+            product.AvailableForDelivery = request.AvailableForDelivery.Value;
     }
 
     private async Task ApplyAddonGroupUpdateAsync(

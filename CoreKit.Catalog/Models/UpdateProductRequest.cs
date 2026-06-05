@@ -1,4 +1,5 @@
-﻿namespace CoreKit.Catalog.Models;
+﻿// CoreKit.Catalog/Models/UpdateProductRequest.cs
+namespace CoreKit.Catalog.Models;
 
 public class UpdateProductRequest
 {
@@ -9,4 +10,8 @@ public class UpdateProductRequest
     public Guid? AddonGroupId { get; set; }
     public Guid? VariantGroupId { get; set; }
     public List<CreateVariantRequest>? Variants { get; set; }
+
+    // ── New hybrid availability flags ────────────────────────────────────
+    public bool? AvailableForCollection { get; set; }
+    public bool? AvailableForDelivery { get; set; }
 }

@@ -17,21 +17,23 @@ public class Product : AuditableEntity, ITenantScoped, IStoreScoped
     public bool TrackInventory { get; set; } = false;
     public bool IsActive { get; set; } = true;
 
+    // ── New hybrid availability flags ────────────────────────────────────
+    public bool AvailableForCollection { get; set; } = true;
+    public bool AvailableForDelivery { get; set; } = true;
+
     // Addon group reference
     public Guid? AddonGroupId { get; set; }
     public AddonGroup? AddonGroup { get; set; }
 
-    // Variant group reference — defines which variant dimensions
+    // Variant group reference – defines which variant dimensions
     // this product supports and what values are available
     public Guid? VariantGroupId { get; set; }
     public VariantGroup? VariantGroup { get; set; }
 
-    public ICollection<ProductImage> Images { get; set; }
-        = new List<ProductImage>();
-    public ICollection<ProductAttributeValue> AttributeValues { get; set; }
-        = new List<ProductAttributeValue>();
-    public ICollection<ProductVariant> Variants { get; set; }
-        = new List<ProductVariant>();
+    public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+    public ICollection<ProductAttributeValue> AttributeValues { get; set; } = new List<ProductAttributeValue>();
+    public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 
+    // Full‑text search vector
     public NpgsqlTsVector SearchVector { get; set; } = null!;
 }

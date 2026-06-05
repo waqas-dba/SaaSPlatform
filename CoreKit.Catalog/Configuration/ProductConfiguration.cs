@@ -60,6 +60,9 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasForeignKey(x => x.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Property(x => x.AvailableForCollection).HasDefaultValue(true);
+        builder.Property(x => x.AvailableForDelivery).HasDefaultValue(true);
+
         // CoreKit.Catalog | Configuration/ProductConfiguration.cs (add after HasMany Images)
         builder.Property(x => x.SearchVector)
             .HasColumnType("tsvector")
