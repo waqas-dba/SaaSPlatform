@@ -1,42 +1,12 @@
-﻿// CoreKit.Catalog/Interfaces/IProductService.cs
-using CoreKit.Catalog.Models;
-using CoreKit.SharedKernel.Models;
+﻿using CoreKit.Catalog.Models;
 
 namespace CoreKit.Catalog.Interfaces;
 
-public interface IProductService
+public interface ICategoryService
 {
-    Task<ProductDto> CreateAsync(
-        CreateProductRequest request,
-        CancellationToken ct = default);
-
-    Task<ProductDto> UpdateAsync(
-        Guid id,
-        UpdateProductRequest request,
-        CancellationToken ct = default);
-
-    Task<ProductDto?> GetByIdAsync(
-        Guid id,
-        CancellationToken ct = default);
-
-    Task<IReadOnlyList<ProductDto>> GetByStoreAsync(
-        Guid storeId,
-        CancellationToken ct = default);
-
-    Task<PagedResult<ProductDto>> GetByStorePagedAsync(
-        Guid storeId,
-        PagedQuery query,
-        CancellationToken ct = default);
-
-    // NEW
-    Task<PagedResult<ProductListDto>> SearchAsync(
-        Guid storeId,
-        ProductFilterQuery filter,
-        CancellationToken ct = default);
-
-    Task DeleteAsync(
-        Guid id,
-        CancellationToken ct = default);
-
-
+    Task<List<CategoryDto>> GetTreeAsync(Guid tenantId, CancellationToken ct = default);
+    Task<CategoryDto?> GetByIdAsync(Guid tenantId, Guid id, CancellationToken ct = default);
+    Task<CategoryDto> CreateAsync(Guid tenantId, CreateCategoryRequest request, CancellationToken ct = default);
+    Task<CategoryDto> UpdateAsync(Guid tenantId, Guid id, UpdateCategoryRequest request, CancellationToken ct = default);
+    Task DeleteAsync(Guid tenantId, Guid id, CancellationToken ct = default);
 }

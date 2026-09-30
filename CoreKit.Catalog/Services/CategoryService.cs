@@ -1,158 +1,161 @@
-﻿// CoreKit.Catalog | Services/CategoryService.cs
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Exceptions;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
+
 namespace CoreKit.Catalog.Services;
 
-public class CategoryService : ICategoryService
+public sealed class CategoryService : ICategoryService
 {
     private readonly ICategoryRepository _categoryRepo;
     private readonly IPlanLimitProvider? _planLimit;
-    private readonly ILogger<CategoryService> _logger;
-    public CategoryService(
-        ICategoryRepository categoryRepo,
-        ILogger<CategoryService> logger,
-        IPlanLimitProvider? planLimit = null)
+
+    public CategoryService(ICategoryRepository categoryRepo, IPlanLimitProvider? planLimit = null)
     {
         _categoryRepo = categoryRepo;
-        _logger = logger;
         _planLimit = planLimit;
     }
-    public async Task<List<CategoryDto>> GetByTenantAsync(
-        Guid tenantId,
-        Guid? storeId = null,
-        CancellationToken ct = default)
+
+    public async Task<List<CategoryDto>> GetTreeAsync(Guid tenantId, CancellationToken ct = default)
     {
-        var all = await _categoryRepo.GetTreeAsync(tenantId, storeId, ct);
-        return BuildTree(all, parentId: null);
+        var all = await _categoryRepo.GetAllAsync(tenantId, ct);
+        var byParent = all.ToLookup(c => c.ParentCategoryId);
+
+        return byParent[null].Select(c => BuildNode(c, byParent)).ToList();
     }
-    public async Task<CategoryDto?> GetByIdAsync(
-        Guid id,
-        CancellationToken ct = default)
+
+    public async Task<CategoryDto?> GetByIdAsync(Guid tenantId, Guid id, CancellationToken ct = default)
     {
-        var root = await _categoryRepo.GetByIdAsync(id, ct);
+        var all = await _categoryRepo.GetAllAsync(tenantId, ct);
+        var root = all.FirstOrDefault(c => c.Id == id);
         if (root is null) return null;
-        var allTenant = await _categoryRepo.GetTreeAsync(root.TenantId, root.StoreId, ct);
-        var subtree = ExtractSubtree(allTenant, id);
-        return MapToDto(subtree.First(c => c.Id == id), subtree);
+
+        var byParent = all.ToLookup(c => c.ParentCategoryId);
+        return BuildNode(root, byParent);
     }
+
     public async Task<CategoryDto> CreateAsync(
-        CreateCategoryRequest request,
-        CancellationToken ct = default)
+        Guid tenantId, CreateCategoryRequest request, CancellationToken ct = default)
     {
-        var lockKey = LockKeyHelper.GuidToLockKey(request.TenantId);
-        using var tx = await _categoryRepo.BeginTransactionAsync(ct);
+        var name = request.Name.Trim();
+        if (name.Length == 0)
+            throw new ArgumentException("Category name is required.");
+
+        await _categoryRepo.BeginTransactionAsync(ct);
         try
         {
-            await _categoryRepo.ExecuteAdvisoryLockAsync(lockKey, ct);
-            int level = 1;
+            await _categoryRepo.ExecuteAdvisoryLockAsync(LockKeyHelper.GuidToLockKey(tenantId), ct);
+            await EnforceCategoryCountLimitAsync(tenantId, ct);
+
+            var level = 1;
             if (request.ParentCategoryId.HasValue)
             {
-                var parent = await _categoryRepo.GetByIdAsync(request.ParentCategoryId.Value, ct)
+                var parent = await _categoryRepo.GetByIdAsync(tenantId, request.ParentCategoryId.Value, ct)
                     ?? throw new KeyNotFoundException("Parent category not found.");
+
                 if (_planLimit is not null)
                 {
-                    var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(request.TenantId, ct);
+                    var maxLevel = await _planLimit.GetMaxCategoryLevelAsync(tenantId, ct);
                     if (maxLevel > 0 && parent.Level >= maxLevel)
-                        throw new ForbiddenException($"Category depth limited to {maxLevel} level(s) by your subscription.");
+                        throw new ForbiddenException(
+                            $"Category depth is limited to {maxLevel} level(s) by your subscription.");
                 }
+
                 level = parent.Level + 1;
             }
+
+            var baseSlug = CatalogGuards.BaseSlug(name);
+            var taken = await _categoryRepo.GetSlugsStartingWithAsync(tenantId, baseSlug, ct);
+
             var category = new Category
             {
                 Id = Guid.NewGuid(),
-                Name = request.Name,
-                Slug = SlugHelper.Generate(request.Name),
+                TenantId = tenantId,
+                Name = name,
+                Slug = CatalogGuards.PickUniqueSlug(baseSlug, taken),
                 IconUrl = request.IconUrl,
+                SortOrder = request.SortOrder,
                 ParentCategoryId = request.ParentCategoryId,
-                StoreTypeCode = request.StoreTypeCode,
-                StoreId = request.StoreId,
-                TenantId = request.TenantId,
                 Level = level
             };
+
             _categoryRepo.Add(category);
             await _categoryRepo.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-            return MapToDto(category, new List<Category>());
+            await _categoryRepo.CommitAsync(ct);
+
+            return CatalogMapper.ToDto(category);
         }
         catch
         {
-            await tx.RollbackAsync(ct);
+            await _categoryRepo.RollbackAsync(ct);
             throw;
         }
     }
-    public async Task UpdateAsync(
-        Guid id,
-        UpdateCategoryRequest request,
-        CancellationToken ct = default)
+
+    public async Task<CategoryDto> UpdateAsync(
+        Guid tenantId, Guid id, UpdateCategoryRequest request, CancellationToken ct = default)
     {
-        var category = await _categoryRepo.GetByIdAsync(id, ct)
+        var category = await _categoryRepo.GetByIdAsync(tenantId, id, ct)
             ?? throw new KeyNotFoundException("Category not found.");
+
         if (request.Name is not null)
         {
-            category.Name = request.Name;
-            category.Slug = SlugHelper.Generate(request.Name);
+            var name = request.Name.Trim();
+            if (name.Length == 0)
+                throw new ArgumentException("Category name cannot be empty.");
+
+            if (!string.Equals(name, category.Name, StringComparison.Ordinal))
+            {
+                var baseSlug = CatalogGuards.BaseSlug(name);
+                var taken = await _categoryRepo.GetSlugsStartingWithAsync(tenantId, baseSlug, ct);
+                taken.Remove(category.Slug);
+
+                category.Name = name;
+                category.Slug = CatalogGuards.PickUniqueSlug(baseSlug, taken);
+            }
         }
-        if (request.IconUrl is not null)
-            category.IconUrl = request.IconUrl;
-        if (request.StoreTypeCode is not null)
-            category.StoreTypeCode = request.StoreTypeCode;
-        _categoryRepo.Update(category);
+
+        if (request.IconUrl is not null) category.IconUrl = request.IconUrl;
+        if (request.SortOrder.HasValue) category.SortOrder = request.SortOrder.Value;
+        if (request.IsActive.HasValue) category.IsActive = request.IsActive.Value;
+
         await _categoryRepo.SaveChangesAsync(ct);
+        return CatalogMapper.ToDto(category);
     }
-    public async Task DeleteAsync(Guid id, CancellationToken ct = default)
+
+    public async Task DeleteAsync(Guid tenantId, Guid id, CancellationToken ct = default)
     {
-        var hasChildren = await _categoryRepo.HasChildrenAsync(id, ct);
-        if (hasChildren)
+        var category = await _categoryRepo.GetByIdAsync(tenantId, id, ct)
+            ?? throw new KeyNotFoundException("Category not found.");
+
+        if (await _categoryRepo.HasChildrenAsync(tenantId, id, ct))
             throw new InvalidOperationException("Cannot delete a category with subcategories.");
 
-        // FIX: Check for existing products before deletion
-        var hasProducts = await _categoryRepo.HasProductsAsync(id, ct);
-        if (hasProducts)
+        if (await _categoryRepo.HasProductsAsync(tenantId, id, ct))
             throw new InvalidOperationException("Cannot delete a category that still contains products.");
 
-        var category = await _categoryRepo.GetByIdAsync(id, ct)
-            ?? throw new KeyNotFoundException("Category not found.");
-        _categoryRepo.Delete(category);
+        _categoryRepo.Remove(category);
         await _categoryRepo.SaveChangesAsync(ct);
     }
-    private static List<Category> ExtractSubtree(List<Category> all, Guid rootId)
+
+    private async Task EnforceCategoryCountLimitAsync(Guid tenantId, CancellationToken ct)
     {
-        var result = new List<Category>();
-        var queue = new Queue<Guid>();
-        queue.Enqueue(rootId);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            var node = all.FirstOrDefault(c => c.Id == current);
-            if (node is null) continue;
-            result.Add(node);
-            foreach (var child in all.Where(c => c.ParentCategoryId == current))
-                queue.Enqueue(child.Id);
-        }
-        return result;
+        if (_planLimit is null) return;
+
+        var max = await _planLimit.GetMaxCategoriesAsync(tenantId, ct);
+        if (!max.HasValue) return;
+
+        var count = await _categoryRepo.CountByTenantAsync(tenantId, ct);
+        if (count >= max.Value)
+            throw new InvalidOperationException("Category limit reached. Upgrade your plan.");
     }
-    private static List<CategoryDto> BuildTree(List<Category> all, Guid? parentId)
-        => all
-            .Where(c => c.ParentCategoryId == parentId)
-            .Select(c => MapToDto(c, all))
-            .ToList();
-    private static CategoryDto MapToDto(Category category, List<Category> all) => new()
+
+    private static CategoryDto BuildNode(Category category, ILookup<Guid?, Category> byParent)
     {
-        Id = category.Id,
-        Name = category.Name,
-        Slug = category.Slug,
-        IconUrl = category.IconUrl,
-        ParentCategoryId = category.ParentCategoryId,
-        Level = category.Level,
-        StoreTypeCode = category.StoreTypeCode,
-        StoreId = category.StoreId,
-        TenantId = category.TenantId,
-        SubCategories = BuildTree(all, category.Id)
-    };
+        var dto = CatalogMapper.ToDto(category);
+        dto.SubCategories = byParent[category.Id].Select(c => BuildNode(c, byParent)).ToList();
+        return dto;
+    }
 }

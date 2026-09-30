@@ -19,27 +19,22 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<CatalogDbContext>(options =>
             options.UseNpgsql(connectionString));
 
-        // Rule 2: Repository registrations belong inside the module
         services.AddScoped<IProductRepository, ProductRepository>();
-        services.AddScoped < ICategoryRepository, CategoryRepository > ();
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IAddonGroupRepository, AddonGroupRepository>();
-        services.AddScoped<IVariantGroupRepository, VariantGroupRepository>();
-        services.AddScoped<IVariantAttributeTemplateRepository, VariantAttributeTemplateRepository>();
+        services.AddScoped<IStoreProductRepository, StoreProductRepository>();
 
-        services.AddScoped < ICategoryService, CategoryService > ();
+        services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductVariantService, ProductVariantService>();
-        services.AddScoped<IProductAttributeTemplateService, ProductAttributeTemplateService>();
-        services.AddScoped<IProductAttributeGroupService, ProductAttributeGroupService>();
         services.AddScoped<IAddonService, AddonService>();
-        services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateService>();
-        services.AddScoped<IVariantGroupService, VariantGroupService>();
-        services.AddScoped<IVariantValidationService, VariantValidationService>();
         services.AddScoped<IProductImageService, ProductImageService>();
+        services.AddScoped<IStoreMenuService, StoreMenuService>();
         services.AddScoped<IProductOrderInfoProvider, CatalogProductOrderInfoProvider>();
+
         configureStoreInfo(services);
 
-        services.AddValidatorsFromAssemblyContaining < CreateProductRequestValidator > ();
+        services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>();
 
         return services;
     }

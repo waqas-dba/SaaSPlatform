@@ -1,5 +1,4 @@
-﻿// CoreKit.Catalog/Persistence/ProductRepository.cs
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Models;
@@ -8,129 +7,65 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CoreKit.Catalog.Persistence;
 
-public class ProductRepository : IProductRepository
+public sealed class ProductRepository : IProductRepository
 {
     private readonly CatalogDbContext _db;
     private IDbContextTransaction? _currentTransaction;
 
     public ProductRepository(CatalogDbContext db) => _db = db;
 
-    public Task<Product?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        => _db.Products
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
-    public Task<Product?> GetByIdWithDetailsAsync(Guid id, CancellationToken ct = default)
-        => _db.Products
-            .AsSplitQuery()
-            .Include(p => p.Category)
-            .Include(p => p.Images.OrderBy(i => i.SortOrder))
-            .Include(p => p.AttributeValues).ThenInclude(av => av.Template)
-            .Include(p => p.Variants).ThenInclude(v => v.AttributeValues)
-                .ThenInclude(va => va.Template)
-            .Include(p => p.AddonGroup)
-                .ThenInclude(ag => ag!.Addons.Where(a => a.IsActive))
-            .Include(p => p.VariantGroup).ThenInclude(vg => vg!.Options)
-                .ThenInclude(o => o.Template)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
-
-    public async Task<IReadOnlyList<Product>> GetByStoreAsync(
-        Guid storeId, CancellationToken ct = default)
-        => await _db.Products
-            .AsNoTracking()
-            .AsSplitQuery()
-            .Include(p => p.Category)
-            .Include(p => p.Images.OrderBy(i => i.SortOrder))
-            .Include(p => p.AttributeValues).ThenInclude(av => av.Template)
-            .Include(p => p.Variants).ThenInclude(v => v.AttributeValues)
-                .ThenInclude(va => va.Template)
-            .Include(p => p.AddonGroup)
-                .ThenInclude(ag => ag!.Addons.Where(a => a.IsActive))
-            .Include(p => p.VariantGroup).ThenInclude(vg => vg!.Options)
-                .ThenInclude(o => o.Template)
-            .Where(p => p.StoreId == storeId)
-            .OrderBy(p => p.Name)
-            .ToListAsync(ct);
-
-    public async Task<PagedResult<Product>> GetByStorePagedAsync(
-        Guid storeId, PagedQuery query, CancellationToken ct = default)
+    public Task<Product?> GetByIdWithDetailsAsync(
+        Guid tenantId, Guid id, bool track, CancellationToken ct = default)
     {
-        var baseQuery = _db.Products
-            .AsNoTracking()
-            .Where(p => p.StoreId == storeId);
-
-        var totalCount = await baseQuery.CountAsync(ct);
-        if (totalCount == 0)
-            return PagedResult<Product>.From(
-                Array.Empty<Product>(), 0, query.Page, query.PageSize);
-
-        var items = await baseQuery
+        IQueryable<Product> query = _db.Products
+            .Where(p => p.TenantId == tenantId && p.Id == id)
             .AsSplitQuery()
             .Include(p => p.Category)
-            .Include(p => p.Images.OrderBy(i => i.SortOrder))
-            .Include(p => p.AttributeValues).ThenInclude(av => av.Template)
-            .Include(p => p.Variants).ThenInclude(v => v.AttributeValues)
-                .ThenInclude(va => va.Template)
-            .Include(p => p.AddonGroup)
-                .ThenInclude(ag => ag!.Addons.Where(a => a.IsActive))
-            .Include(p => p.VariantGroup).ThenInclude(vg => vg!.Options)
-                .ThenInclude(o => o.Template)
-            .OrderBy(p => p.Name)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .ToListAsync(ct);
+            .Include(p => p.Variants)
+            .Include(p => p.Images)
+            .Include(p => p.AddonGroupLinks)
+                .ThenInclude(l => l.AddonGroup)
+                    .ThenInclude(g => g.Addons)
+            .Include(p => p.StoreProducts);
 
-        return PagedResult<Product>.From(items, totalCount, query.Page, query.PageSize);
+        if (!track) query = query.AsNoTracking();
+        return query.FirstOrDefaultAsync(ct);
     }
 
-    public async Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(
-        Guid storeId, PagedQuery query, CancellationToken ct = default)
+    public Task<Product?> GetByIdWithVariantsAsync(
+        Guid tenantId, Guid id, bool track, CancellationToken ct = default)
     {
-        var baseQuery = _db.Products.Where(p => p.StoreId == storeId);
+        IQueryable<Product> query = _db.Products
+            .Where(p => p.TenantId == tenantId && p.Id == id)
+            .Include(p => p.Variants);
 
-        var totalCount = await baseQuery.CountAsync(ct);
-        if (totalCount == 0)
-            return PagedResult<ProductListDto>.From(
-                Array.Empty<ProductListDto>(), 0, query.Page, query.PageSize);
+        if (!track) query = query.AsNoTracking();
+        return query.FirstOrDefaultAsync(ct);
+    }
 
-        var items = await baseQuery
-            .OrderBy(p => p.Name)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(p => new ProductListDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Slug = p.Slug,
-                BasePrice = p.BasePrice,
-                CategoryName = p.Category.Name,
-                PrimaryImageUrl = p.Images
-                    .OrderBy(i => i.SortOrder)
-                    .Select(i => i.ImageUrl)
-                    .FirstOrDefault(),
-                IsActive = p.IsActive
-            })
-            .ToListAsync(ct);
+    public Task<Product?> GetByIdWithImagesAsync(
+        Guid tenantId, Guid id, bool track, CancellationToken ct = default)
+    {
+        IQueryable<Product> query = _db.Products
+            .Where(p => p.TenantId == tenantId && p.Id == id)
+            .Include(p => p.Images);
 
-        return PagedResult<ProductListDto>.From(
-            items, totalCount, query.Page, query.PageSize);
+        if (!track) query = query.AsNoTracking();
+        return query.FirstOrDefaultAsync(ct);
     }
 
     public async Task<PagedResult<ProductListDto>> SearchAsync(
-        Guid storeId, ProductFilterQuery filter, CancellationToken ct = default)
+        Guid tenantId, ProductFilterQuery filter, CancellationToken ct = default)
     {
         var query = _db.Products
             .AsNoTracking()
-            .Where(p => p.StoreId == storeId);
+            .Where(p => p.TenantId == tenantId);
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
-            var searchTerm = filter.Search.Trim();
-            // websearch_to_tsquery handles arbitrary user input safely
-            // (handles special chars, unbalanced quotes, etc.)
+            var term = filter.Search.Trim();
             query = query.Where(p =>
-                p.SearchVector.Matches(
-                    EF.Functions.WebSearchToTsQuery("english", searchTerm)));
+                p.SearchVector.Matches(EF.Functions.WebSearchToTsQuery("english", term)));
         }
 
         if (filter.CategoryId.HasValue)
@@ -148,7 +83,7 @@ public class ProductRepository : IProductRepository
         var totalCount = await query.CountAsync(ct);
         if (totalCount == 0)
             return PagedResult<ProductListDto>.From(
-                Array.Empty<ProductListDto>(), 0, filter.Page, filter.PageSize);
+                new List<ProductListDto>(), 0, filter.Page, filter.PageSize);
 
         var items = await query
             .OrderBy(p => p.Name)
@@ -160,33 +95,122 @@ public class ProductRepository : IProductRepository
                 Name = p.Name,
                 Slug = p.Slug,
                 BasePrice = p.BasePrice,
+                CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name,
                 PrimaryImageUrl = p.Images
-                    .OrderBy(i => i.SortOrder)
+                    .OrderByDescending(i => i.IsPrimary)
+                    .ThenBy(i => i.SortOrder)
                     .Select(i => i.ImageUrl)
                     .FirstOrDefault(),
-                IsActive = p.IsActive
+                IsActive = p.IsActive,
+                IsVegetarian = p.IsVegetarian
             })
             .ToListAsync(ct);
 
-        return PagedResult<ProductListDto>.From(
-            items, totalCount, filter.Page, filter.PageSize);
+        return PagedResult<ProductListDto>.From(items, totalCount, filter.Page, filter.PageSize);
     }
 
-    public Task<int> CountByStoreAsync(Guid storeId, CancellationToken ct = default)
-        => _db.Products.CountAsync(p => p.StoreId == storeId, ct);
+    public async Task<PagedResult<StoreMenuItemDto>> GetStoreMenuAsync(
+        Guid tenantId, Guid storeId, ProductFilterQuery filter, CancellationToken ct = default)
+    {
+        var query = _db.StoreProducts
+            .AsNoTracking()
+            .Where(sp => sp.TenantId == tenantId && sp.StoreId == storeId);
 
-    public Task<bool> ExistsBySlugAsync(
-        string slug, Guid storeId, CancellationToken ct = default)
-        => _db.Products.AnyAsync(
-            p => p.Slug == slug && p.StoreId == storeId, ct);
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim();
+            query = query.Where(sp =>
+                sp.Product.SearchVector.Matches(EF.Functions.WebSearchToTsQuery("english", term)));
+        }
+
+        if (filter.CategoryId.HasValue)
+            query = query.Where(sp => sp.Product.CategoryId == filter.CategoryId.Value);
+
+        if (filter.MinPrice.HasValue)
+            query = query.Where(sp => (sp.PriceOverride ?? sp.Product.BasePrice) >= filter.MinPrice.Value);
+
+        if (filter.MaxPrice.HasValue)
+            query = query.Where(sp => (sp.PriceOverride ?? sp.Product.BasePrice) <= filter.MaxPrice.Value);
+
+        if (filter.IsActive.HasValue)
+            query = query.Where(sp => sp.Product.IsActive == filter.IsActive.Value);
+
+        if (filter.IsAvailable.HasValue)
+            query = query.Where(sp => sp.IsAvailable == filter.IsAvailable.Value);
+
+        var totalCount = await query.CountAsync(ct);
+        if (totalCount == 0)
+            return PagedResult<StoreMenuItemDto>.From(
+                new List<StoreMenuItemDto>(), 0, filter.Page, filter.PageSize);
+
+        var items = await query
+            .OrderBy(sp => sp.Product.Category.SortOrder)
+            .ThenBy(sp => sp.SortOrder)
+            .ThenBy(sp => sp.Product.Name)
+            .Skip(filter.Skip)
+            .Take(filter.PageSize)
+            .Select(sp => new StoreMenuItemDto
+            {
+                ProductId = sp.ProductId,
+                Name = sp.Product.Name,
+                Slug = sp.Product.Slug,
+                CategoryId = sp.Product.CategoryId,
+                CategoryName = sp.Product.Category.Name,
+                PrimaryImageUrl = sp.Product.Images
+                    .OrderByDescending(i => i.IsPrimary)
+                    .ThenBy(i => i.SortOrder)
+                    .Select(i => i.ImageUrl)
+                    .FirstOrDefault(),
+                IsVegetarian = sp.Product.IsVegetarian,
+                BasePrice = sp.Product.BasePrice,
+                PriceOverride = sp.PriceOverride,
+                EffectivePrice = sp.PriceOverride ?? sp.Product.BasePrice,
+                IsActive = sp.Product.IsActive,
+                IsAvailable = sp.IsAvailable,
+                SortOrder = sp.SortOrder
+            })
+            .ToListAsync(ct);
+
+        return PagedResult<StoreMenuItemDto>.From(items, totalCount, filter.Page, filter.PageSize);
+    }
+
+    public Task<int> CountByTenantAsync(Guid tenantId, CancellationToken ct = default)
+        => _db.Products.CountAsync(p => p.TenantId == tenantId, ct);
+
+    public async Task<HashSet<string>> GetSlugsStartingWithAsync(
+        Guid tenantId, string prefix, CancellationToken ct = default)
+    {
+        var slugs = await _db.Products
+            .IgnoreQueryFilters()
+            .Where(p => p.TenantId == tenantId && !p.IsDeleted && p.Slug.StartsWith(prefix))
+            .Select(p => p.Slug)
+            .ToListAsync(ct);
+
+        return new HashSet<string>(slugs, StringComparer.Ordinal);
+    }
+
+    public async Task<HashSet<Guid>> GetExistingIdsAsync(
+        Guid tenantId, IReadOnlyCollection<Guid> ids, CancellationToken ct = default)
+    {
+        var found = await _db.Products
+            .Where(p => p.TenantId == tenantId && ids.Contains(p.Id))
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        return new HashSet<Guid>(found);
+    }
 
     public void Add(Product product) => _db.Products.Add(product);
-    public void Update(Product product) => _db.Products.Update(product);
     public void Remove(Product product) => _db.Products.Remove(product);
+    public void AddVariant(ProductVariant variant) => _db.ProductVariants.Add(variant);
+    public void RemoveVariant(ProductVariant variant) => _db.ProductVariants.Remove(variant);
+    public void AddImage(ProductImage image) => _db.ProductImages.Add(image);
+    public void RemoveImage(ProductImage image) => _db.ProductImages.Remove(image);
+    public void AddAddonLink(ProductAddonGroup link) => _db.ProductAddonGroups.Add(link);
+    public void RemoveAddonLink(ProductAddonGroup link) => _db.ProductAddonGroups.Remove(link);
 
-    public async Task<IDbContextTransaction> BeginTransactionAsync(
-        CancellationToken ct = default)
+    public async Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
         _currentTransaction = await _db.Database.BeginTransactionAsync(ct);
         return _currentTransaction;
@@ -195,8 +219,8 @@ public class ProductRepository : IProductRepository
     public async Task CommitAsync(CancellationToken ct = default)
     {
         if (_currentTransaction is null)
-            throw new InvalidOperationException(
-                "No active transaction to commit.");
+            throw new InvalidOperationException("No active transaction to commit.");
+
         await _currentTransaction.CommitAsync(ct);
         await _currentTransaction.DisposeAsync();
         _currentTransaction = null;
@@ -205,14 +229,14 @@ public class ProductRepository : IProductRepository
     public async Task RollbackAsync(CancellationToken ct = default)
     {
         if (_currentTransaction is null) return;
+
         await _currentTransaction.RollbackAsync(ct);
         await _currentTransaction.DisposeAsync();
         _currentTransaction = null;
     }
 
     public Task ExecuteAdvisoryLockAsync(long lockKey, CancellationToken ct = default)
-        => _db.Database.ExecuteSqlRawAsync(
-            "SELECT pg_advisory_xact_lock({0})", lockKey);
+        => _db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", new object[] { lockKey }, ct);
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _db.SaveChangesAsync(ct);

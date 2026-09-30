@@ -1,93 +1,96 @@
-﻿// CoreKit.Catalog/Services/ProductImageService.cs
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
-using CoreKit.Catalog.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace CoreKit.Catalog.Services;
 
 public sealed class ProductImageService : IProductImageService
 {
-    private readonly CatalogDbContext _db;
+    private readonly IProductRepository _productRepo;
 
-    public ProductImageService(CatalogDbContext db) => _db = db;
+    public ProductImageService(IProductRepository productRepo) => _productRepo = productRepo;
 
     public async Task<ProductImageDto> AddAsync(
-        Guid productId, AddProductImageRequest request,
-        CancellationToken ct = default)
+        Guid tenantId, Guid productId, AddProductImageRequest request, CancellationToken ct = default)
     {
-        var productExists = await _db.Products
-            .AnyAsync(p => p.Id == productId, ct);
+        var product = await LoadAsync(tenantId, productId, ct);
 
-        if (!productExists)
-            throw new KeyNotFoundException("Product not found.");
+        var url = request.ImageUrl?.Trim();
+        if (string.IsNullOrEmpty(url))
+            throw new ArgumentException("ImageUrl is required.");
 
-        if (request.IsPrimary)
-            await ClearPrimaryFlagAsync(productId, ct);
+        var makePrimary = request.IsPrimary || product.Images.Count == 0;
+        if (makePrimary)
+            foreach (var existing in product.Images.Where(i => i.IsPrimary))
+                existing.IsPrimary = false;
 
         var image = new ProductImage
         {
             Id = Guid.NewGuid(),
-            ProductId = productId,
-            ImageUrl = request.ImageUrl,
-            IsPrimary = request.IsPrimary,
+            ProductId = product.Id,
+            ImageUrl = url,
+            IsPrimary = makePrimary,
             SortOrder = request.SortOrder
         };
 
-        _db.ProductImages.Add(image);
-        await _db.SaveChangesAsync(ct);
+        _productRepo.AddImage(image);
+        await _productRepo.SaveChangesAsync(ct);
 
-        return new ProductImageDto
-        {
-            Id = image.Id,
-            ImageUrl = image.ImageUrl,
-            IsPrimary = image.IsPrimary
-        };
+        return CatalogMapper.ToDto(image);
     }
 
-    public async Task RemoveAsync(Guid imageId, CancellationToken ct = default)
+    public async Task RemoveAsync(
+        Guid tenantId, Guid productId, Guid imageId, CancellationToken ct = default)
     {
-        var image = await _db.ProductImages.FindAsync(new object[] { imageId }, ct)
+        var product = await LoadAsync(tenantId, productId, ct);
+        var image = product.Images.FirstOrDefault(i => i.Id == imageId)
             ?? throw new KeyNotFoundException("Image not found.");
 
-        _db.ProductImages.Remove(image);
-        await _db.SaveChangesAsync(ct);
+        _productRepo.RemoveImage(image);
+
+        if (image.IsPrimary)
+        {
+            var next = product.Images
+                .Where(i => i.Id != imageId)
+                .OrderBy(i => i.SortOrder)
+                .FirstOrDefault();
+
+            if (next is not null) next.IsPrimary = true;
+        }
+
+        await _productRepo.SaveChangesAsync(ct);
     }
 
     public async Task ReorderAsync(
-        Guid productId, ReorderImagesRequest request,
-        CancellationToken ct = default)
+        Guid tenantId, Guid productId, ReorderImagesRequest request, CancellationToken ct = default)
     {
-        var imageIds = request.Images.Select(i => i.ImageId).ToList();
-
-        var images = await _db.ProductImages
-            .Where(i => i.ProductId == productId && imageIds.Contains(i.Id))
-            .ToListAsync(ct);
+        var product = await LoadAsync(tenantId, productId, ct);
 
         foreach (var item in request.Images)
         {
-            var image = images.FirstOrDefault(i => i.Id == item.ImageId);
-            if (image is not null)
-                image.SortOrder = item.SortOrder;
+            var image = product.Images.FirstOrDefault(i => i.Id == item.ImageId)
+                ?? throw new KeyNotFoundException($"Image '{item.ImageId}' not found for this product.");
+
+            image.SortOrder = item.SortOrder;
         }
 
-        await _db.SaveChangesAsync(ct);
+        await _productRepo.SaveChangesAsync(ct);
     }
 
-    public async Task SetPrimaryAsync(Guid imageId, CancellationToken ct = default)
+    public async Task SetPrimaryAsync(
+        Guid tenantId, Guid productId, Guid imageId, CancellationToken ct = default)
     {
-        var image = await _db.ProductImages.FindAsync(new object[] { imageId }, ct)
+        var product = await LoadAsync(tenantId, productId, ct);
+        var target = product.Images.FirstOrDefault(i => i.Id == imageId)
             ?? throw new KeyNotFoundException("Image not found.");
 
-        await ClearPrimaryFlagAsync(image.ProductId, ct);
-        image.IsPrimary = true;
-        await _db.SaveChangesAsync(ct);
+        foreach (var image in product.Images)
+            image.IsPrimary = image.Id == target.Id;
+
+        await _productRepo.SaveChangesAsync(ct);
     }
 
-    private async Task ClearPrimaryFlagAsync(Guid productId, CancellationToken ct)
-        => await _db.ProductImages
-            .Where(i => i.ProductId == productId && i.IsPrimary)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(i => i.IsPrimary, false), ct);
+    private async Task<Product> LoadAsync(Guid tenantId, Guid productId, CancellationToken ct)
+        => await _productRepo.GetByIdWithImagesAsync(tenantId, productId, track: true, ct)
+           ?? throw new KeyNotFoundException("Product not found.");
 }
