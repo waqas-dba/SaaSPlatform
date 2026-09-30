@@ -1,0 +1,832 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableDbContext.cs
+==================================================
+
+// CoreKit.SharedKernel | Common/AuditableDbContext.cs
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Linq.Expressions;
+using System.Text.Json;
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class AuditableDbContext : DbContext
+{
+    private readonly ICurrentUser? _currentUser;
+
+    protected AuditableDbContext(DbContextOptions options, ICurrentUser? currentUser = null)
+        : base(options) { _currentUser = currentUser; }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyAuditRules();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        ApplyAuditRules();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyAuditRules();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ApplyAuditRules()
+    {
+        var utcNow = DateTime.UtcNow;
+        var userId = _currentUser?.UserId;
+
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State == EntityState.Unchanged) continue;
+
+            if (entry.Entity is AuditableEntity auditable)
+            {
+                if (entry.State == EntityState.Added) { auditable.CreatedAt = utcNow; auditable.CreatedBy = userId; }
+                if (entry.State == EntityState.Modified) { auditable.UpdatedAt = utcNow; auditable.UpdatedBy = userId; }
+            }
+
+            if (entry.Entity is ISoftDelete softDelete && entry.State == EntityState.Deleted)
+            {
+                entry.State = EntityState.Modified;
+                softDelete.IsDeleted = true;
+                softDelete.DeletedAtUtc = utcNow;
+                softDelete.DeletedBy = userId;
+            }
+
+            if (entry.Entity is ITenantScoped tenantEntity && entry.State == EntityState.Added && tenantEntity.TenantId == Guid.Empty)
+                throw new InvalidOperationException($"TenantId is required for {entry.Entity.GetType().Name}");
+        }
+
+        // Audit trail – only if the model actually contains AuditLog
+        LogAuditTrail();
+    }
+
+    private void LogAuditTrail()
+    {
+        if (Model.FindEntityType(typeof(AuditLog)) == null) return;
+
+        var userId = _currentUser?.UserId?.ToString();
+        var auditLogs = new List<AuditLog>();
+
+        foreach (var entry in ChangeTracker.Entries()
+                     .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
+        {
+            if (entry.Entity is AuditLog) continue;
+
+            // Build entity id from primary key (supports composite keys)
+            var pk = entry.Metadata.FindPrimaryKey();
+            string entityId;
+            if (pk != null)
+            {
+                var pkValues = pk.Properties.Select(p => entry.Property(p.Name).CurrentValue?.ToString() ?? "null");
+                entityId = string.Join(", ", pkValues);
+            }
+            else entityId = "unknown";
+
+            var audit = new AuditLog
+            {
+                Id = Guid.NewGuid(),
+                EntityName = entry.Entity.GetType().Name,
+                EntityId = entityId,
+                Action = entry.State switch
+                {
+                    EntityState.Added => "Created",
+                    EntityState.Modified => "Updated",
+                    EntityState.Deleted => "Deleted",
+                    _ => entry.State.ToString()
+                },
+                ChangedBy = userId,
+                Timestamp = DateTime.UtcNow,
+                OldValues = entry.State == EntityState.Modified ? SerializeOldValues(entry) : null,
+                NewValues = SerializeNewValues(entry)
+            };
+            auditLogs.Add(audit);
+        }
+        if (auditLogs.Any()) Set<AuditLog>().AddRange(auditLogs);
+    }
+
+    private static string? SerializeOldValues(EntityEntry entry)
+    {
+        var oldVals = new Dictionary<string, object?>();
+        foreach (var prop in entry.OriginalValues.Properties)
+        {
+            var original = entry.OriginalValues[prop];
+            var current = entry.CurrentValues[prop];
+            if (!Equals(original, current)) oldVals[prop.Name] = original;
+        }
+        return oldVals.Count > 0 ? JsonSerializer.Serialize(oldVals) : null;
+    }
+
+    private static string SerializeNewValues(EntityEntry entry)
+    {
+        var newVals = new Dictionary<string, object?>();
+        foreach (var prop in entry.CurrentValues.Properties) newVals[prop.Name] = entry.CurrentValues[prop];
+        return JsonSerializer.Serialize(newVals);
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            var clrType = entityType.ClrType;
+            if (typeof(ISoftDelete).IsAssignableFrom(clrType))
+                modelBuilder.Entity(clrType).HasQueryFilter(BuildSoftDeleteFilter(clrType));
+            if (clrType.GetProperty(nameof(AuditableEntity.RowVersion)) != null)
+                modelBuilder.Entity(clrType).Property<uint>(nameof(AuditableEntity.RowVersion))
+                    .IsRowVersion().HasColumnName("xmin").HasColumnType("xid").ValueGeneratedOnAddOrUpdate();
+        }
+    }
+
+    private static LambdaExpression BuildSoftDeleteFilter(Type entityType)
+    {
+        var param = Expression.Parameter(entityType, "e");
+        var prop = Expression.Property(param, nameof(ISoftDelete.IsDeleted));
+        var condition = Expression.Equal(prop, Expression.Constant(false));
+        return Expression.Lambda(condition, param);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditableEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class AuditableEntity : BaseEntity, ISoftDelete
+{
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public Guid? CreatedBy { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAtUtc { get; set; }
+    public Guid? DeletedBy { get; set; }
+
+    // Concurrency token backed by PostgreSQL xmin
+    public uint RowVersion { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\AuditLog.cs
+==================================================
+
+// CoreKit.SharedKernel | Common/AuditLog.cs
+namespace CoreKit.SharedKernel.Common;
+
+public class AuditLog
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string EntityName { get; set; } = default!;
+    public string EntityId { get; set; } = default!;
+    public string Action { get; set; } = default!; // "Created", "Updated", "Deleted"
+    public string? ChangedBy { get; set; }
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public string? OldValues { get; set; }
+    public string? NewValues { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class BaseEntity
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\BaseTenantEntity.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public abstract class BaseTenantEntity : AuditableEntity, ITenantScoped
+{
+    public Guid TenantId { get; set; }
+
+    public void EnsureTenantAssigned()
+    {
+        if (TenantId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                $"{GetType().Name} requires a valid TenantId.");
+        }
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ISoftDelete.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public interface ISoftDelete
+{
+    bool IsDeleted { get; set; }
+
+    DateTime? DeletedAtUtc { get; set; }
+
+    Guid? DeletedBy { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\IStoreScoped.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public interface IStoreScoped
+{
+    Guid StoreId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\ITenantScoped.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public interface ITenantScoped
+{
+    Guid TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\StoreScope.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public sealed class StoreScope
+{
+    public IReadOnlyList<Guid> StoreIds { get; }
+
+    public bool IsAllStores { get; }
+
+    public bool IsEmpty { get; }
+
+    private StoreScope(
+        IReadOnlyList<Guid> storeIds,
+        bool isAllStores,
+        bool isEmpty)
+    {
+        StoreIds = storeIds;
+        IsAllStores = isAllStores;
+        IsEmpty = isEmpty;
+    }
+
+    public static StoreScope All =>
+        new(Array.Empty<Guid>(), true, false);
+
+    public static StoreScope Empty =>
+        new(Array.Empty<Guid>(), false, true);
+
+    public static StoreScope For(IEnumerable<Guid> storeIds)
+    {
+        ArgumentNullException.ThrowIfNull(storeIds);
+
+        var ids = storeIds
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        return ids.Count == 0
+            ? Empty
+            : new StoreScope(ids, false, false);
+    }
+
+    public IQueryable<T> Apply<T>(IQueryable<T> query)
+        where T : class, IStoreScoped
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (IsAllStores)
+            return query;
+
+        if (IsEmpty)
+            return query.Where(_ => false);
+
+        return query.Where(x => StoreIds.Contains(x.StoreId));
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Common\TenantScope.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Common;
+
+public sealed class TenantScope
+{
+    public Guid TenantId { get; }
+
+    public bool IsGlobal { get; }
+
+    private TenantScope(Guid tenantId, bool isGlobal)
+    {
+        TenantId = tenantId;
+        IsGlobal = isGlobal;
+    }
+
+    public static TenantScope Global => new(Guid.Empty, true);
+
+    public static TenantScope For(Guid tenantId)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "TenantId cannot be Guid.Empty.",
+                nameof(tenantId));
+        }
+
+        return new TenantScope(tenantId, false);
+    }
+
+    public IQueryable<T> Apply<T>(IQueryable<T> query)
+        where T : class, ITenantScoped
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        return IsGlobal
+            ? query
+            : query.Where(x => x.TenantId == TenantId);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Exceptions\ForbiddenException.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Exceptions;
+
+public class ForbiddenException : Exception
+{
+    public ForbiddenException(string message) : base(message) { }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Helper\LockKeyHelper.cs
+==================================================
+
+// CoreKit.SharedKernel/Helpers/LockKeyHelper.cs
+namespace CoreKit.SharedKernel.Helpers;
+
+public static class LockKeyHelper
+{
+    public static long GuidToLockKey(Guid guid)
+    {
+        var bytes = guid.ToByteArray();
+        // Use unsigned halves to avoid sign/endian issues
+        uint high = BitConverter.ToUInt32(bytes, 0);
+        uint low = BitConverter.ToUInt32(bytes, 4);
+        // Combine into a signed long (safe for pg_advisory_lock)
+        return ((long)high << 32) | (long)low;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Helper\SlugHelper.cs
+==================================================
+
+// SaaSPlatform.SharedKernel/Helper/SlugHelper.cs
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace CoreKit.SharedKernel.Helpers;
+
+public static class SlugHelper
+{
+    // FIX: throw on empty input instead of silently returning empty string
+    public static string Generate(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            throw new ArgumentException("Slug input must not be empty.", nameof(input));
+
+        var slug = input.Trim().ToLowerInvariant();
+        slug = Regex.Replace(slug, @"[^a-z0-9\s-]", "");
+        slug = Regex.Replace(slug, @"\s+", "-");
+        slug = slug.Trim('-');
+
+        if (string.IsNullOrEmpty(slug))
+        {
+            var hash = SHA1.HashData(Encoding.UTF8.GetBytes(input.Trim()));
+            slug = Convert.ToHexString(hash)[..12].ToLowerInvariant();
+        }
+
+        return slug;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IAggregateRoot.cs
+==================================================
+
+
+
+namespace CoreKit.SharedKernel.Interfaces
+{
+    public interface IAggregateRoot
+    {
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ICurrentUser.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface ICurrentUser
+{
+    Guid? UserId { get; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IPlanLimitProvider.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface IPlanLimitProvider
+{
+    Task<int?> GetMaxStoresAsync(Guid tenantId, CancellationToken ct = default);
+    Task<int?> GetMaxProductsAsync(Guid tenantId, CancellationToken ct = default);
+    Task<int?> GetMaxCategoriesAsync(Guid tenantId, CancellationToken ct = default);
+    Task<bool> IsFeatureEnabledAsync(Guid tenantId, string featureCode, CancellationToken ct = default);
+
+    Task<int> GetMaxCategoryLevelAsync(Guid tenantId, CancellationToken ct = default);
+    Task<bool> IsVariantsEnabledAsync(Guid tenantId, CancellationToken ct = default);
+    Task<bool> IsAddonsEnabledAsync(Guid tenantId, CancellationToken ct = default);
+    Task<int?> GetMaxVariantsPerProductAsync(Guid tenantId, CancellationToken ct = default);
+    Task<int?> GetMaxAddonsPerProductAsync(Guid tenantId, CancellationToken ct = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IProductOrderInfoProvider.cs
+==================================================
+
+using CoreKit.SharedKernel.Models;
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface IProductOrderInfoProvider
+{
+    Task<ProductOrderInfo?> GetProductInfoAsync(Guid productId, CancellationToken ct = default);
+    Task<ProductVariantOrderInfo?> GetVariantInfoAsync(Guid variantId, CancellationToken ct = default);
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\ISlugGenerator.cs
+==================================================
+
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface ISlugGenerator
+{
+    string Generate(string input);
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IStoreInfoProvider.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface IStoreInfoProvider
+{
+    /// <summary>
+    /// Returns lightweight store info for plan-limit and variant-attribute
+    /// resolution. Returns null if the store does not exist.
+    /// </summary>
+    Task<StoreInfo?> GetStoreInfoAsync(Guid storeId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Lightweight projection of a Store — only the fields Catalog needs.
+/// </summary>
+public sealed class StoreInfo
+{
+    public Guid Id { get; init; }
+    public Guid TenantId { get; init; }
+
+    // The store-type code is required to resolve VariantAttributeTemplates,
+    // which are scoped per store type (e.g. "restaurant", "clothing").
+    public string StoreTypeCode { get; init; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Interfaces\IUnitOfWork.cs
+==================================================
+
+
+
+namespace CoreKit.SharedKernel.Interfaces;
+
+public interface IUnitOfWork : IDisposable
+{
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitAsync(CancellationToken cancellationToken = default);
+    Task RollbackAsync(CancellationToken cancellationToken = default);
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Models\CreateUserRequest.cs
+==================================================
+
+namespace CoreKit.IAM.Models;
+
+public class CreateUserRequest
+{
+    public string Name { get; set; } = default!;
+    public string Phone { get; set; } = default!;
+    public string? Email { get; set; }
+    public string Password { get; set; } = default!;
+    public Guid? TenantId { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Models\PagedQuery.cs
+==================================================
+
+// FILE: CoreKit.SharedKernel/Models/PagedQuery.cs  (NEW FILE)
+// Shared query-string parameters for paginated list endpoints.
+
+using System.ComponentModel.DataAnnotations;
+
+namespace CoreKit.SharedKernel.Models;
+
+/// <summary>
+/// Bind this from [FromQuery] on any list endpoint to get page + page-size.
+/// </summary>
+public sealed class PagedQuery
+{
+    private int _page = 1;
+    private int _pageSize = 20;
+
+    /// <summary>1-based page number. Defaults to 1.</summary>
+    [Range(1, int.MaxValue, ErrorMessage = "Page must be ≥ 1.")]
+    public int Page
+    {
+        get => _page;
+        set => _page = value < 1 ? 1 : value;
+    }
+
+    /// <summary>Items per page. Defaults to 20, max 100.</summary>
+    [Range(1, 100, ErrorMessage = "PageSize must be between 1 and 100.")]
+    public int PageSize
+    {
+        get => _pageSize;
+        set => _pageSize = value switch
+        {
+            < 1 => 1,
+            > 100 => 100,
+            _ => value
+        };
+    }
+
+    public int Skip => (Page - 1) * PageSize;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Models\PagedResult.cs
+==================================================
+
+// FILE: CoreKit.SharedKernel/Models/PagedResult.cs  (NEW FILE)
+// Lightweight pagination envelope used across all list endpoints.
+
+namespace CoreKit.SharedKernel.Models;
+
+/// <summary>
+/// Cursor-free, page-number-based pagination result.
+/// Keep it simple: offset pagination is fine for admin/tenant volumes.
+/// </summary>
+public sealed class PagedResult<T>
+{
+    /// <summary>The items on this page.</summary>
+    public IReadOnlyList<T> Items { get; init; } = Array.Empty<T>();
+
+    /// <summary>Total number of items across all pages.</summary>
+    public int TotalCount { get; init; }
+
+    /// <summary>Current 1-based page number.</summary>
+    public int Page { get; init; }
+
+    /// <summary>Maximum items per page.</summary>
+    public int PageSize { get; init; }
+
+    /// <summary>Total number of pages.</summary>
+    public int TotalPages => PageSize <= 0
+        ? 0
+        : (int)Math.Ceiling((double)TotalCount / PageSize);
+
+    public bool HasPreviousPage => Page > 1;
+    public bool HasNextPage => Page < TotalPages;
+
+    public static PagedResult<T> From(
+        IReadOnlyList<T> items,
+        int totalCount,
+        int page,
+        int pageSize) =>
+        new()
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Models\ProductOrderInfo.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Models
+{
+    public sealed class ProductOrderInfo
+    {
+        public Guid Id { get; init; }
+        public Guid StoreId { get; init; }
+        public string Name { get; init; } = default!;
+        public decimal BasePrice { get; init; }
+        public bool IsActive { get; init; }
+        public bool AvailableForCollection { get; init; }
+        public bool AvailableForDelivery { get; init; }
+    }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Models\ProductVariantOrderInfo.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.SharedKernel.Models
+{
+    public sealed class ProductVariantOrderInfo
+    {
+        public Guid Id { get; init; }
+        public string Sku { get; init; } = default!;
+        public decimal Price { get; init; }
+        public bool IsActive { get; init; }
+    }
+
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Results\Result.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Results;
+
+public class Result
+{
+    public bool Succeeded { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public List<string> Errors { get; init; } = new();
+
+    public static Result Success(string message = "")
+        => new() { Succeeded = true, Message = message };
+
+    public static Result Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+public class Result<T> : Result
+{
+    public T? Data { get; init; }
+
+    public static Result<T> Success(T data, string message = "")
+        => new()
+        {
+            Succeeded = true,
+            Data = data,
+            Message = message
+        };
+
+    public new static Result<T> Failure(string message, List<string>? errors = null)
+        => new()
+        {
+            Succeeded = false,
+            Message = message,
+            Errors = errors ?? new()
+        };
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Tenancy\IMutableTenantContext.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Tenancy;
+
+public interface IMutableTenantContext : ITenantContext
+{
+    void SetTenant(Guid? tenantId);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.SharedKernel\Tenancy\ITenantContext.cs
+==================================================
+
+namespace CoreKit.SharedKernel.Tenancy;
+
+public interface ITenantContext
+{
+    Guid? TenantId { get; }
+}
+
+

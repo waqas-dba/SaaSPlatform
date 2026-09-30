@@ -23,7 +23,6 @@ public class TenantRepository : ITenantRepository
     public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
         => await _db.Tenants.AnyAsync(x => x.Name == name, ct);
 
-    // NEW
     public async Task<bool> ExistsBySlugAsync(string slug, CancellationToken ct = default)
         => await _db.Tenants.AnyAsync(x => x.Slug == slug, ct);
 

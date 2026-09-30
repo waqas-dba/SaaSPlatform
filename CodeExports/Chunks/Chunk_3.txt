@@ -8,7 +8,6 @@ using CoreKit.SharedKernel.Exceptions;
 using CoreKit.SharedKernel.Helpers;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Models;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 namespace CoreKit.Catalog.Services;
 public class ProductService : IProductService
@@ -57,7 +56,7 @@ if (request.VariantGroupId.HasValue && request.Variants.Any())
 await _variantValidator.ValidateVariantsAgainstGroupAsync(
 request.VariantGroupId.Value, storeInfo.TenantId, request.Variants, ct);
 var lockKey = LockKeyHelper.GuidToLockKey(request.StoreId);
-await _productRepo.BeginTransactionAsync(ct);
+var tx = await _productRepo.BeginTransactionAsync(ct);
 try
 {
 await _productRepo.ExecuteAdvisoryLockAsync(lockKey, ct);
@@ -126,6 +125,24 @@ Images = p.PrimaryImageUrl is null
 return PagedResult<ProductDto>.From(
 dtos, paged.TotalCount, paged.Page, paged.PageSize);
 }
+public async Task<PagedResult<ProductListDto>> SearchAsync(
+Guid storeId,
+ProductFilterQuery filter,
+CancellationToken ct = default)
+{
+if (filter.MinPrice.HasValue &&
+filter.MaxPrice.HasValue &&
+filter.MinPrice > filter.MaxPrice)
+throw new ArgumentException("MinPrice cannot be greater than MaxPrice.");
+filter.PageSize = filter.PageSize switch
+{
+< 1 => 1,
+> 100 => 100,
+_ => filter.PageSize
+};
+filter.Page = filter.Page < 1 ? 1 : filter.Page;
+return await _productRepo.SearchAsync(storeId, filter, ct);
+}
 public async Task DeleteAsync(Guid id, CancellationToken ct = default)
 {
 var product = await _productRepo.GetByIdAsync(id, ct)
@@ -177,9 +194,16 @@ if (request.Name is not null)
 product.Name = request.Name;
 product.Slug = SlugHelper.Generate(request.Name);
 }
-if (request.Description is not null) product.Description = request.Description;
-if (request.BasePrice.HasValue) product.BasePrice = request.BasePrice.Value;
-if (request.IsActive.HasValue) product.IsActive = request.IsActive.Value;
+if (request.Description is not null)
+product.Description = request.Description;
+if (request.BasePrice.HasValue)
+product.BasePrice = request.BasePrice.Value;
+if (request.IsActive.HasValue)
+product.IsActive = request.IsActive.Value;
+if (request.AvailableForCollection.HasValue)
+product.AvailableForCollection = request.AvailableForCollection.Value;
+if (request.AvailableForDelivery.HasValue)
+product.AvailableForDelivery = request.AvailableForDelivery.Value;
 }
 private async Task ApplyAddonGroupUpdateAsync(
 Product product, UpdateProductRequest request,
@@ -401,25 +425,6 @@ SortOrder = o.SortOrder
 }).ToList()
 }
 };
-public async Task<PagedResult<ProductListDto>> SearchAsync(
-Guid storeId,
-ProductFilterQuery filter,
-CancellationToken ct = default)
-{
-if (filter.MinPrice.HasValue &&
-filter.MaxPrice.HasValue &&
-filter.MinPrice > filter.MaxPrice)
-throw new ArgumentException(
-"MinPrice cannot be greater than MaxPrice.");
-filter.PageSize = filter.PageSize switch
-{
-< 1 => 1,
-> 100 => 100,
-_ => filter.PageSize
-};
-filter.Page = filter.Page < 1 ? 1 : filter.Page;
-return await _productRepo.SearchAsync(storeId, filter, ct);
-}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductVariantService.cs =====
@@ -443,14 +448,12 @@ _db = db;
 _storeInfoProvider = storeInfoProvider;
 }
 public async Task<List<ProductVariantDto>> GetByProductAsync(Guid productId)
-{
-return await _db.ProductVariants
+=> await _db.ProductVariants
 .Where(v => v.ProductId == productId)
 .Include(v => v.AttributeValues)
 .ThenInclude(av => av.Template)
 .Select(v => MapToDto(v))
 .ToListAsync();
-}
 public async Task<ProductVariantDto?> GetByIdAsync(Guid id)
 {
 var variant = await _db.ProductVariants
@@ -469,12 +472,16 @@ var product = await _db.Products
 var storeInfo = await _storeInfoProvider
 .GetStoreInfoAsync(product.StoreId)
 ?? throw new KeyNotFoundException("Store not found.");
+await using var tx = await _db.Database.BeginTransactionAsync();
+try
+{
 var lockKey = LockKeyHelper.GuidToLockKey(product.StoreId);
 await _db.Database.ExecuteSqlRawAsync(
 "SELECT pg_advisory_xact_lock({0})", lockKey);
 bool skuExists = await _db.ProductVariants
-.Where(v => v.Product.StoreId == product.StoreId && v.Sku == request.Sku)
-.AnyAsync();
+.AnyAsync(v =>
+v.Product.StoreId == product.StoreId &&
+v.Sku == request.Sku);
 if (skuExists)
 throw new InvalidOperationException(
 $"A variant with SKU '{request.Sku}' already exists in this store.");
@@ -487,7 +494,8 @@ Price = request.Price
 };
 foreach (var attr in request.Attributes)
 {
-var template = await ResolveVariantTemplateAsync(attr, storeInfo.StoreTypeCode);
+var template = await ResolveVariantTemplateAsync(
+attr, storeInfo.StoreTypeCode);
 variant.AttributeValues.Add(new VariantAttributeValue
 {
 Id = Guid.NewGuid(),
@@ -497,12 +505,19 @@ Value = attr.Value
 }
 _db.ProductVariants.Add(variant);
 await _db.SaveChangesAsync();
+await tx.CommitAsync();
 await _db.Entry(variant)
 .Collection(v => v.AttributeValues)
 .Query()
 .Include(av => av.Template)
 .LoadAsync();
 return MapToDto(variant);
+}
+catch
+{
+await tx.RollbackAsync();
+throw;
+}
 }
 public async Task UpdateAsync(Guid id, UpdateVariantRequest request)
 {
@@ -525,11 +540,10 @@ var lockKey = LockKeyHelper.GuidToLockKey(product.StoreId);
 await _db.Database.ExecuteSqlRawAsync(
 "SELECT pg_advisory_xact_lock({0})", lockKey);
 bool skuExists = await _db.ProductVariants
-.Where(v =>
+.AnyAsync(v =>
 v.Product.StoreId == product.StoreId &&
 v.Sku == request.Sku &&
-v.Id != id)
-.AnyAsync();
+v.Id != id);
 if (skuExists)
 throw new InvalidOperationException(
 $"A variant with SKU '{request.Sku}' already exists in this store.");
@@ -544,7 +558,8 @@ _db.VariantAttributeValues.RemoveRange(variant.AttributeValues);
 variant.AttributeValues.Clear();
 foreach (var attr in request.Attributes)
 {
-var template = await ResolveVariantTemplateAsync(attr, storeInfo.StoreTypeCode);
+var template = await ResolveVariantTemplateAsync(
+attr, storeInfo.StoreTypeCode);
 variant.AttributeValues.Add(new VariantAttributeValue
 {
 Id = Guid.NewGuid(),
@@ -574,18 +589,17 @@ VariantAttributeItem attr,
 string storeTypeCode)
 {
 if (attr.TemplateId.HasValue)
-{
 return await _db.VariantAttributeTemplates
 .FirstOrDefaultAsync(t => t.Id == attr.TemplateId.Value)
 ?? throw new InvalidOperationException(
 $"Variant attribute template '{attr.TemplateId}' not found.");
-}
 return await _db.VariantAttributeTemplates
 .FirstOrDefaultAsync(t =>
 t.Name == attr.Name &&
 t.StoreTypeCode == storeTypeCode)
 ?? throw new InvalidOperationException(
-$"Variant attribute '{attr.Name}' not defined for store type '{storeTypeCode}'.");
+$"Variant attribute '{attr.Name}' not defined " +
+$"for store type '{storeTypeCode}'.");
 }
 private static ProductVariantDto MapToDto(ProductVariant variant) => new()
 {
@@ -936,6 +950,88 @@ AllowedValues = DeserializeAllowedValues(o.AllowedValuesJson),
 SortOrder = o.SortOrder
 }).ToList()
 };
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\VariantValidationService .cs =====
+using System.Text.Json;
+using CoreKit.Catalog.Entities;
+using CoreKit.Catalog.Interfaces;
+using CoreKit.Catalog.Models;
+namespace CoreKit.Catalog.Services;
+public class VariantValidationService : IVariantValidationService
+{
+private readonly IVariantGroupRepository _variantGroupRepo;
+private readonly IVariantAttributeTemplateRepository _variantTemplateRepo;
+public VariantValidationService(
+IVariantGroupRepository variantGroupRepo,
+IVariantAttributeTemplateRepository variantTemplateRepo)
+{
+_variantGroupRepo = variantGroupRepo;
+_variantTemplateRepo = variantTemplateRepo;
+}
+public async Task ValidateVariantsAgainstGroupAsync(
+Guid variantGroupId,
+Guid tenantId,
+List<CreateVariantRequest> variants,
+CancellationToken ct = default)
+{
+var group = await _variantGroupRepo.GetByIdWithOptionsAsync(
+variantGroupId, tenantId, ct)
+?? throw new KeyNotFoundException(
+"Variant group not found or does not belong to this tenant.");
+var optionMap = BuildOptionMap(group);
+foreach (var variant in variants)
+{
+foreach (var attr in variant.Attributes)
+{
+var templateId = await ResolveTemplateIdAsync(
+attr, group.StoreTypeCode, ct);
+if (!optionMap.ContainsKey(templateId))
+throw new InvalidOperationException(
+$"Variant attribute template '{templateId}' is not part " +
+"of the selected variant group.");
+var allowed = optionMap[templateId];
+if (allowed != null && !allowed.Contains(attr.Value))
+throw new InvalidOperationException(
+$"Value '{attr.Value}' is not allowed for this variant option.");
+}
+}
+}
+public async Task<VariantAttributeTemplate> ResolveTemplateAsync(
+VariantAttributeItem attr,
+string storeTypeCode,
+CancellationToken ct = default)
+{
+if (attr.TemplateId.HasValue)
+return await _variantTemplateRepo.GetByIdAsync(attr.TemplateId.Value, ct)
+?? throw new InvalidOperationException(
+$"Variant template '{attr.TemplateId}' not found.");
+return await _variantTemplateRepo.GetByNameAndStoreTypeAsync(
+attr.Name, storeTypeCode, ct)
+?? throw new InvalidOperationException(
+$"Variant attribute '{attr.Name}' not defined " +
+$"for store type '{storeTypeCode}'.");
+}
+private static Dictionary<Guid, List<string>?> BuildOptionMap(VariantGroup group)
+=> group.Options.ToDictionary(
+o => o.TemplateId,
+o => string.IsNullOrWhiteSpace(o.AllowedValuesJson)
+? null
+: JsonSerializer.Deserialize<List<string>>(o.AllowedValuesJson));
+private async Task<Guid> ResolveTemplateIdAsync(
+VariantAttributeItem attr,
+string storeTypeCode,
+CancellationToken ct)
+{
+if (attr.TemplateId.HasValue)
+return attr.TemplateId.Value;
+var template = await _variantTemplateRepo
+.GetByNameAndStoreTypeAsync(attr.Name, storeTypeCode, ct)
+?? throw new InvalidOperationException(
+$"Variant attribute '{attr.Name}' not found " +
+$"for store type '{storeTypeCode}'.");
+return template.Id;
+}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Validators\CreateProductRequestValidator.cs =====
@@ -1445,6 +1541,10 @@ public const string TemplatesManageTenant = "catalog.templates.manage.tenant";
 public const string TemplatesAssign = "catalog.templates.assign";
 public const string TemplatesToggleStore = "catalog.templates.toggle.store";
 public const string TemplatesView = "catalog.templates.view";
+public const string OrdersView = "catalog.orders.view";
+public const string OrdersCreate = "catalog.orders.create";
+public const string OrdersUpdate = "catalog.orders.update";
+public const string OrdersDelete = "catalog.orders.delete";
 }
 public static IReadOnlyList<string> All { get; } =
 typeof(Permissions)
@@ -2091,89 +2191,5 @@ void Add(User user);
 void Update(User user);
 void Delete(User user);
 Task<User?> GetUserByLoginAsync(string login, Guid? tenantId, string loginIdentifier);
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserStoreAssignmentRepository.cs =====
-namespace CoreKit.IAM.Interfaces;
-public interface IUserStoreAssignmentRepository
-{
-Task<List<Guid>> GetStoreIdsByUserAsync(
-Guid userId, Guid tenantId, CancellationToken ct = default);
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Interfaces\IUserStoreAssignmentService.cs =====
-namespace CoreKit.IAM.Interfaces;
-public interface IUserStoreAssignmentService
-{
-Task<List<Guid>> GetStoresForUserAsync(Guid userId, Guid tenantId, CancellationToken ct = default);
-Task AssignUserToStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct = default);
-Task UnassignUserFromStoreAsync(Guid userId, Guid storeId, Guid tenantId, CancellationToken ct = default);
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignPermissionRequest.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace CoreKit.IAM.Models;
-public class AssignPermissionRequest
-{
-public Guid PermissionId { get; set; }
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\AssignRoleWithTenantRequest.cs =====
-namespace CoreKit.IAM.Models;
-public class AssignRoleWithTenantRequest
-{
-public Guid RoleId { get; set; }
-public Guid? TenantId { get; set; }
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\CreateRoleRequest.cs =====
-using System;
-using System.Collections.Generic;
-using System.Text;
-namespace CoreKit.IAM.Models;
-public class CreateRoleRequest
-{
-public string Name { get; set; } = default!;
-public Guid? TenantId { get; set; }
-public string? Description { get; set; }
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\IamOptions.cs =====
-namespace CoreKit.IAM.Models;
-public class IamOptions
-{
-public string LoginIdentifier { get; set; } = "phone";
-public Func<Microsoft.AspNetCore.Http.HttpContext, Guid?>? TenantResolver { get; set; }
-public int MinPasswordLength { get; set; } = 8;
-public bool EnableUserDocuments { get; set; } = false;
-public bool EnableUserIdentities { get; set; } = false;
-public bool RequireCnic { get; set; } = true;
-public bool EnableRoleDocumentRequirements { get; set; } = false;
-public bool AllowDefaultAdminSeed { get; set; } = false;
-public bool RunMigrationsOnBootstrap { get; set; } = false;
-public string PlatformAdminRoleName { get; set; } = "PlatformAdmin";
-public bool EnableImpersonation { get; set; } = true;
-public bool RequireImpersonationForCrossTenant { get; set; } = true;
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\JwtSettings.cs =====
-namespace CoreKit.IAM.Models;
-public class JwtSettings
-{
-public string Secret { get; set; } = default!;
-public string Issuer { get; set; } = default!;
-public string Audience { get; set; } = default!;
-public int AccessTokenMinutes { get; set; } = 120;
-public int RefreshTokenDays { get; set; } = 7;
-}
-
-===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Models\LoginRequest.cs =====
-namespace CoreKit.IAM.Models;
-public class LoginRequest
-{
-public string Login { get; set; } = default!;
-public string Password { get; set; } = default!;
 }
 

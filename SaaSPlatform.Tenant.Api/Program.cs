@@ -124,6 +124,9 @@ public class Program
             };
         });
 
+        // Configure logging
+        builder.Services.AddLogging();
+
         // ------------------- API Versioning -------------------
         builder.Services.AddApiVersioning(options =>
         {

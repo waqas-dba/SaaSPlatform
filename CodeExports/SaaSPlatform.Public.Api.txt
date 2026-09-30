@@ -1,3 +1,9 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Program.cs
+==================================================
+
 using Asp.Versioning;
 using CoreKit.Catalog.Extensions;
 using CoreKit.IAM.Extensions;
@@ -166,3 +172,121 @@ app.MapGet("/ping", () => "pong");
 app.MapControllers();
 
 app.Run();
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\AuthController.cs
+==================================================
+
+using Asp.Versioning;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.Infrastructure.Controllers;
+using CoreKit.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace SaaSPlatform.Public.Api.Controllers;
+
+[ApiController]
+[Route("api/v{version:apiVersion}/auth")]
+[Asp.Versioning.ApiVersion("1.0")]
+public class AuthController : ApiControllerBase
+{
+    private readonly IAuthService _authService;
+    private readonly ITenantContext _tenantContext;
+
+    public AuthController(IAuthService authService, ITenantContext tenantContext)
+    {
+        _authService = authService;
+        _tenantContext = tenantContext;
+    }
+
+    [HttpPost("login")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]                         // ADDED
+    public async Task<IActionResult> Login(LoginRequest request)
+    {
+        var result = await _authService.LoginAsync(request, _tenantContext.TenantId);
+        return Ok(result);
+    }
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting("refresh")]                       // ADDED
+    public async Task<IActionResult> Refresh(RefreshTokenRequest request)
+    {
+        var result = await _authService.RefreshAsync(request, _tenantContext.TenantId);
+        return Ok(result);
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RefreshToken))
+            return BadRequest("Refresh token is required.");
+        await _authService.LogoutAsync(request.RefreshToken);
+        return Ok(new { message = "Logged out successfully" });
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\SaaSPlatform.Public.Api\Controllers\ProfileController.cs
+==================================================
+
+// SaaSPlatform.Public.Api/Controllers/ProfileController.cs
+using Asp.Versioning;
+using CoreKit.IAM.Interfaces;
+using CoreKit.Infrastructure.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace SaaSPlatform.Public.Api.Controllers;
+
+[ApiController]
+[Route("api/v{version:apiVersion}/me")]
+[Authorize]
+[ApiVersion("1.0")]
+public class ProfileController : ApiControllerBase
+{
+    private readonly ICurrentUserService _currentUser;
+    private readonly IUserManagementService _userService;
+
+    public ProfileController(
+        ICurrentUserService currentUser,
+        IUserManagementService userService)
+    {
+        _currentUser = currentUser;
+        _userService = userService;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetProfile(CancellationToken ct)
+    {
+        var userId = _currentUser.UserId
+            ?? throw new UnauthorizedAccessException("Not authenticated.");
+
+        var scope = _currentUser.GetTenantScope();
+        var tenantId = scope.IsGlobal ? (Guid?)null : scope.TenantId;
+
+        var user = await _userService.GetUserByIdAsync(userId, tenantId)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        return OkResponse(new
+        {
+            user.Id,
+            user.Name,
+            user.Email,
+            user.Phone,
+            user.IsActive,
+            user.LastLoginAt
+        });
+    }
+}
+
+

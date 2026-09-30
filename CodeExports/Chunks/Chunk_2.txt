@@ -642,7 +642,10 @@ return all;
 public async Task<bool> HasChildrenAsync(Guid categoryId, CancellationToken ct)
 => await _db.Categories.AnyAsync(c => c.ParentCategoryId == categoryId, ct);
 public async Task<bool> HasProductsAsync(Guid categoryId, CancellationToken ct = default)
-=> await _db.Products.AnyAsync(p => p.CategoryId == categoryId, ct);
+=> await _db.Products
+.IgnoreQueryFilters()
+.Where(p => p.CategoryId == categoryId && !p.IsDeleted)
+.AnyAsync(ct);
 public void Add(Category category) => _db.Categories.Add(category);
 public void Update(Category category) => _db.Categories.Update(category);
 public void Delete(Category category) => _db.Categories.Remove(category);
@@ -665,10 +668,12 @@ using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 namespace CoreKit.Catalog.Persistence;
 public class ProductRepository : IProductRepository
 {
 private readonly CatalogDbContext _db;
+private IDbContextTransaction? _currentTransaction;
 public ProductRepository(CatalogDbContext db) => _db = db;
 public Task<Product?> GetByIdAsync(Guid id, CancellationToken ct = default)
 => _db.Products
@@ -729,8 +734,7 @@ var items = await baseQuery
 .Skip(query.Skip)
 .Take(query.PageSize)
 .ToListAsync(ct);
-return PagedResult<Product>.From(
-items, totalCount, query.Page, query.PageSize);
+return PagedResult<Product>.From(items, totalCount, query.Page, query.PageSize);
 }
 public async Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(
 Guid storeId, PagedQuery query, CancellationToken ct = default)
@@ -771,7 +775,8 @@ if (!string.IsNullOrWhiteSpace(filter.Search))
 {
 var searchTerm = filter.Search.Trim();
 query = query.Where(p =>
-p.SearchVector.Matches(EF.Functions.ToTsQuery("english", searchTerm)));
+p.SearchVector.Matches(
+EF.Functions.WebSearchToTsQuery("english", searchTerm)));
 }
 if (filter.CategoryId.HasValue)
 query = query.Where(p => p.CategoryId == filter.CategoryId.Value);
@@ -815,12 +820,28 @@ p => p.Slug == slug && p.StoreId == storeId, ct);
 public void Add(Product product) => _db.Products.Add(product);
 public void Update(Product product) => _db.Products.Update(product);
 public void Remove(Product product) => _db.Products.Remove(product);
-public Task BeginTransactionAsync(CancellationToken ct = default)
-=> _db.Database.BeginTransactionAsync(ct);
-public Task CommitAsync(CancellationToken ct = default)
-=> _db.Database.CommitTransactionAsync(ct);
-public Task RollbackAsync(CancellationToken ct = default)
-=> _db.Database.RollbackTransactionAsync(ct);
+public async Task<IDbContextTransaction> BeginTransactionAsync(
+CancellationToken ct = default)
+{
+_currentTransaction = await _db.Database.BeginTransactionAsync(ct);
+return _currentTransaction;
+}
+public async Task CommitAsync(CancellationToken ct = default)
+{
+if (_currentTransaction is null)
+throw new InvalidOperationException(
+"No active transaction to commit.");
+await _currentTransaction.CommitAsync(ct);
+await _currentTransaction.DisposeAsync();
+_currentTransaction = null;
+}
+public async Task RollbackAsync(CancellationToken ct = default)
+{
+if (_currentTransaction is null) return;
+await _currentTransaction.RollbackAsync(ct);
+await _currentTransaction.DisposeAsync();
+_currentTransaction = null;
+}
 public Task ExecuteAdvisoryLockAsync(long lockKey, CancellationToken ct = default)
 => _db.Database.ExecuteSqlRawAsync(
 "SELECT pg_advisory_xact_lock({0})", lockKey);
@@ -882,7 +903,8 @@ _db = db;
 _logger = logger;
 _planLimit = planLimit;
 if (_planLimit == null)
-_logger.LogWarning("IPlanLimitProvider not registered. Add-on limits will not be enforced.");
+_logger.LogWarning(
+"IPlanLimitProvider not registered. Add-on limits will not be enforced.");
 }
 public async Task<AddonGroupDto> CreateGroupAsync(
 Guid tenantId,
@@ -898,7 +920,6 @@ Name = request.Name.Trim(),
 TenantId = tenantId
 };
 foreach (var item in request.Addons)
-{
 group.Addons.Add(new Addon
 {
 Id = Guid.NewGuid(),
@@ -906,10 +927,9 @@ Name = item.Name.Trim(),
 AdditionalPrice = item.AdditionalPrice,
 IsActive = true
 });
-}
 _db.AddonGroups.Add(group);
 await _db.SaveChangesAsync(ct);
-return MapGroupToDto(group);
+return await LoadGroupDtoAsync(group.Id, ct);
 }
 public async Task<AddonGroupDto> UpdateGroupAsync(
 Guid groupId,
@@ -918,13 +938,12 @@ UpdateAddonGroupRequest request,
 CancellationToken ct = default)
 {
 var group = await _db.AddonGroups
-.Include(g => g.Addons)
 .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
 ?? throw new KeyNotFoundException("Addon group not found.");
 if (request.Name is not null)
 group.Name = request.Name.Trim();
 await _db.SaveChangesAsync(ct);
-return MapGroupToDto(group);
+return await LoadGroupDtoAsync(group.Id, ct);
 }
 public async Task DeleteGroupAsync(
 Guid groupId,
@@ -932,7 +951,6 @@ Guid tenantId,
 CancellationToken ct = default)
 {
 var group = await _db.AddonGroups
-.Include(g => g.Addons)
 .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
 ?? throw new KeyNotFoundException("Addon group not found.");
 await _db.Products
@@ -945,22 +963,34 @@ public async Task<List<AddonGroupDto>> GetGroupsByTenantAsync(
 Guid tenantId,
 CancellationToken ct = default)
 {
-var groups = await _db.AddonGroups
-.Include(g => g.Addons)
+return await _db.AddonGroups
 .Where(g => g.TenantId == tenantId)
 .OrderBy(g => g.Name)
+.Select(g => new AddonGroupDto
+{
+Id = g.Id,
+Name = g.Name,
+Addons = g.Addons
+.Where(a => a.IsActive)
+.OrderBy(a => a.Name)
+.Select(a => new AddonDto
+{
+Id = a.Id,
+Name = a.Name,
+AdditionalPrice = a.AdditionalPrice
+})
+.ToList()
+})
 .ToListAsync(ct);
-return groups.Select(MapGroupToDto).ToList();
 }
 public async Task<AddonGroupDto?> GetGroupByIdAsync(
 Guid groupId,
 Guid tenantId,
 CancellationToken ct = default)
 {
-var group = await _db.AddonGroups
-.Include(g => g.Addons)
-.FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct);
-return group is null ? null : MapGroupToDto(group);
+var exists = await _db.AddonGroups
+.AnyAsync(g => g.Id == groupId && g.TenantId == tenantId, ct);
+return exists ? await LoadGroupDtoAsync(groupId, ct) : null;
 }
 public async Task<AddonDto> AddToGroupAsync(
 Guid groupId,
@@ -969,15 +999,20 @@ AddAddonToGroupRequest request,
 CancellationToken ct = default)
 {
 var group = await _db.AddonGroups
-.Include(g => g.Addons)
 .FirstOrDefaultAsync(g => g.Id == groupId && g.TenantId == tenantId, ct)
 ?? throw new KeyNotFoundException("Addon group not found.");
 if (_planLimit != null)
 {
 var max = await _planLimit.GetMaxAddonsPerProductAsync(tenantId, ct);
-if (max.HasValue && group.Addons.Count >= max.Value)
+if (max.HasValue)
+{
+var activeCount = await _db.Addons
+.CountAsync(a => a.AddonGroupId == groupId && a.IsActive, ct);
+if (activeCount >= max.Value)
 throw new InvalidOperationException(
-$"This group already has the maximum of {max.Value} add-ons allowed by your plan.");
+$"This group already has the maximum of {max.Value} " +
+"add-ons allowed by your plan.");
+}
 }
 var addon = new Addon
 {
@@ -1024,22 +1059,79 @@ throw new ForbiddenException("You do not have access to this addon.");
 _db.Addons.Remove(addon);
 await _db.SaveChangesAsync(ct);
 }
-private static AddonGroupDto MapGroupToDto(AddonGroup g) => new()
+private async Task<AddonGroupDto> LoadGroupDtoAsync(
+Guid groupId, CancellationToken ct)
+{
+return await _db.AddonGroups
+.Where(g => g.Id == groupId)
+.Select(g => new AddonGroupDto
 {
 Id = g.Id,
 Name = g.Name,
 Addons = g.Addons
 .Where(a => a.IsActive)
 .OrderBy(a => a.Name)
-.Select(MapAddonToDto)
+.Select(a => new AddonDto
+{
+Id = a.Id,
+Name = a.Name,
+AdditionalPrice = a.AdditionalPrice
+})
 .ToList()
-};
+})
+.FirstAsync(ct);
+}
 private static AddonDto MapAddonToDto(Addon a) => new()
 {
 Id = a.Id,
 Name = a.Name,
 AdditionalPrice = a.AdditionalPrice
 };
+}
+
+===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\CatalogProductOrderInfoProvider.cs =====
+using CoreKit.Catalog.Persistence;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Catalog.Services;
+internal sealed class CatalogProductOrderInfoProvider : IProductOrderInfoProvider
+{
+private readonly CatalogDbContext _catalogDb;
+public CatalogProductOrderInfoProvider(CatalogDbContext catalogDb) => _catalogDb = catalogDb;
+public async Task<ProductOrderInfo?> GetProductInfoAsync(Guid productId, CancellationToken ct = default)
+{
+return await _catalogDb.Products
+.IgnoreQueryFilters()
+.AsNoTracking()
+.Where(x => x.Id == productId)
+.Select(x => new ProductOrderInfo
+{
+Id = x.Id,
+StoreId = x.StoreId,
+Name = x.Name,
+BasePrice = x.BasePrice,
+IsActive = !x.IsDeleted && x.IsActive,
+AvailableForCollection = x.AvailableForCollection,
+AvailableForDelivery = x.AvailableForDelivery
+})
+.FirstOrDefaultAsync(ct);
+}
+public async Task<ProductVariantOrderInfo?> GetVariantInfoAsync(Guid variantId, CancellationToken ct = default)
+{
+return await _catalogDb.ProductVariants
+.IgnoreQueryFilters()
+.AsNoTracking()
+.Where(x => x.Id == variantId)
+.Select(x => new ProductVariantOrderInfo
+{
+Id = x.Id,
+Sku = x.Sku,
+Price = x.Price,
+IsActive = x.IsActive
+})
+.FirstOrDefaultAsync(ct);
+}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\CategoryService.cs =====
@@ -1195,88 +1287,6 @@ StoreId = category.StoreId,
 TenantId = category.TenantId,
 SubCategories = BuildTree(all, category.Id)
 };
-}
-
-===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\IVariantValidationService.cs =====
-using System.Text.Json;
-using CoreKit.Catalog.Entities;
-using CoreKit.Catalog.Interfaces;
-using CoreKit.Catalog.Models;
-namespace CoreKit.Catalog.Services;
-public class VariantValidationService : IVariantValidationService
-{
-private readonly IVariantGroupRepository _variantGroupRepo;
-private readonly IVariantAttributeTemplateRepository _variantTemplateRepo;
-public VariantValidationService(
-IVariantGroupRepository variantGroupRepo,
-IVariantAttributeTemplateRepository variantTemplateRepo)
-{
-_variantGroupRepo = variantGroupRepo;
-_variantTemplateRepo = variantTemplateRepo;
-}
-public async Task ValidateVariantsAgainstGroupAsync(
-Guid variantGroupId,
-Guid tenantId,
-List<CreateVariantRequest> variants,
-CancellationToken ct = default)
-{
-var group = await _variantGroupRepo.GetByIdWithOptionsAsync(
-variantGroupId, tenantId, ct)
-?? throw new KeyNotFoundException(
-"Variant group not found or does not belong to this tenant.");
-var optionMap = BuildOptionMap(group);
-foreach (var variant in variants)
-foreach (var attr in variant.Attributes)
-{
-var templateId = await ResolveTemplateIdAsync(attr, group.StoreTypeCode, ct);
-if (!optionMap.ContainsKey(templateId))
-throw new InvalidOperationException(
-$"Variant attribute template '{templateId}' is not part " +
-"of the selected variant group.");
-var allowed = optionMap[templateId];
-if (allowed != null && !allowed.Contains(attr.Value))
-throw new InvalidOperationException(
-$"Value '{attr.Value}' is not allowed for this variant option.");
-}
-}
-public async Task<VariantAttributeTemplate> ResolveTemplateAsync(
-VariantAttributeItem attr,
-string storeTypeCode,
-CancellationToken ct = default)
-{
-if (attr.TemplateId.HasValue)
-return await _variantTemplateRepo.GetByIdAsync(attr.TemplateId.Value, ct)
-?? throw new InvalidOperationException(
-$"Variant template '{attr.TemplateId}' not found.");
-return await _variantTemplateRepo.GetByNameAndStoreTypeAsync(
-attr.Name, storeTypeCode, ct)
-?? throw new InvalidOperationException(
-$"Variant attribute '{attr.Name}' not defined " +
-$"for store type '{storeTypeCode}'.");
-}
-private static Dictionary<Guid, List<string>?> BuildOptionMap(VariantGroup group)
-=> group.Options.ToDictionary(
-o => o.TemplateId,
-o => string.IsNullOrWhiteSpace(o.AllowedValuesJson)
-? null
-: JsonSerializer.Deserialize<List<string>>(o.AllowedValuesJson));
-private async Task<Guid> ResolveTemplateIdAsync(
-VariantAttributeItem attr,
-string storeTypeCode,
-CancellationToken ct)
-{
-if (attr.TemplateId.HasValue)
-{
-return attr.TemplateId.Value;
-}
-var template = await _variantTemplateRepo
-.GetByNameAndStoreTypeAsync(attr.Name, storeTypeCode, ct)
-?? throw new InvalidOperationException(
-$"Variant attribute '{attr.Name}' not found " +
-$"for store type '{storeTypeCode}'.");
-attr.TemplateId = template.Id;
-return template.Id;
-}
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Services\ProductAttributeGroupService.cs =====

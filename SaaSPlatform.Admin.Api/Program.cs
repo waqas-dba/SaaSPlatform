@@ -124,6 +124,10 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
+
+// Configure logging
+builder.Services.AddLogging();
+
 // ------------------- API Versioning -------------------
 builder.Services.AddApiVersioning(options =>
 {
@@ -173,5 +177,12 @@ app.UseAuthorization();
 
 app.MapGet("/ping", () => "pong");
 app.MapControllers();
+
+// Inject logger
+app.MapGet("/status", (ILogger<Program> logger) =>
+{
+    logger.LogInformation("Application running");
+    return Results.Ok(new { Status = "OK" });
+});
 
 app.Run();

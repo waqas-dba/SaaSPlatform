@@ -6,7 +6,7 @@ namespace CoreKit.Catalog.Models;
 
 public class CreateVariantRequest
 {
-    public string Sku { get; set; } = default!;
+    public string Name { get; set; } = default!;
     public decimal Price { get; set; }
-    public List<VariantAttributeItem> Attributes { get; set; } = new();
+    public int SortOrder { get; set; }
 }

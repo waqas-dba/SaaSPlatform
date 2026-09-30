@@ -3,7 +3,8 @@ namespace CoreKit.Catalog.Models;
 
 public class UpdateVariantRequest
 {
-    public string? Sku { get; set; }
+    public string? Name { get; set; }
     public decimal? Price { get; set; }
-    public List<VariantAttributeItem>? Attributes { get; set; }
+    public int? SortOrder { get; set; }
+    public bool? IsActive { get; set; }
 }

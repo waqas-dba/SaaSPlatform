@@ -18,7 +18,7 @@ namespace CoreKit.Tenant.Services;
 public class StoreService : IStoreService
 {
     private readonly TenantDbContext _db;
-    private readonly IStoreRepository _storeRepo;          // FIX: was missing
+    private readonly IStoreRepository _storeRepo;       
     private readonly ITenantContext _tenantContext;
     private readonly TenantKitOptions _options;
     private readonly ICurrentUserService _currentUser;
@@ -26,7 +26,7 @@ public class StoreService : IStoreService
 
     public StoreService(
         TenantDbContext db,
-        IStoreRepository storeRepo,                        // FIX: inject repo
+        IStoreRepository storeRepo,                     
         ITenantContext tenantContext,
         IOptions<TenantKitOptions> options,
         ICurrentUserService currentUser,

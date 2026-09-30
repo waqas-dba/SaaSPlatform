@@ -1,4 +1,212 @@
 ﻿
+===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserManagementService.cs =====
+using CoreKit.IAM.Constants;
+using CoreKit.IAM.Entities;
+using CoreKit.IAM.Helpers;
+using CoreKit.IAM.Interfaces;
+using CoreKit.IAM.Models;
+using CoreKit.IAM.Persistence;
+using CoreKit.SharedKernel.Exceptions;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.IAM.Services;
+public class UserManagementService : IUserManagementService
+{
+private readonly IamDbContext _db;
+private readonly IPasswordHasher _passwordHasher;
+private readonly IamOptions _options;
+private readonly IPermissionCacheService _permissionCache;
+public UserManagementService(
+IamDbContext db,
+IPasswordHasher passwordHasher,
+IamOptions options,
+IPermissionCacheService permissionCache)
+{
+_db = db;
+_passwordHasher = passwordHasher;
+_options = options;
+_permissionCache = permissionCache;
+}
+public async Task<User> CreateUserAsync(
+string name,
+string phone,
+string? email,
+string password,
+Guid? tenantId)
+{
+phone = PhoneNormalizer.Normalize(phone);
+email = string.IsNullOrWhiteSpace(email)
+? null
+: email.Trim().ToLowerInvariant();
+if (await _db.Users.AnyAsync(u =>
+u.Phone == phone && u.TenantId == tenantId))
+throw new InvalidOperationException(
+"A user with this phone already exists in the tenant.");
+if (email != null &&
+await _db.Users.AnyAsync(u =>
+u.Email == email && u.TenantId == tenantId))
+throw new InvalidOperationException(
+"A user with this email already exists in the tenant.");
+if (password.Length < _options.MinPasswordLength)
+throw new ArgumentException(
+$"Password must be at least {_options.MinPasswordLength} characters.");
+var user = new User
+{
+Id = Guid.NewGuid(),
+TenantId = tenantId,
+Name = name,
+Phone = phone,
+Email = email,
+PasswordHash = _passwordHasher.Hash(password),
+IsActive = true
+};
+_db.Users.Add(user);
+try
+{
+await _db.SaveChangesAsync();
+}
+catch (DbUpdateException ex)
+when (ex.InnerException?.Message
+.Contains("unique", StringComparison.OrdinalIgnoreCase) == true)
+{
+throw new InvalidOperationException(
+"A user with this phone or email already exists. " +
+"Please use different credentials.");
+}
+return user;
+}
+public async Task UpdateUserAsync(
+Guid userId,
+string? name,
+string? email,
+string? phone,
+Guid? tenantId)
+{
+var user = await _db.Users
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId)
+?? throw new KeyNotFoundException("User not found.");
+if (name != null) user.Name = name;
+if (phone != null)
+{
+var normalizedPhone = PhoneNormalizer.Normalize(phone);
+var phoneInUse = await _db.Users.AnyAsync(u =>
+u.Phone == normalizedPhone &&
+u.TenantId == tenantId &&
+u.Id != userId);
+if (phoneInUse)
+throw new InvalidOperationException("Phone already in use.");
+user.Phone = normalizedPhone;
+}
+if (email != null)
+{
+var normalizedEmail = email.Trim().ToLowerInvariant();
+var emailInUse = await _db.Users.AnyAsync(u =>
+u.Email == normalizedEmail &&
+u.TenantId == tenantId &&
+u.Id != userId);
+if (emailInUse)
+throw new InvalidOperationException("Email already in use.");
+user.Email = normalizedEmail;
+}
+await _db.SaveChangesAsync();
+}
+public async Task<List<User>> GetUsersAsync(Guid? tenantId)
+=> await _db.Users.Where(u => u.TenantId == tenantId).ToListAsync();
+public async Task<User?> GetUserByIdAsync(Guid userId, Guid? tenantId)
+=> await _db.Users
+.Include(u => u.Roles).ThenInclude(r => r.Role)
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+public async Task DeleteUserAsync(Guid userId, Guid? tenantId, CancellationToken ct = default)
+{
+var user = await _db.Users
+.FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId, ct)
+?? throw new KeyNotFoundException("User not found.");
+user.IsDeleted = true;
+user.IsActive = false;
+var tokens = await _db.RefreshTokens
+.Where(t => t.UserId == userId)
+.ToListAsync(ct);
+foreach (var t in tokens)
+{
+t.IsRevoked = true;
+t.RevokedAtUtc = DateTime.UtcNow;
+}
+await _db.SaveChangesAsync(ct);
+await _permissionCache.InvalidateUserAsync(userId);
+}
+public async Task AssignRoleAsync(
+Guid userId,
+Guid roleId,
+Guid? tenantId,
+bool callerIsPlatformAdmin = false)
+{
+var user = await _db.Users
+.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+var role = await _db.Roles
+.FirstOrDefaultAsync(r => r.Id == roleId)
+?? throw new KeyNotFoundException("Role not found.");
+if (role.TenantId == null && !callerIsPlatformAdmin)
+throw new ForbiddenException(
+"Only platform administrators can assign platform-level roles.");
+if (role.IsSystem && !callerIsPlatformAdmin)
+throw new ForbiddenException("Cannot assign a system role.");
+if (user.Roles.Any(r => r.RoleId == roleId && r.TenantId == tenantId))
+throw new InvalidOperationException(
+"User already has this role in the specified scope.");
+user.Roles.Add(new UserRole
+{
+UserId = userId,
+RoleId = roleId,
+TenantId = tenantId
+});
+await _db.SaveChangesAsync();
+await _permissionCache.InvalidateUserAsync(userId);
+}
+public async Task RemoveRoleAsync(Guid userId, Guid roleId, Guid? tenantId)
+{
+var user = await _db.Users
+.Include(u => u.Roles)
+.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+var userRole = user.Roles
+.FirstOrDefault(r => r.RoleId == roleId && r.TenantId == tenantId)
+?? throw new KeyNotFoundException(
+"User does not have this role in the specified scope.");
+user.Roles.Remove(userRole);
+await _db.SaveChangesAsync();
+await _permissionCache.InvalidateUserAsync(userId);
+}
+public async Task LockUserAsync(Guid userId, DateTime lockoutEnd)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = lockoutEnd;
+await _db.SaveChangesAsync();
+}
+public async Task UnlockUserAsync(Guid userId)
+{
+var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId)
+?? throw new KeyNotFoundException("User not found.");
+user.LockoutEnd = null;
+user.FailedLoginAttempts = 0;
+await _db.SaveChangesAsync();
+}
+public async Task<List<UserListItem>> GetAllUsersAsync()
+=> await _db.Users
+.AsNoTracking()
+.Select(u => new UserListItem
+{
+Id = u.Id,
+Name = u.Name,
+Email = u.Email,
+Phone = u.Phone,
+IsActive = u.IsActive,
+TenantId = u.TenantId
+})
+.ToListAsync();
+}
+
 ===== CoreKit.IAM | D:\waqas-dba\SaaSPlatform\CoreKit.IAM\Services\UserStoreAssignmentService.cs =====
 using CoreKit.IAM.Entities;
 using CoreKit.IAM.Interfaces;
@@ -736,6 +944,564 @@ public class ApiResponse<T> : ApiResponse
 public T? Data { get; init; }
 }
 
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Configuration\OrderConfiguration.cs =====
+using CoreKit.Order.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Order.Configuration;
+public class OrderConfiguration : IEntityTypeConfiguration<CustomerOrder>
+{
+public void Configure(EntityTypeBuilder<CustomerOrder> builder)
+{
+builder.ToTable("ORD_Orders");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.OrderNumber).IsRequired().HasMaxLength(50);
+builder.HasIndex(x => x.OrderNumber).IsUnique();
+builder.Property(x => x.CustomerName).IsRequired().HasMaxLength(200);
+builder.Property(x => x.CustomerPhone).IsRequired().HasMaxLength(20);
+builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
+builder.Property(x => x.SubTotal).HasColumnType("decimal(18,2)");
+builder.Property(x => x.Total).HasColumnType("decimal(18,2)");
+builder.Property(x => x.DeliveryFee).HasColumnType("decimal(18,2)");
+builder.Property(x => x.Type).HasConversion<int>();
+builder.Property(x => x.Status).HasConversion<int>();
+builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Status });
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Configuration\OrderItemConfiguration.cs =====
+using CoreKit.Order.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+namespace CoreKit.Order.Configuration;
+public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
+{
+public void Configure(EntityTypeBuilder<OrderItem> builder)
+{
+builder.ToTable("ORD_OrderItems");
+builder.HasKey(x => x.Id);
+builder.Property(x => x.ProductName).IsRequired().HasMaxLength(200);
+builder.Property(x => x.VariantName).HasMaxLength(200);
+builder.Property(x => x.UnitPrice).HasColumnType("decimal(18,2)");
+builder.Property(x => x.AddonsJson).HasMaxLength(2000);
+builder.HasOne(x => x.Order)
+.WithMany(x => x.Items)
+.HasForeignKey(x => x.OrderId)
+.OnDelete(DeleteBehavior.Cascade);
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Entities\CustomerOrder.cs =====
+using CoreKit.SharedKernel.Common;
+namespace CoreKit.Order.Entities;
+public class CustomerOrder : AuditableEntity, ITenantScoped
+{
+public string OrderNumber { get; set; } = default!;
+public Guid StoreId { get; set; }
+public Guid TenantId { get; set; }
+public string CustomerName { get; set; } = default!;
+public string CustomerPhone { get; set; } = default!;
+public OrderType Type { get; set; }
+public OrderStatus Status { get; set; } = OrderStatus.Pending;
+public string? DeliveryAddress { get; set; }
+public decimal? DeliveryFee { get; set; }
+public decimal SubTotal { get; set; }
+public decimal Total { get; set; }
+public string? Notes { get; set; }
+public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+}
+public enum OrderType
+{
+Collection = 1,
+Delivery = 2
+}
+public enum OrderStatus
+{
+Pending = 1,
+Confirmed = 2,
+Preparing = 3,
+ReadyForPickup = 4,
+OutForDelivery = 5,
+Delivered = 6,
+Cancelled = 7
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Entities\OrderItem.cs =====
+namespace CoreKit.Order.Entities;
+public class OrderItem
+{
+public Guid Id { get; set; } = Guid.NewGuid();
+public Guid OrderId { get; set; }
+public CustomerOrder Order { get; set; } = default!;
+public Guid ProductId { get; set; }
+public Guid? ProductVariantId { get; set; }
+public string ProductName { get; set; } = default!;
+public string? VariantName { get; set; }
+public int Quantity { get; set; }
+public decimal UnitPrice { get; set; }
+public string? AddonsJson { get; set; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Extensions\ServiceCollectionExtensions.cs =====
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Persistence;
+using CoreKit.Order.Repository;
+using CoreKit.Order.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql.EntityFrameworkCore.PostgreSQL;
+namespace CoreKit.Order.Extensions;
+public static class ServiceCollectionExtensions
+{
+public static IServiceCollection AddOrderModule(
+this IServiceCollection services,
+string connectionString)
+{
+services.AddDbContext<OrderDbContext>(options =>
+options.UseNpgsql(connectionString));
+services.AddScoped<IOrderRepository, OrderRepository>();
+services.AddScoped<IOrderService, OrderService>();
+return services;
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\IOrderRepository.cs =====
+using CoreKit.Order.Entities;
+using CoreKit.SharedKernel.Models;
+namespace CoreKit.Order.Interfaces;
+public interface IOrderRepository
+{
+Task<PagedResult<CustomerOrder>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task<CustomerOrder?> GetByIdAsync(Guid id, CancellationToken ct = default);
+void Add(CustomerOrder order);
+void Update(CustomerOrder order);
+Task<int> SaveChangesAsync(CancellationToken ct = default);
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\IOrderService.cs =====
+using CoreKit.Order.Models;
+using CoreKit.SharedKernel.Models;
+namespace CoreKit.Order.Interfaces;
+public interface IOrderService
+{
+Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default);
+Task<OrderDto?> GetByIdAsync(Guid orderId, CancellationToken ct = default);
+Task<PagedResult<OrderDto>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task UpdateStatusAsync(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default);
+Task CancelAsync(Guid orderId, CancellationToken ct = default);
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\ProductOrderInfo.cs =====
+namespace CoreKit.Order.Interfaces;
+public sealed class ProductOrderInfo
+{
+public Guid Id { get; init; }
+public Guid StoreId { get; init; }
+public string Name { get; init; } = default!;
+public decimal BasePrice { get; init; }
+public bool IsActive { get; init; }
+public bool AvailableForCollection { get; init; }
+public bool AvailableForDelivery { get; init; }
+}
+public sealed class ProductVariantOrderInfo
+{
+public Guid Id { get; init; }
+public string Sku { get; init; } = default!;
+public decimal Price { get; init; }
+public bool IsActive { get; init; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\AddonSnapshotDto.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Order.Models;
+public class AddonSnapshotDto
+{
+public string Name { get; set; } = default!;
+public decimal Price { get; set; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\CreateOrderRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Order.Models;
+public class CreateOrderRequest
+{
+public Guid StoreId { get; set; }
+public string CustomerName { get; set; } = default!;
+public string CustomerPhone { get; set; } = default!;
+public string OrderType { get; set; } = default!;
+public string? DeliveryAddress { get; set; }
+public decimal? DeliveryFee { get; set; }
+public List<OrderItemRequest> Items { get; set; } = new();
+public string? Notes { get; set; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderDto.cs =====
+namespace CoreKit.Order.Models;
+public class OrderDto
+{
+public Guid Id { get; set; }
+public string OrderNumber { get; set; } = default!;
+public string CustomerName { get; set; } = default!;
+public string CustomerPhone { get; set; } = default!;
+public string Type { get; set; } = default!;
+public string Status { get; set; } = default!;
+public string? DeliveryAddress { get; set; }
+public decimal? DeliveryFee { get; set; }
+public decimal SubTotal { get; set; }
+public decimal Total { get; set; }
+public string? Notes { get; set; }
+public List<OrderItemDto> Items { get; set; } = new();
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderItemDto.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Order.Models;
+public class OrderItemDto
+{
+public string ProductName { get; set; } = default!;
+public string? VariantName { get; set; }
+public int Quantity { get; set; }
+public decimal UnitPrice { get; set; }
+public decimal LineTotal { get; set; }
+public List<AddonSnapshotDto>? Addons { get; set; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderItemRequest.cs =====
+using System;
+using System.Collections.Generic;
+using System.Text;
+namespace CoreKit.Order.Models;
+public class OrderItemRequest
+{
+public Guid ProductId { get; set; }
+public Guid? ProductVariantId { get; set; }
+public int Quantity { get; set; }
+public List<AddonSnapshotDto>? Addons { get; set; }
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\UpdateOrderStatusRequest.cs =====
+namespace CoreKit.Order.Models;
+public class UpdateOrderStatusRequest
+{
+public string Status { get; set; } = default!;
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\Seeders\OrderSeeder.cs =====
+using CoreKit.Order.Entities;
+using CoreKit.Order.Persistence;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Order.Persistence.Seeders;
+public sealed class OrderSeeder
+{
+private readonly OrderDbContext _db;
+public OrderSeeder(OrderDbContext db) => _db = db;
+public async Task SeedAsync(CancellationToken ct = default)
+{
+if (await _db.Orders.AnyAsync(ct)) return;
+var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+var collectionOrder = new CustomerOrder
+{
+Id = Guid.NewGuid(),
+OrderNumber = "ORD-20260605-COL001",
+StoreId = systemStoreId,
+TenantId = systemTenantId,
+CustomerName = "Alice Walker",
+CustomerPhone = "03001234567",
+Type = OrderType.Collection,
+Status = OrderStatus.Pending,
+SubTotal = 120.00m,
+Total = 120.00m,
+Notes = "Please pack in a paper bag.",
+Items = new List<OrderItem>
+{
+new()
+{
+Id = Guid.NewGuid(),
+ProductId = Guid.NewGuid(),
+ProductName = "Sourdough Loaf",
+Quantity = 2,
+UnitPrice = 60.00m,
+}
+}
+};
+var deliveryOrder = new CustomerOrder
+{
+Id = Guid.NewGuid(),
+OrderNumber = "ORD-20260605-DEL001",
+StoreId = systemStoreId,
+TenantId = systemTenantId,
+CustomerName = "Bob Smith",
+CustomerPhone = "03007654321",
+Type = OrderType.Delivery,
+Status = OrderStatus.Confirmed,
+DeliveryAddress = "123 Main Street, Karachi",
+DeliveryFee = 50.00m,
+SubTotal = 350.00m,
+Total = 400.00m,
+Notes = null,
+Items = new List<OrderItem>
+{
+new()
+{
+Id = Guid.NewGuid(),
+ProductId = Guid.NewGuid(),
+ProductName = "Sourdough Loaf",
+Quantity = 1,
+UnitPrice = 350.00m,
+}
+}
+};
+_db.Orders.AddRange(collectionOrder, deliveryOrder);
+await _db.SaveChangesAsync(ct);
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\OrderDbContext.cs =====
+using CoreKit.Order.Entities;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Order.Persistence;
+public class OrderDbContext : AuditableDbContext
+{
+public OrderDbContext(DbContextOptions<OrderDbContext> options, ICurrentUser? currentUser = null)
+: base(options, currentUser) { }
+public DbSet<CustomerOrder> Orders => Set<CustomerOrder>();
+public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+base.OnModelCreating(modelBuilder);
+modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrderDbContext).Assembly);
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\OrderDbContextFactory.cs =====
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Npgsql.EntityFrameworkCore.PostgreSQL;
+namespace CoreKit.Order.Persistence;
+public class OrderDbContextFactory : IDesignTimeDbContextFactory<OrderDbContext>
+{
+public OrderDbContext CreateDbContext(string[] args)
+{
+var optionsBuilder = new DbContextOptionsBuilder<OrderDbContext>();
+optionsBuilder.UseNpgsql(
+"Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+return new OrderDbContext(optionsBuilder.Options);
+}
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Repository\OrderRepository.cs =====
+using CoreKit.Order.Entities;
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Persistence;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+namespace CoreKit.Order.Repository;
+public class OrderRepository : IOrderRepository
+{
+private readonly OrderDbContext _db;
+public OrderRepository(OrderDbContext db) => _db = db;
+public async Task<PagedResult<CustomerOrder>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default)
+{
+var baseQuery = _db.Orders.Where(o => o.StoreId == storeId);
+var total = await baseQuery.CountAsync(ct);
+var items = await baseQuery
+.Include(o => o.Items)
+.OrderByDescending(o => o.CreatedAt)
+.Skip(query.Skip)
+.Take(query.PageSize)
+.ToListAsync(ct);
+return PagedResult<CustomerOrder>.From(items, total, query.Page, query.PageSize);
+}
+public async Task<CustomerOrder?> GetByIdAsync(Guid id, CancellationToken ct = default)
+=> await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, ct);
+public void Add(CustomerOrder order) => _db.Orders.Add(order);
+public void Update(CustomerOrder order) => _db.Orders.Update(order);
+public Task<int> SaveChangesAsync(CancellationToken ct = default) => _db.SaveChangesAsync(ct);
+}
+
+===== CoreKit.Order | D:\waqas-dba\SaaSPlatform\CoreKit.Order\Services\OrderService.cs =====
+using CoreKit.Order.Entities;
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Models;
+using CoreKit.Order.Persistence;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+namespace CoreKit.Order.Services;
+public class OrderService : IOrderService
+{
+private readonly OrderDbContext _db;
+private readonly IProductOrderInfoProvider _productInfoProvider;
+private readonly IStoreInfoProvider _storeInfoProvider;
+private static readonly Dictionary<OrderStatus, IReadOnlyList<OrderStatus>> AllowedTransitions = new()
+{
+[OrderStatus.Pending] = new[] { OrderStatus.Confirmed, OrderStatus.Cancelled },
+[OrderStatus.Confirmed] = new[] { OrderStatus.Preparing, OrderStatus.Cancelled },
+[OrderStatus.Preparing] = new[] { OrderStatus.ReadyForPickup, OrderStatus.OutForDelivery, OrderStatus.Cancelled },
+[OrderStatus.ReadyForPickup] = new[] { OrderStatus.Delivered, OrderStatus.Cancelled },
+[OrderStatus.OutForDelivery] = new[] { OrderStatus.Delivered, OrderStatus.Cancelled },
+[OrderStatus.Delivered] = Array.Empty<OrderStatus>(),
+[OrderStatus.Cancelled] = Array.Empty<OrderStatus>()
+};
+public OrderService(
+OrderDbContext db,
+IProductOrderInfoProvider productInfoProvider,
+IStoreInfoProvider storeInfoProvider)
+{
+_db = db;
+_productInfoProvider = productInfoProvider;
+_storeInfoProvider = storeInfoProvider;
+}
+public async Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
+{
+var orderType = request.OrderType.Equals("Delivery", StringComparison.OrdinalIgnoreCase)
+? OrderType.Delivery : OrderType.Collection;
+if (orderType == OrderType.Delivery && string.IsNullOrWhiteSpace(request.DeliveryAddress))
+throw new InvalidOperationException("Delivery address is required for delivery orders.");
+var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct)
+?? throw new KeyNotFoundException("Store not found.");
+var order = new CustomerOrder
+{
+Id = Guid.NewGuid(),
+OrderNumber = GenerateOrderNumber(),
+StoreId = request.StoreId,
+TenantId = storeInfo.TenantId,
+CustomerName = request.CustomerName,
+CustomerPhone = request.CustomerPhone,
+Type = orderType,
+Status = OrderStatus.Pending,
+DeliveryAddress = orderType == OrderType.Delivery ? request.DeliveryAddress : null,
+DeliveryFee = orderType == OrderType.Delivery ? request.DeliveryFee : null,
+Notes = request.Notes
+};
+decimal subTotal = 0;
+foreach (var itemReq in request.Items)
+{
+var productInfo = await _productInfoProvider.GetProductInfoAsync(itemReq.ProductId, ct)
+?? throw new KeyNotFoundException($"Product {itemReq.ProductId} not found.");
+if (productInfo.StoreId != request.StoreId)
+throw new InvalidOperationException($"Product '{productInfo.Name}' does not belong to this store.");
+if (!productInfo.IsActive)
+throw new InvalidOperationException($"Product '{productInfo.Name}' is not available.");
+if (orderType == OrderType.Collection && !productInfo.AvailableForCollection)
+throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for collection.");
+if (orderType == OrderType.Delivery && !productInfo.AvailableForDelivery)
+throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for delivery.");
+string? variantName = null;
+decimal unitPrice = productInfo.BasePrice;
+if (itemReq.ProductVariantId.HasValue)
+{
+var variantInfo = await _productInfoProvider.GetVariantInfoAsync(itemReq.ProductVariantId.Value, ct)
+?? throw new KeyNotFoundException($"Variant {itemReq.ProductVariantId} not found.");
+if (!variantInfo.IsActive)
+throw new InvalidOperationException("The selected variant is not available.");
+variantName = variantInfo.Sku;
+unitPrice = variantInfo.Price;
+}
+string? addonsJson = null;
+if (itemReq.Addons != null && itemReq.Addons.Any())
+addonsJson = JsonSerializer.Serialize(itemReq.Addons);
+var orderItem = new OrderItem
+{
+OrderId = order.Id,
+ProductId = itemReq.ProductId,
+ProductVariantId = itemReq.ProductVariantId,
+ProductName = productInfo.Name,
+VariantName = variantName,
+Quantity = itemReq.Quantity,
+UnitPrice = unitPrice,
+AddonsJson = addonsJson
+};
+order.Items.Add(orderItem);
+subTotal += orderItem.Quantity * orderItem.UnitPrice;
+}
+order.SubTotal = subTotal;
+order.Total = subTotal + (order.DeliveryFee ?? 0);
+_db.Orders.Add(order);
+await _db.SaveChangesAsync(ct);
+return MapToDto(order);
+}
+public async Task<OrderDto?> GetByIdAsync(Guid orderId, CancellationToken ct = default)
+{
+var order = await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == orderId, ct);
+return order is null ? null : MapToDto(order);
+}
+public async Task<PagedResult<OrderDto>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default)
+{
+var baseQuery = _db.Orders.Where(o => o.StoreId == storeId);
+var total = await baseQuery.CountAsync(ct);
+var items = await baseQuery
+.OrderByDescending(o => o.CreatedAt)
+.Skip(query.Skip).Take(query.PageSize)
+.Select(o => MapToDto(o))
+.ToListAsync(ct);
+return PagedResult<OrderDto>.From(items, total, query.Page, query.PageSize);
+}
+public async Task UpdateStatusAsync(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default)
+{
+var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+?? throw new KeyNotFoundException("Order not found.");
+if (!Enum.TryParse<OrderStatus>(request.Status, true, out var newStatus))
+throw new InvalidOperationException($"Invalid status '{request.Status}'.");
+if (!AllowedTransitions[order.Status].Contains(newStatus))
+throw new InvalidOperationException($"Cannot transition from '{order.Status}' to '{newStatus}'.");
+if (newStatus == OrderStatus.ReadyForPickup && order.Type != OrderType.Collection)
+throw new InvalidOperationException("ReadyForPickup status is only valid for collection orders.");
+if (newStatus == OrderStatus.OutForDelivery && order.Type != OrderType.Delivery)
+throw new InvalidOperationException("OutForDelivery status is only valid for delivery orders.");
+order.Status = newStatus;
+_db.Orders.Update(order);
+await _db.SaveChangesAsync(ct);
+}
+public async Task CancelAsync(Guid orderId, CancellationToken ct = default)
+{
+var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+?? throw new KeyNotFoundException("Order not found.");
+if (order.Status == OrderStatus.Delivered || order.Status == OrderStatus.Cancelled)
+throw new InvalidOperationException("Cannot cancel an already completed or cancelled order.");
+order.Status = OrderStatus.Cancelled;
+_db.Orders.Update(order);
+await _db.SaveChangesAsync(ct);
+}
+private static string GenerateOrderNumber()
+=> $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpper()}";
+private static OrderDto MapToDto(CustomerOrder o) => new()
+{
+Id = o.Id,
+OrderNumber = o.OrderNumber,
+CustomerName = o.CustomerName,
+CustomerPhone = o.CustomerPhone,
+Type = o.Type.ToString(),
+Status = o.Status.ToString(),
+DeliveryAddress = o.DeliveryAddress,
+DeliveryFee = o.DeliveryFee,
+SubTotal = o.SubTotal,
+Total = o.Total,
+Notes = o.Notes,
+Items = o.Items.Select(i => new OrderItemDto
+{
+ProductName = i.ProductName,
+VariantName = i.VariantName,
+Quantity = i.Quantity,
+UnitPrice = i.UnitPrice,
+LineTotal = i.Quantity * i.UnitPrice,
+Addons = string.IsNullOrWhiteSpace(i.AddonsJson)
+? null
+: JsonSerializer.Deserialize<List<AddonSnapshotDto>>(i.AddonsJson)
+}).ToList()
+};
+}
+
 ===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Configuration\PlanConfiguration.cs =====
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -1097,681 +1863,5 @@ public static class FeatureFlags
 {
 public const string CustomDomain = "custom_domain";
 public const string ThemeCustomization = "theme_customization";
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanLimitProvider.cs =====
-using CoreKit.SharedKernel.Interfaces;
-using CoreKit.Subscription.Entities;
-using CoreKit.Subscription.Interfaces;
-using CoreKit.Subscription.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
-namespace CoreKit.Subscription.Services;
-public sealed class PlanLimitProvider : IPlanLimitProvider
-{
-private readonly SubscriptionDbContext _db;
-private readonly IMemoryCache _cache;
-private readonly IReadOnlyDictionary<string, IFeatureEvaluator> _evaluators;
-private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
-public PlanLimitProvider(
-SubscriptionDbContext db,
-IMemoryCache cache,
-IEnumerable<IFeatureEvaluator> evaluators)
-{
-_db = db;
-_cache = cache;
-_evaluators = evaluators.ToDictionary(
-e => e.FeatureCode,
-StringComparer.OrdinalIgnoreCase);
-}
-public async Task<bool> IsFeatureEnabledAsync(
-Guid tenantId,
-string featureCode,
-CancellationToken ct = default)
-{
-var plan = await GetActivePlanAsync(tenantId, ct);
-if (plan is null) return false;
-return _evaluators.TryGetValue(featureCode, out var evaluator)
-&& evaluator.Evaluate(plan);
-}
-public async Task<int?> GetMaxStoresAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxStores;
-public async Task<int?> GetMaxProductsAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxProducts;
-public async Task<int?> GetMaxCategoriesAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxCategories;
-public async Task<int> GetMaxCategoryLevelAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxCategoryLevel ?? 1;
-public async Task<bool> IsVariantsEnabledAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.EnableVariants ?? false;
-public async Task<bool> IsAddonsEnabledAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.EnableAddons ?? false;
-public async Task<int?> GetMaxVariantsPerProductAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxVariantsPerProduct;
-public async Task<int?> GetMaxAddonsPerProductAsync(
-Guid tenantId, CancellationToken ct = default)
-=> (await GetActivePlanAsync(tenantId, ct))?.MaxAddonsPerProduct;
-private async Task<Plan?> GetActivePlanAsync(
-Guid tenantId, CancellationToken ct)
-{
-var cacheKey = $"plan:active:{tenantId}";
-if (_cache.TryGetValue(cacheKey, out Plan? cached))
-return cached;
-var plan = await _db.TenantSubscriptions
-.Where(ts =>
-ts.TenantId == tenantId &&
-ts.Status == SubscriptionStatus.Active &&
-ts.StartDate <= DateTime.UtcNow &&
-(ts.EndDate == null || ts.EndDate >= DateTime.UtcNow))
-.Select(ts => ts.Plan)
-.FirstOrDefaultAsync(ct);
-_cache.Set(cacheKey, plan, CacheTtl);
-return plan;
-}
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\PlanService.cs =====
-using CoreKit.Subscription.Entities;
-using CoreKit.Subscription.Interfaces;
-using CoreKit.Subscription.Persistence;
-namespace CoreKit.Subscription.Services;
-public class PlanService : IPlanService
-{
-private readonly SubscriptionDbContext _db;
-private readonly IPlanRepository _planRepo;
-public PlanService(SubscriptionDbContext db, IPlanRepository planRepo)
-{
-_db = db;
-_planRepo = planRepo;
-}
-public async Task<List<Plan>> GetAllAsync() => await _planRepo.GetAllAsync();
-public async Task<Plan> CreateAsync(string name, string code, string? description,
-decimal monthlyPrice, decimal yearlyPrice,
-int? maxStores, int? maxProducts, int? maxCategories,
-bool customDomain, bool themeCustomization, int sortOrder)
-{
-var plan = new Plan
-{
-Id = Guid.NewGuid(),
-Name = name,
-Code = code,
-Description = description,
-MonthlyPrice = monthlyPrice,
-YearlyPrice = yearlyPrice,
-MaxStores = maxStores,
-MaxProducts = maxProducts,
-MaxCategories = maxCategories,
-CustomDomainEnabled = customDomain,
-ThemeCustomizationEnabled = themeCustomization,
-SortOrder = sortOrder,
-IsActive = true
-};
-_planRepo.Add(plan);
-await _db.SaveChangesAsync();
-return plan;
-}
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\SubscriptionExpiryService.cs =====
-using CoreKit.Subscription.Entities;
-using CoreKit.Subscription.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Subscription.Services;
-public sealed class SubscriptionExpiryService : BackgroundService
-{
-private readonly IServiceScopeFactory _scopeFactory;
-private readonly ILogger<SubscriptionExpiryService> _logger;
-private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(10);
-public SubscriptionExpiryService(IServiceScopeFactory scopeFactory, ILogger<SubscriptionExpiryService> logger)
-{
-_scopeFactory = scopeFactory;
-_logger = logger;
-}
-protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-{
-while (!stoppingToken.IsCancellationRequested)
-{
-try
-{
-using var scope = _scopeFactory.CreateScope();
-var db = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
-var now = DateTime.UtcNow;
-var expired = await db.TenantSubscriptions
-.Where(ts => ts.Status == SubscriptionStatus.Active && ts.EndDate != null && ts.EndDate <= now)
-.ToListAsync(stoppingToken);
-if (expired.Any())
-{
-foreach (var sub in expired)
-sub.Status = SubscriptionStatus.Expired;
-await db.SaveChangesAsync(stoppingToken);
-_logger.LogInformation("Marked {Count} subscription(s) as expired.", expired.Count);
-}
-}
-catch (Exception ex)
-{
-_logger.LogError(ex, "Error during subscription expiry check.");
-}
-await Task.Delay(CheckInterval, stoppingToken);
-}
-}
-}
-
-===== CoreKit.Subscription | D:\waqas-dba\SaaSPlatform\CoreKit.Subscription\Services\SubscriptionManagementService.cs =====
-using CoreKit.Subscription.Entities;
-using CoreKit.Subscription.Interfaces;
-using CoreKit.Subscription.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
-namespace CoreKit.Subscription.Services;
-public class SubscriptionManagementService : ISubscriptionManagementService
-{
-private readonly SubscriptionDbContext _db;
-private readonly ITenantSubscriptionRepository _subscriptionRepo;
-private readonly IMemoryCache _cache;
-public SubscriptionManagementService(
-SubscriptionDbContext db,
-ITenantSubscriptionRepository subscriptionRepo,
-IMemoryCache cache)
-{
-_db = db;
-_subscriptionRepo = subscriptionRepo;
-_cache = cache;
-}
-public async Task AssignSubscriptionAsync(
-Guid tenantId,
-Guid planId,
-DateTime? startDate = null,
-DateTime? endDate = null)
-{
-var existingActive = await _db.TenantSubscriptions
-.Where(ts => ts.TenantId == tenantId && ts.Status == SubscriptionStatus.Active)
-.ToListAsync();
-foreach (var sub in existingActive)
-{
-sub.Status = SubscriptionStatus.Cancelled;
-sub.EndDate = DateTime.UtcNow;
-}
-var subscription = new TenantSubscription
-{
-Id = Guid.NewGuid(),
-TenantId = tenantId,
-PlanId = planId,
-StartDate = startDate ?? DateTime.UtcNow,
-EndDate = endDate,
-Status = SubscriptionStatus.Active
-};
-_subscriptionRepo.Add(subscription);
-await _db.SaveChangesAsync();
-_cache.Remove($"plan:active:{tenantId}");
-}
-public async Task<TenantSubscription?> GetActiveSubscriptionForTenantAsync(Guid tenantId)
-=> await _subscriptionRepo.GetActiveSubscriptionAsync(tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreConfiguration.cs =====
-using CoreKit.Tenant.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Configuration;
-public class StoreConfiguration : IEntityTypeConfiguration<Store>
-{
-public void Configure(EntityTypeBuilder<Store> builder)
-{
-builder.ToTable("TNT_Stores");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
-builder.Property(x => x.Slug).HasMaxLength(200).IsRequired();
-builder.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
-builder.Property(x => x.StoreTypeId).IsRequired();
-builder.HasOne(x => x.Tenant)
-.WithMany(x => x.Stores)
-.HasForeignKey(x => x.TenantId)
-.OnDelete(DeleteBehavior.Restrict);
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\StoreTypeConfiguration.cs =====
-using CoreKit.Tenant.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Persistence.Configurations;
-public class StoreTypeConfiguration
-: IEntityTypeConfiguration<StoreType>
-{
-public void Configure(EntityTypeBuilder<StoreType> builder)
-{
-builder.ToTable("StoreTypes");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.HasMaxLength(100)
-.IsRequired();
-builder.Property(x => x.Code)
-.HasMaxLength(50)
-.IsRequired();
-builder.Property(x => x.Category)
-.HasMaxLength(50)
-.IsRequired();
-builder.Property(x => x.Description)
-.HasMaxLength(1000);
-builder.Property(x => x.Icon)
-.HasMaxLength(200);
-builder.Property(x => x.Color)
-.HasMaxLength(20);
-builder.HasIndex(x => x.Code)
-.IsUnique();
-builder.HasMany(x => x.Stores)
-.WithOne(x => x.StoreType)
-.HasForeignKey(x => x.StoreTypeId)
-.OnDelete(DeleteBehavior.Restrict);
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantConfiguration.cs =====
-using CoreKit.Tenant.Entities;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-namespace CoreKit.Tenant.Configuration;
-public class TenantConfiguration : IEntityTypeConfiguration<TenantEntity>
-{
-public void Configure(EntityTypeBuilder<TenantEntity> builder)
-{
-builder.ToTable("TNT_Tenants");
-builder.HasKey(x => x.Id);
-builder.Property(x => x.Name)
-.HasMaxLength(200)
-.IsRequired();
-builder.Property(x => x.Slug)
-.HasMaxLength(200)
-.IsRequired();
-builder.Property(x => x.Status)
-.HasConversion<int>()
-.IsRequired();
-builder.HasIndex(x => x.Name).IsUnique();
-builder.HasIndex(x => x.Slug).IsUnique();
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Configuration\TenantLegalInfoConfiguration.cs =====
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Configuration;
-public class TenantLegalInfoConfiguration : IEntityTypeConfiguration<TenantLegalInfo>
-{
-public void Configure(EntityTypeBuilder<TenantLegalInfo> builder)
-{
-builder.ToTable("TNT_TenantLegalInfos");
-builder.HasKey(x => x.Id);
-builder.HasIndex(x => x.TenantId).IsUnique();
-builder.HasOne(x => x.Tenant).WithOne().HasForeignKey<TenantLegalInfo>(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\Store.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.Tenant.Entities;
-public class Store : AuditableEntity, ITenantScoped
-{
-public Guid TenantId { get; set; }
-public TenantEntity Tenant { get; set; } = default!;
-public string Name { get; set; } = default!;
-public string Slug { get; set; } = default!;
-public Guid StoreTypeId { get; set; }
-public StoreType StoreType { get; set; } = default!;
-public string? Description { get; set; }
-public string? Email { get; set; }
-public string? PhoneNumber { get; set; }
-public string? AddressLine1 { get; set; }
-public string? AddressLine2 { get; set; }
-public string? City { get; set; }
-public string? State { get; set; }
-public string? PostalCode { get; set; }
-public string? CountryCode { get; set; }
-public decimal? Latitude { get; set; }
-public decimal? Longitude { get; set; }
-public bool IsActive { get; set; } = true;
-public bool IsPrimary { get; set; }
-public string? TimeZone { get; set; }
-public string? CurrencyCode { get; set; }
-public string? LogoUrl { get; set; }
-public string? CoverImageUrl { get; set; }
-public bool IsListedOnMarketplace { get; set; }
-public string? MetadataJson { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\StoreType.cs =====
-using CoreKit.SharedKernel.Common;
-namespace CoreKit.Tenant.Entities;
-public class StoreType : AuditableEntity
-{
-public string Name { get; set; } = default!;
-public string Code { get; set; } = default!;
-public string Category { get; set; } = default!;
-public string? Description { get; set; }
-public string? Icon { get; set; }
-public string? Color { get; set; }
-public bool IsSystem { get; set; }
-public bool IsActive { get; set; } = true;
-public int SortOrder { get; set; }
-public ICollection<Store>? Stores { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantEntity.cs =====
-using CoreKit.SharedKernel.Common;
-using CoreKit.Tenant.Enums;
-namespace CoreKit.Tenant.Entities;
-public class TenantEntity : AuditableEntity
-{
-public string Name { get; set; } = default!;
-public string Slug { get; set; } = default!;
-public TenantStatus Status { get; set; } = TenantStatus.Pending;
-public Guid? OwnerUserId { get; set; }
-public string? MetadataJson { get; set; }
-public ICollection<Store>? Stores { get; set; }
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Entities\TenantLegalInfo.cs =====
-namespace CoreKit.Tenant.Entities;
-public class TenantLegalInfo
-{
-public Guid Id { get; set; }
-public Guid TenantId { get; set; }
-public string? BusinessLicenseNumber { get; set; }
-public string? TaxId { get; set; }
-public string? AdditionalJson { get; set; }
-public TenantEntity Tenant { get; set; } = default!;
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\StoreType.cs =====
-namespace CoreKit.Tenant.Enums;
-public enum StoreType
-{
-Restaurant = 1,
-Takeaway = 2,
-Cafe = 3,
-Grocery = 4,
-Pharmacy = 5,
-Clothing = 6,
-Electronics = 7,
-MobileShop = 8,
-School = 9,
-Hospital = 10,
-Hotel = 11,
-Warehouse = 12,
-Salon = 13,
-Bakery = 14,
-Other = 99
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Enums\TenantStatus.cs =====
-namespace CoreKit.Tenant.Enums;
-public enum TenantStatus
-{
-Pending = 1,
-Active = 2,
-Suspended = 3,
-Rejected = 4,
-Archived = 5
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Extensions\TenantKitServiceCollectionExtensions.cs =====
-using CoreKit.SharedKernel.Interfaces;
-using CoreKit.SharedKernel.Tenancy;
-using CoreKit.Tenant.Interfaces;
-using CoreKit.Tenant.Middleware;
-using CoreKit.Tenant.Models;
-using CoreKit.Tenant.Persistence;
-using CoreKit.Tenant.Repositories;
-using CoreKit.Tenant.Services;
-using CoreKit.Tenant.Validators;
-using FluentValidation;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-namespace CoreKit.Tenant.Extensions;
-public static class TenantKitServiceCollectionExtensions
-{
-public static IServiceCollection AddTenantKit(
-this IServiceCollection services,
-string connectionString,
-Action<TenantKitOptions>? configure = null)
-{
-services.Configure<TenantKitOptions>(options =>
-{
-configure?.Invoke(options);
-});
-services.AddDbContext<TenantDbContext>((sp, opt) =>
-{
-opt.UseNpgsql(connectionString);
-});
-services.AddScoped<ITenantRepository, TenantRepository>();
-services.AddScoped<IStoreRepository, StoreRepository>();
-services.AddScoped<ITenantLegalInfoRepository, TenantLegalInfoRepository>();
-services.AddScoped<IStoreTypeRepository, StoreTypeRepository>();
-services.AddScoped<ITenantService, TenantService>();
-services.AddScoped<IStoreService, StoreService>();
-services.AddScoped<ITenantLegalInfoService, TenantLegalInfoService>();
-services.AddScoped<IStoreTypeService, StoreTypeService>();
-services.AddScoped<IStoreInfoProvider, TenantStoreInfoProvider>();
-services.AddScoped<TenantContext>();
-services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
-services.AddScoped<IMutableTenantContext>(sp => sp.GetRequiredService<TenantContext>());
-services.AddValidatorsFromAssemblyContaining < CreateStoreRequestValidator > ();
-return services;
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreRepository
-{
-Task<Store?> GetByIdAsync(Guid storeId, CancellationToken ct = default);
-Task<List<Store>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default);
-void Add(Store store);
-void Update(Store store);
-void Delete(Store store);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreService.cs =====
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreService
-{
-Task<StoreDto?> GetByIdAsync(
-Guid storeId,
-CancellationToken cancellationToken = default);
-Task<List<StoreDto>> GetAllByTenantAsync(
-Guid tenantId,
-CancellationToken cancellationToken = default);
-Task<List<StoreDto>> GetAllStoresAsync(
-CancellationToken cancellationToken = default);
-Task<StoreDto> CreateAsync(
-CreateStoreRequest request,
-CancellationToken cancellationToken = default);
-Task UpdateAsync(
-Guid storeId,
-UpdateStoreRequest request,
-CancellationToken cancellationToken = default);
-Task DeleteAsync(
-Guid storeId,
-CancellationToken cancellationToken = default);
-Task SetMarketplaceListingAsync(
-Guid storeId,
-bool isListed,
-CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreTypeRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreTypeRepository
-{
-Task<List<StoreType>> GetAllActiveAsync(CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\IStoreTypeService.cs =====
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface IStoreTypeService
-{
-Task<List<StoreTypeDto>> GetAllActiveAsync(CancellationToken cancellationToken = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantLegalInfoRepository
-{
-Task<TenantLegalInfo?> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
-Task AddOrUpdateAsync(TenantLegalInfo info, CancellationToken ct = default);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantLegalInfoService.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantLegalInfoService
-{
-Task AddOrUpdateAsync(Guid tenantId, string? businessLicenseNumber, string? taxId, string? additionalJson);
-Task<TenantLegalInfo?> GetAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantRepository.cs =====
-using CoreKit.Tenant.Entities;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantRepository
-{
-Task<TenantEntity?> GetByIdAsync(Guid tenantId, CancellationToken ct = default);
-Task<TenantEntity?> GetByIdIncludeDeletedAsync(Guid tenantId, CancellationToken ct = default);
-Task<List<TenantEntity>> GetAllAsync(CancellationToken ct = default);
-Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
-Task<bool> ExistsBySlugAsync(string slug, CancellationToken ct = default);
-void Add(TenantEntity tenant);
-void Update(TenantEntity tenant);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Interfaces\ITenantService.cs =====
-using CoreKit.Tenant.Entities;
-using CoreKit.Tenant.Models;
-namespace CoreKit.Tenant.Interfaces;
-public interface ITenantService
-{
-Task<TenantRegistrationResponse> RegisterAsync(TenantRegistrationRequest request);
-Task<TenantEntity?> GetByIdAsync(Guid tenantId);
-Task<List<TenantEntity>> GetAllAsync();
-Task UpdateAsync(Guid tenantId, string? name, string? metadataJson);
-Task DeleteAsync(Guid tenantId);
-Task ApproveAsync(Guid tenantId);
-Task RejectAsync(Guid tenantId);
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantAuthorizationMiddleware.cs =====
-using CoreKit.IAM.Constants;
-using CoreKit.SharedKernel.Tenancy;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Tenant.Middleware;
-public class TenantAuthorizationMiddleware
-{
-private readonly RequestDelegate _next;
-private readonly ILogger<TenantAuthorizationMiddleware> _logger;
-public TenantAuthorizationMiddleware(
-RequestDelegate next,
-ILogger<TenantAuthorizationMiddleware> logger)
-{
-_next = next;
-_logger = logger;
-}
-public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
-{
-if (context.User.Identity?.IsAuthenticated == true
-&& context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
-&& tenantContext.TenantId.HasValue)
-{
-var user = context.User;
-bool isPlatformAdmin = user.IsInRole("PlatformAdmin") ||
-user.HasClaim(c => c.Type == ClaimConstants.Permission &&
-(c.Value == "platform.tenants.view" ||
-c.Value == "platform.tenants.manage"));
-if (!isPlatformAdmin)
-{
-var userTenantClaim = user.FindFirst(ClaimConstants.TenantId)?.Value;
-if (userTenantClaim == null ||
-!Guid.TryParse(userTenantClaim, out var userTenantId) ||
-userTenantId != tenantContext.TenantId.Value)
-{
-_logger.LogWarning(
-"User {UserId} attempted to access tenant {RequestedTenant} but belongs to tenant {UserTenant}",
-user.FindFirst(ClaimConstants.UserId)?.Value,
-tenantContext.TenantId,
-userTenantClaim);
-context.Response.StatusCode = StatusCodes.Status403Forbidden;
-context.Response.ContentType = "application/json";
-await context.Response.WriteAsync(
-"{\"success\":false,\"errorCode\":\"FORBIDDEN\",\"message\":\"You do not have access to this tenant.\"}");
-return;
-}
-}
-}
-await _next(context);
-}
-}
-
-===== CoreKit.Tenant | D:\waqas-dba\SaaSPlatform\CoreKit.Tenant\Middleware\TenantResolutionMiddleware.cs =====
-using CoreKit.IAM.Constants;
-using CoreKit.SharedKernel.Tenancy;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-namespace CoreKit.Tenant.Middleware;
-public class TenantResolutionMiddleware
-{
-private readonly RequestDelegate _next;
-private readonly ILogger<TenantResolutionMiddleware> _logger;
-public TenantResolutionMiddleware(
-RequestDelegate next,
-ILogger<TenantResolutionMiddleware> logger)
-{
-_next = next;
-_logger = logger;
-}
-public async Task InvokeAsync(
-HttpContext context,
-IMutableTenantContext tenantContext)
-{
-Guid? tenantId = ResolveTenant(context);
-if (tenantId.HasValue && tenantId.Value != Guid.Empty)
-{
-tenantContext.SetTenant(tenantId.Value);
-_logger.LogDebug("Tenant resolved: {TenantId}", tenantId.Value);
-}
-else
-{
-tenantContext.SetTenant(null);
-_logger.LogWarning(
-"Tenant resolution failed for path {Path} | User: {User}",
-context.Request.Path,
-context.User?.Identity?.Name ?? "Anonymous");
-}
-await _next(context);
-}
-private static Guid? ResolveTenant(HttpContext context)
-{
-if (context.Request.Headers.TryGetValue("X-Tenant-Id", out var headerTenant)
-&& Guid.TryParse(headerTenant, out var id))
-return id;
-var claimTenant = context.User?.FindFirst(ClaimConstants.TenantId)?.Value;
-if (Guid.TryParse(claimTenant, out var claimId))
-return claimId;
-return null;
-}
 }
 

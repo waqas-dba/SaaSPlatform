@@ -1,0 +1,757 @@
+﻿
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Configuration\OrderConfiguration.cs
+==================================================
+
+// CoreKit.Order/Configuration/OrderConfiguration.cs
+using CoreKit.Order.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Order.Configuration;
+
+public class OrderConfiguration : IEntityTypeConfiguration<CustomerOrder>
+{
+    public void Configure(EntityTypeBuilder<CustomerOrder> builder)
+    {
+        builder.ToTable("ORD_Orders");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.OrderNumber).IsRequired().HasMaxLength(50);
+        builder.HasIndex(x => x.OrderNumber).IsUnique();
+        builder.Property(x => x.CustomerName).IsRequired().HasMaxLength(200);
+        builder.Property(x => x.CustomerPhone).IsRequired().HasMaxLength(20);
+        builder.Property(x => x.DeliveryAddress).HasMaxLength(500);
+        builder.Property(x => x.SubTotal).HasColumnType("decimal(18,2)");
+        builder.Property(x => x.Total).HasColumnType("decimal(18,2)");
+        builder.Property(x => x.DeliveryFee).HasColumnType("decimal(18,2)");
+        builder.Property(x => x.Type).HasConversion<int>();
+        builder.Property(x => x.Status).HasConversion<int>();
+        builder.HasIndex(x => new { x.TenantId, x.StoreId, x.Status });
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Configuration\OrderItemConfiguration.cs
+==================================================
+
+// CoreKit.Order/Configuration/OrderItemConfiguration.cs
+using CoreKit.Order.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace CoreKit.Order.Configuration;
+
+public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
+{
+    public void Configure(EntityTypeBuilder<OrderItem> builder)
+    {
+        builder.ToTable("ORD_OrderItems");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.ProductName).IsRequired().HasMaxLength(200);
+        builder.Property(x => x.VariantName).HasMaxLength(200);
+        builder.Property(x => x.UnitPrice).HasColumnType("decimal(18,2)");
+        builder.Property(x => x.AddonsJson).HasMaxLength(2000);
+        builder.HasOne(x => x.Order)
+            .WithMany(x => x.Items)
+            .HasForeignKey(x => x.OrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Entities\CustomerOrder.cs
+==================================================
+
+// CoreKit.Order/Entities/CustomerOrder.cs
+using CoreKit.SharedKernel.Common;
+
+namespace CoreKit.Order.Entities;
+
+public class CustomerOrder : AuditableEntity, ITenantScoped
+{
+    public string OrderNumber { get; set; } = default!;
+    public Guid StoreId { get; set; }
+    public Guid TenantId { get; set; }
+    public string CustomerName { get; set; } = default!;
+    public string CustomerPhone { get; set; } = default!;
+    public OrderType Type { get; set; }
+    public OrderStatus Status { get; set; } = OrderStatus.Pending;
+
+    public string? DeliveryAddress { get; set; }
+    public decimal? DeliveryFee { get; set; }
+
+    public decimal SubTotal { get; set; }
+    public decimal Total { get; set; }
+    public string? Notes { get; set; }
+
+    public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+}
+
+public enum OrderType
+{
+    Collection = 1,
+    Delivery = 2
+}
+
+public enum OrderStatus
+{
+    Pending = 1,
+    Confirmed = 2,
+    Preparing = 3,
+    ReadyForPickup = 4,
+    OutForDelivery = 5,
+    Delivered = 6,
+    Cancelled = 7
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Entities\OrderItem.cs
+==================================================
+
+// CoreKit.Order/Entities/OrderItem.cs
+namespace CoreKit.Order.Entities;
+
+public class OrderItem
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrderId { get; set; }
+    public CustomerOrder Order { get; set; } = default!;
+
+    public Guid ProductId { get; set; }
+    public Guid? ProductVariantId { get; set; }
+    public string ProductName { get; set; } = default!;
+    public string? VariantName { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public string? AddonsJson { get; set; }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Extensions\ServiceCollectionExtensions.cs
+==================================================
+
+// CoreKit.Order/Extensions/ServiceCollectionExtensions.cs
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Persistence;
+using CoreKit.Order.Repository;
+using CoreKit.Order.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql.EntityFrameworkCore.PostgreSQL;
+
+namespace CoreKit.Order.Extensions;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddOrderModule(
+        this IServiceCollection services,
+        string connectionString)
+    {
+        services.AddDbContext<OrderDbContext>(options =>
+            options.UseNpgsql(connectionString));
+
+        services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOrderService, OrderService>();
+
+        return services;
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\IOrderRepository.cs
+==================================================
+
+// CoreKit.Order/Interfaces/IOrderRepository.cs
+using CoreKit.Order.Entities;
+using CoreKit.SharedKernel.Models;
+
+namespace CoreKit.Order.Interfaces;
+
+public interface IOrderRepository
+{
+    Task<PagedResult<CustomerOrder>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+    Task<CustomerOrder?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    void Add(CustomerOrder order);
+    void Update(CustomerOrder order);
+    Task<int> SaveChangesAsync(CancellationToken ct = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\IOrderService.cs
+==================================================
+
+// CoreKit.Order/Interfaces/IOrderService.cs
+using CoreKit.Order.Models;
+using CoreKit.SharedKernel.Models;
+
+namespace CoreKit.Order.Interfaces;
+
+public interface IOrderService
+{
+    Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default);
+    Task<OrderDto?> GetByIdAsync(Guid orderId, CancellationToken ct = default);
+    Task<PagedResult<OrderDto>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+    Task UpdateStatusAsync(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default);
+    Task CancelAsync(Guid orderId, CancellationToken ct = default);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Interfaces\ProductOrderInfo.cs
+==================================================
+
+// CoreKit.Order/Interfaces/IProductOrderInfoProvider.cs
+namespace CoreKit.Order.Interfaces;
+
+public sealed class ProductOrderInfo
+{
+    public Guid Id { get; init; }
+    public Guid StoreId { get; init; }
+    public string Name { get; init; } = default!;
+    public decimal BasePrice { get; init; }
+    public bool IsActive { get; init; }
+    public bool AvailableForCollection { get; init; }
+    public bool AvailableForDelivery { get; init; }
+}
+
+public sealed class ProductVariantOrderInfo
+{
+    public Guid Id { get; init; }
+    public string Sku { get; init; } = default!;
+    public decimal Price { get; init; }
+    public bool IsActive { get; init; }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\AddonSnapshotDto.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Order.Models;
+
+public class AddonSnapshotDto
+{
+    public string Name { get; set; } = default!;
+    public decimal Price { get; set; }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\CreateOrderRequest.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Order.Models;
+
+public class CreateOrderRequest
+{
+    public Guid StoreId { get; set; }
+    public string CustomerName { get; set; } = default!;
+    public string CustomerPhone { get; set; } = default!;
+    public string OrderType { get; set; } = default!;
+    public string? DeliveryAddress { get; set; }
+    public decimal? DeliveryFee { get; set; }
+    public List<OrderItemRequest> Items { get; set; } = new();
+    public string? Notes { get; set; }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderDto.cs
+==================================================
+
+// CoreKit.Order/Models/OrderDto.cs
+namespace CoreKit.Order.Models;
+
+public class OrderDto
+{
+    public Guid Id { get; set; }
+    public string OrderNumber { get; set; } = default!;
+    public string CustomerName { get; set; } = default!;
+    public string CustomerPhone { get; set; } = default!;
+    public string Type { get; set; } = default!;
+    public string Status { get; set; } = default!;
+    public string? DeliveryAddress { get; set; }
+    public decimal? DeliveryFee { get; set; }
+    public decimal SubTotal { get; set; }
+    public decimal Total { get; set; }
+    public string? Notes { get; set; }
+    public List<OrderItemDto> Items { get; set; } = new();
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderItemDto.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Order.Models;
+
+public class OrderItemDto
+{
+    public string ProductName { get; set; } = default!;
+    public string? VariantName { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal LineTotal { get; set; }
+    public List<AddonSnapshotDto>? Addons { get; set; }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\OrderItemRequest.cs
+==================================================
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CoreKit.Order.Models;
+
+public class OrderItemRequest
+{
+    public Guid ProductId { get; set; }
+    public Guid? ProductVariantId { get; set; }
+    public int Quantity { get; set; }
+    public List<AddonSnapshotDto>? Addons { get; set; }
+}
+
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Models\UpdateOrderStatusRequest.cs
+==================================================
+
+// CoreKit.Order/Models/UpdateOrderStatusRequest.cs
+namespace CoreKit.Order.Models;
+
+public class UpdateOrderStatusRequest
+{
+    public string Status { get; set; } = default!;
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\OrderDbContext.cs
+==================================================
+
+// CoreKit.Order/Persistence/OrderDbContext.cs
+using CoreKit.Order.Entities;
+using CoreKit.SharedKernel.Common;
+using CoreKit.SharedKernel.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Order.Persistence;
+
+public class OrderDbContext : AuditableDbContext
+{
+    public OrderDbContext(DbContextOptions<OrderDbContext> options, ICurrentUser? currentUser = null)
+        : base(options, currentUser) { }
+
+    public DbSet<CustomerOrder> Orders => Set<CustomerOrder>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrderDbContext).Assembly);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\OrderDbContextFactory.cs
+==================================================
+
+// CoreKit.Order/Persistence/OrderDbContextFactory.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Npgsql.EntityFrameworkCore.PostgreSQL;   // required for UseNpgsql
+
+namespace CoreKit.Order.Persistence;
+
+public class OrderDbContextFactory : IDesignTimeDbContextFactory<OrderDbContext>
+{
+    public OrderDbContext CreateDbContext(string[] args)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<OrderDbContext>();
+        optionsBuilder.UseNpgsql(
+            "Host=127.0.0.1;Port=5432;Database=saas_db;Username=postgres;Password=123;");
+        return new OrderDbContext(optionsBuilder.Options);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Persistence\Seeders\OrderSeeder.cs
+==================================================
+
+// CoreKit.Order/Persistence/Seeders/OrderSeeder.cs
+using CoreKit.Order.Entities;
+using CoreKit.Order.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Order.Persistence.Seeders;
+
+public sealed class OrderSeeder
+{
+    private readonly OrderDbContext _db;
+
+    public OrderSeeder(OrderDbContext db) => _db = db;
+
+    public async Task SeedAsync(CancellationToken ct = default)
+    {
+        if (await _db.Orders.AnyAsync(ct)) return;
+
+        // System store ID (from TenantSeeder)
+        var systemStoreId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+        var systemTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+        // ----- Collection Order -----
+        var collectionOrder = new CustomerOrder
+        {
+            Id = Guid.NewGuid(),
+            OrderNumber = "ORD-20260605-COL001",
+            StoreId = systemStoreId,
+            TenantId = systemTenantId,
+            CustomerName = "Alice Walker",
+            CustomerPhone = "03001234567",
+            Type = OrderType.Collection,
+            Status = OrderStatus.Pending,
+            SubTotal = 120.00m,
+            Total = 120.00m,
+            Notes = "Please pack in a paper bag.",
+            Items = new List<OrderItem>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    ProductId = Guid.NewGuid(), // placeholder – use a real product ID from your catalog seeder
+                    ProductName = "Sourdough Loaf",
+                    Quantity = 2,
+                    UnitPrice = 60.00m,
+                }
+            }
+        };
+
+        // ----- Delivery Order -----
+        var deliveryOrder = new CustomerOrder
+        {
+            Id = Guid.NewGuid(),
+            OrderNumber = "ORD-20260605-DEL001",
+            StoreId = systemStoreId,
+            TenantId = systemTenantId,
+            CustomerName = "Bob Smith",
+            CustomerPhone = "03007654321",
+            Type = OrderType.Delivery,
+            Status = OrderStatus.Confirmed,
+            DeliveryAddress = "123 Main Street, Karachi",
+            DeliveryFee = 50.00m,
+            SubTotal = 350.00m,
+            Total = 400.00m,
+            Notes = null,
+            Items = new List<OrderItem>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    ProductId = Guid.NewGuid(), // placeholder
+                    ProductName = "Sourdough Loaf",
+                    Quantity = 1,
+                    UnitPrice = 350.00m,
+                }
+            }
+        };
+
+        _db.Orders.AddRange(collectionOrder, deliveryOrder);
+        await _db.SaveChangesAsync(ct);
+    }
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Repository\OrderRepository.cs
+==================================================
+
+using CoreKit.Order.Entities;
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Persistence;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace CoreKit.Order.Repository;
+
+public class OrderRepository : IOrderRepository
+{
+    private readonly OrderDbContext _db;
+    public OrderRepository(OrderDbContext db) => _db = db;
+
+    public async Task<PagedResult<CustomerOrder>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default)
+    {
+        var baseQuery = _db.Orders.Where(o => o.StoreId == storeId);
+        var total = await baseQuery.CountAsync(ct);
+        var items = await baseQuery
+            .Include(o => o.Items)
+            .OrderByDescending(o => o.CreatedAt)
+            .Skip(query.Skip)
+            .Take(query.PageSize)
+            .ToListAsync(ct);
+        return PagedResult<CustomerOrder>.From(items, total, query.Page, query.PageSize);
+    }
+
+    public async Task<CustomerOrder?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, ct);
+
+    public void Add(CustomerOrder order) => _db.Orders.Add(order);
+    public void Update(CustomerOrder order) => _db.Orders.Update(order);
+    public Task<int> SaveChangesAsync(CancellationToken ct = default) => _db.SaveChangesAsync(ct);
+}
+
+
+
+==================================================
+FILE: D:\waqas-dba\SaaSPlatform\CoreKit.Order\Services\OrderService.cs
+==================================================
+
+// CoreKit.Order/Services/OrderService.cs
+using CoreKit.Order.Entities;
+using CoreKit.Order.Interfaces;
+using CoreKit.Order.Models;
+using CoreKit.Order.Persistence;
+using CoreKit.SharedKernel.Interfaces;
+using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+
+namespace CoreKit.Order.Services;
+
+public class OrderService : IOrderService
+{
+    private readonly OrderDbContext _db;
+    private readonly IProductOrderInfoProvider _productInfoProvider;
+    private readonly IStoreInfoProvider _storeInfoProvider;
+
+    private static readonly Dictionary<OrderStatus, IReadOnlyList<OrderStatus>> AllowedTransitions = new()
+    {
+        [OrderStatus.Pending] = new[] { OrderStatus.Confirmed, OrderStatus.Cancelled },
+        [OrderStatus.Confirmed] = new[] { OrderStatus.Preparing, OrderStatus.Cancelled },
+        [OrderStatus.Preparing] = new[] { OrderStatus.ReadyForPickup, OrderStatus.OutForDelivery, OrderStatus.Cancelled },
+        [OrderStatus.ReadyForPickup] = new[] { OrderStatus.Delivered, OrderStatus.Cancelled },
+        [OrderStatus.OutForDelivery] = new[] { OrderStatus.Delivered, OrderStatus.Cancelled },
+        [OrderStatus.Delivered] = Array.Empty<OrderStatus>(),
+        [OrderStatus.Cancelled] = Array.Empty<OrderStatus>()
+    };
+
+    public OrderService(
+        OrderDbContext db,
+        IProductOrderInfoProvider productInfoProvider,
+        IStoreInfoProvider storeInfoProvider)
+    {
+        _db = db;
+        _productInfoProvider = productInfoProvider;
+        _storeInfoProvider = storeInfoProvider;
+    }
+
+    public async Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
+    {
+        var orderType = request.OrderType.Equals("Delivery", StringComparison.OrdinalIgnoreCase)
+            ? OrderType.Delivery : OrderType.Collection;
+
+        if (orderType == OrderType.Delivery && string.IsNullOrWhiteSpace(request.DeliveryAddress))
+            throw new InvalidOperationException("Delivery address is required for delivery orders.");
+
+        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct)
+            ?? throw new KeyNotFoundException("Store not found.");
+
+        var order = new CustomerOrder
+        {
+            Id = Guid.NewGuid(),
+            OrderNumber = GenerateOrderNumber(),
+            StoreId = request.StoreId,
+            TenantId = storeInfo.TenantId,
+            CustomerName = request.CustomerName,
+            CustomerPhone = request.CustomerPhone,
+            Type = orderType,
+            Status = OrderStatus.Pending,
+            DeliveryAddress = orderType == OrderType.Delivery ? request.DeliveryAddress : null,
+            DeliveryFee = orderType == OrderType.Delivery ? request.DeliveryFee : null,
+            Notes = request.Notes
+        };
+
+        decimal subTotal = 0;
+        foreach (var itemReq in request.Items)
+        {
+            var productInfo = await _productInfoProvider.GetProductInfoAsync(itemReq.ProductId, ct)
+                ?? throw new KeyNotFoundException($"Product {itemReq.ProductId} not found.");
+
+            if (productInfo.StoreId != request.StoreId)
+                throw new InvalidOperationException($"Product '{productInfo.Name}' does not belong to this store.");
+
+            if (!productInfo.IsActive)
+                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available.");
+
+            if (orderType == OrderType.Collection && !productInfo.AvailableForCollection)
+                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for collection.");
+            if (orderType == OrderType.Delivery && !productInfo.AvailableForDelivery)
+                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for delivery.");
+
+            string? variantName = null;
+            decimal unitPrice = productInfo.BasePrice;
+
+            if (itemReq.ProductVariantId.HasValue)
+            {
+                var variantInfo = await _productInfoProvider.GetVariantInfoAsync(itemReq.ProductVariantId.Value, ct)
+                    ?? throw new KeyNotFoundException($"Variant {itemReq.ProductVariantId} not found.");
+                if (!variantInfo.IsActive)
+                    throw new InvalidOperationException("The selected variant is not available.");
+                variantName = variantInfo.Sku;
+                unitPrice = variantInfo.Price;
+            }
+
+            string? addonsJson = null;
+            if (itemReq.Addons != null && itemReq.Addons.Any())
+                addonsJson = JsonSerializer.Serialize(itemReq.Addons);
+
+            var orderItem = new OrderItem
+            {
+                OrderId = order.Id,
+                ProductId = itemReq.ProductId,
+                ProductVariantId = itemReq.ProductVariantId,
+                ProductName = productInfo.Name,
+                VariantName = variantName,
+                Quantity = itemReq.Quantity,
+                UnitPrice = unitPrice,
+                AddonsJson = addonsJson
+            };
+            order.Items.Add(orderItem);
+            subTotal += orderItem.Quantity * orderItem.UnitPrice;
+        }
+
+        order.SubTotal = subTotal;
+        order.Total = subTotal + (order.DeliveryFee ?? 0);
+
+        _db.Orders.Add(order);
+        await _db.SaveChangesAsync(ct);
+        return MapToDto(order);
+    }
+
+    public async Task<OrderDto?> GetByIdAsync(Guid orderId, CancellationToken ct = default)
+    {
+        var order = await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == orderId, ct);
+        return order is null ? null : MapToDto(order);
+    }
+
+    public async Task<PagedResult<OrderDto>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default)
+    {
+        var baseQuery = _db.Orders.Where(o => o.StoreId == storeId);
+        var total = await baseQuery.CountAsync(ct);
+        var items = await baseQuery
+            .OrderByDescending(o => o.CreatedAt)
+            .Skip(query.Skip).Take(query.PageSize)
+            .Select(o => MapToDto(o))
+            .ToListAsync(ct);
+        return PagedResult<OrderDto>.From(items, total, query.Page, query.PageSize);
+    }
+
+    public async Task UpdateStatusAsync(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default)
+    {
+        var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (!Enum.TryParse<OrderStatus>(request.Status, true, out var newStatus))
+            throw new InvalidOperationException($"Invalid status '{request.Status}'.");
+
+        if (!AllowedTransitions[order.Status].Contains(newStatus))
+            throw new InvalidOperationException($"Cannot transition from '{order.Status}' to '{newStatus}'.");
+
+        if (newStatus == OrderStatus.ReadyForPickup && order.Type != OrderType.Collection)
+            throw new InvalidOperationException("ReadyForPickup status is only valid for collection orders.");
+        if (newStatus == OrderStatus.OutForDelivery && order.Type != OrderType.Delivery)
+            throw new InvalidOperationException("OutForDelivery status is only valid for delivery orders.");
+
+        order.Status = newStatus;
+        _db.Orders.Update(order);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task CancelAsync(Guid orderId, CancellationToken ct = default)
+    {
+        var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+            ?? throw new KeyNotFoundException("Order not found.");
+        if (order.Status == OrderStatus.Delivered || order.Status == OrderStatus.Cancelled)
+            throw new InvalidOperationException("Cannot cancel an already completed or cancelled order.");
+        order.Status = OrderStatus.Cancelled;
+        _db.Orders.Update(order);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static string GenerateOrderNumber()
+        => $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpper()}";
+
+    private static OrderDto MapToDto(CustomerOrder o) => new()
+    {
+        Id = o.Id,
+        OrderNumber = o.OrderNumber,
+        CustomerName = o.CustomerName,
+        CustomerPhone = o.CustomerPhone,
+        Type = o.Type.ToString(),
+        Status = o.Status.ToString(),
+        DeliveryAddress = o.DeliveryAddress,
+        DeliveryFee = o.DeliveryFee,
+        SubTotal = o.SubTotal,
+        Total = o.Total,
+        Notes = o.Notes,
+        Items = o.Items.Select(i => new OrderItemDto
+        {
+            ProductName = i.ProductName,
+            VariantName = i.VariantName,
+            Quantity = i.Quantity,
+            UnitPrice = i.UnitPrice,
+            LineTotal = i.Quantity * i.UnitPrice,
+            Addons = string.IsNullOrWhiteSpace(i.AddonsJson)
+                ? null
+                : JsonSerializer.Deserialize<List<AddonSnapshotDto>>(i.AddonsJson)
+        }).ToList()
+    };
+}
+
+

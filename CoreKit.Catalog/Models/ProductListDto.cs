@@ -6,7 +6,9 @@ public class ProductListDto
     public string Name { get; set; } = default!;
     public string Slug { get; set; } = default!;
     public decimal BasePrice { get; set; }
+    public Guid CategoryId { get; set; }
     public string CategoryName { get; set; } = default!;
     public string? PrimaryImageUrl { get; set; }
     public bool IsActive { get; set; }
+    public bool IsVegetarian { get; set; }
 }

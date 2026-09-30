@@ -23,4 +23,8 @@ public class ProductFilterQuery
     public int PageSize { get; set; } = 20;
 
     public int Skip => (Page - 1) * PageSize;
+
+    /// <summary>Only used for store menus: filters on the store's availability flag.</summary>
+    public bool? IsAvailable { get; set; }
+
 }

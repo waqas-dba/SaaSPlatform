@@ -194,6 +194,8 @@ builder.HasMany(x => x.Variants)
 .WithOne(x => x.Product)
 .HasForeignKey(x => x.ProductId)
 .OnDelete(DeleteBehavior.Cascade);
+builder.Property(x => x.AvailableForCollection).HasDefaultValue(true);
+builder.Property(x => x.AvailableForDelivery).HasDefaultValue(true);
 builder.Property(x => x.SearchVector)
 .HasColumnType("tsvector")
 .IsRequired()
@@ -452,16 +454,15 @@ public Guid StoreId { get; set; }
 public Guid TenantId { get; set; }
 public bool TrackInventory { get; set; } = false;
 public bool IsActive { get; set; } = true;
+public bool AvailableForCollection { get; set; } = true;
+public bool AvailableForDelivery { get; set; } = true;
 public Guid? AddonGroupId { get; set; }
 public AddonGroup? AddonGroup { get; set; }
 public Guid? VariantGroupId { get; set; }
 public VariantGroup? VariantGroup { get; set; }
-public ICollection<ProductImage> Images { get; set; }
-= new List<ProductImage>();
-public ICollection<ProductAttributeValue> AttributeValues { get; set; }
-= new List<ProductAttributeValue>();
-public ICollection<ProductVariant> Variants { get; set; }
-= new List<ProductVariant>();
+public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
+public ICollection<ProductAttributeValue> AttributeValues { get; set; } = new List<ProductAttributeValue>();
+public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 public NpgsqlTsVector SearchVector { get; set; } = null!;
 }
 
@@ -624,6 +625,7 @@ using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Persistence;
 using CoreKit.Catalog.Services;
 using CoreKit.Catalog.Validators;
+using CoreKit.SharedKernel.Interfaces;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -652,6 +654,7 @@ services.AddScoped<IVariantAttributeTemplateService, VariantAttributeTemplateSer
 services.AddScoped<IVariantGroupService, VariantGroupService>();
 services.AddScoped<IVariantValidationService, VariantValidationService>();
 services.AddScoped<IProductImageService, ProductImageService>();
+services.AddScoped<IProductOrderInfoProvider, CatalogProductOrderInfoProvider>();
 configureStoreInfo(services);
 services.AddValidatorsFromAssemblyContaining < CreateProductRequestValidator > ();
 return services;
@@ -790,29 +793,22 @@ Task SetPrimaryAsync(Guid imageId, CancellationToken ct = default);
 using CoreKit.Catalog.Entities;
 using CoreKit.Catalog.Models;
 using CoreKit.SharedKernel.Models;
+using Microsoft.EntityFrameworkCore.Storage;
 namespace CoreKit.Catalog.Interfaces;
 public interface IProductRepository
 {
-Task<Product?> GetByIdAsync(
-Guid id, CancellationToken ct = default);
-Task<Product?> GetByIdWithDetailsAsync(
-Guid id, CancellationToken ct = default);
-Task<IReadOnlyList<Product>> GetByStoreAsync(
-Guid storeId, CancellationToken ct = default);
-Task<PagedResult<Product>> GetByStorePagedAsync(
-Guid storeId, PagedQuery query, CancellationToken ct = default);
-Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(
-Guid storeId, PagedQuery query, CancellationToken ct = default);
-Task<PagedResult<ProductListDto>> SearchAsync(
-Guid storeId, ProductFilterQuery filter, CancellationToken ct = default);
-Task<int> CountByStoreAsync(
-Guid storeId, CancellationToken ct = default);
-Task<bool> ExistsBySlugAsync(
-string slug, Guid storeId, CancellationToken ct = default);
+Task<Product?> GetByIdAsync(Guid id, CancellationToken ct = default);
+Task<Product?> GetByIdWithDetailsAsync(Guid id, CancellationToken ct = default);
+Task<IReadOnlyList<Product>> GetByStoreAsync(Guid storeId, CancellationToken ct = default);
+Task<PagedResult<Product>> GetByStorePagedAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task<PagedResult<ProductListDto>> GetByStorePagedProjectedAsync(Guid storeId, PagedQuery query, CancellationToken ct = default);
+Task<PagedResult<ProductListDto>> SearchAsync(Guid storeId, ProductFilterQuery filter, CancellationToken ct = default);
+Task<int> CountByStoreAsync(Guid storeId, CancellationToken ct = default);
+Task<bool> ExistsBySlugAsync(string slug, Guid storeId, CancellationToken ct = default);
 void Add(Product product);
 void Update(Product product);
 void Remove(Product product);
-Task BeginTransactionAsync(CancellationToken ct = default);
+Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default);
 Task CommitAsync(CancellationToken ct = default);
 Task RollbackAsync(CancellationToken ct = default);
 Task ExecuteAdvisoryLockAsync(long lockKey, CancellationToken ct = default);
@@ -1358,6 +1354,8 @@ public bool? IsActive { get; set; }
 public Guid? AddonGroupId { get; set; }
 public Guid? VariantGroupId { get; set; }
 public List<CreateVariantRequest>? Variants { get; set; }
+public bool? AvailableForCollection { get; set; }
+public bool? AvailableForDelivery { get; set; }
 }
 
 ===== CoreKit.Catalog | D:\waqas-dba\SaaSPlatform\CoreKit.Catalog\Models\UpdateVariantAttributeTemplateRequest.cs =====
