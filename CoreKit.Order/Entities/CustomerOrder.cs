@@ -1,5 +1,4 @@
-﻿// CoreKit.Order/Entities/CustomerOrder.cs
-using CoreKit.SharedKernel.Common;
+﻿using CoreKit.SharedKernel.Common;
 
 namespace CoreKit.Order.Entities;
 
@@ -16,6 +15,12 @@ public class CustomerOrder : AuditableEntity, ITenantScoped
     public string? DeliveryAddress { get; set; }
     public decimal? DeliveryFee { get; set; }
 
+    /// <summary>Required for DineIn orders.</summary>
+    public string? TableNumber { get; set; }
+
+    /// <summary>Required for RoomService orders (hotels).</summary>
+    public string? RoomNumber { get; set; }
+
     public decimal SubTotal { get; set; }
     public decimal Total { get; set; }
     public string? Notes { get; set; }
@@ -26,7 +31,9 @@ public class CustomerOrder : AuditableEntity, ITenantScoped
 public enum OrderType
 {
     Collection = 1,
-    Delivery = 2
+    Delivery = 2,
+    DineIn = 3,
+    RoomService = 4
 }
 
 public enum OrderStatus
@@ -34,8 +41,13 @@ public enum OrderStatus
     Pending = 1,
     Confirmed = 2,
     Preparing = 3,
+
+    /// <summary>Ready for the customer to collect (Collection) or ready to serve (DineIn).</summary>
     ReadyForPickup = 4,
+
+    /// <summary>On the way to the customer (Delivery) or to the room (RoomService).</summary>
     OutForDelivery = 5,
+
     Delivered = 6,
     Cancelled = 7
 }

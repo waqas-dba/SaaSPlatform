@@ -1,12 +1,13 @@
 ﻿using CoreKit.Catalog.Models;
+using CoreKit.SharedKernel.Models;
 
 namespace CoreKit.Catalog.Interfaces;
 
-public interface ICategoryService
+public interface IProductService
 {
-    Task<List<CategoryDto>> GetTreeAsync(Guid tenantId, CancellationToken ct = default);
-    Task<CategoryDto?> GetByIdAsync(Guid tenantId, Guid id, CancellationToken ct = default);
-    Task<CategoryDto> CreateAsync(Guid tenantId, CreateCategoryRequest request, CancellationToken ct = default);
-    Task<CategoryDto> UpdateAsync(Guid tenantId, Guid id, UpdateCategoryRequest request, CancellationToken ct = default);
+    Task<ProductDto> CreateAsync(Guid tenantId, CreateProductRequest request, CancellationToken ct = default);
+    Task<ProductDto> UpdateAsync(Guid tenantId, Guid id, UpdateProductRequest request, CancellationToken ct = default);
+    Task<ProductDto?> GetByIdAsync(Guid tenantId, Guid id, CancellationToken ct = default);
+    Task<PagedResult<ProductListDto>> SearchAsync(Guid tenantId, ProductFilterQuery filter, CancellationToken ct = default);
     Task DeleteAsync(Guid tenantId, Guid id, CancellationToken ct = default);
 }

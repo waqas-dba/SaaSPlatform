@@ -1,5 +1,4 @@
-﻿using CoreKit.Catalog.Configuration;
-using CoreKit.Catalog.Entities;
+﻿using CoreKit.Catalog.Entities;
 using CoreKit.SharedKernel.Common;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Tenancy;
@@ -9,52 +8,48 @@ namespace CoreKit.Catalog.Persistence;
 
 public class CatalogDbContext : AuditableDbContext
 {
-    private readonly ITenantContext _tenantContext;
+    private const string TenantFilterKey = "TenantFilter";
+
+    private readonly ITenantContext? _tenantContext;
 
     public CatalogDbContext(
-         DbContextOptions<CatalogDbContext> options,
-         ITenantContext? tenantContext = null,          // made optional
-         ICurrentUser? currentUser = null)
-         : base(options, currentUser)
+        DbContextOptions<CatalogDbContext> options,
+        ITenantContext? tenantContext = null,
+        ICurrentUser? currentUser = null)
+        : base(options, currentUser)
     {
         _tenantContext = tenantContext;
     }
 
-    public DbSet<Category> Categories => Set < Category > ();
+    public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductImage> ProductImages => Set<ProductImage>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
-    public DbSet<VariantAttributeTemplate> VariantAttributeTemplates => Set < VariantAttributeTemplate > ();
-    public DbSet<VariantAttributeValue> VariantAttributeValues => Set < VariantAttributeValue > ();
-    public DbSet<VariantGroup> VariantGroups => Set < VariantGroup > ();
-    public DbSet<VariantGroupOption> VariantGroupOptions => Set < VariantGroupOption > ();
-    public DbSet<AddonGroup> AddonGroups => Set < AddonGroup > ();
-    public DbSet<Addon> Addons => Set < Addon > ();
-    public DbSet<ProductAttributeGroup> AttributeGroups => Set<ProductAttributeGroup>();
-    public DbSet<ProductAttributeTemplate> AttributeTemplates => Set<ProductAttributeTemplate>();
-    public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
-    public DbSet<StoreAttributeOverride> StoreAttributeOverrides => Set < StoreAttributeOverride > ();
-    public DbSet<TenantTemplateAssignment> TenantTemplateAssignments => Set<TenantTemplateAssignment>();
+    public DbSet<AddonGroup> AddonGroups => Set<AddonGroup>();
+    public DbSet<Addon> Addons => Set<Addon>();
+    public DbSet<ProductAddonGroup> ProductAddonGroups => Set<ProductAddonGroup>();
+    public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CatalogDbContext).Assembly);
 
-        if (_tenantContext != null)                     // guard
-        {
-            modelBuilder.Entity<Product>().HasQueryFilter(p =>
-                _tenantContext.TenantId == null || p.TenantId == _tenantContext.TenantId);
-            modelBuilder.Entity<Category>().HasQueryFilter(c =>
-                _tenantContext.TenantId == null || c.TenantId == _tenantContext.TenantId);
-            modelBuilder.Entity<AddonGroup>().HasQueryFilter(a =>
-                _tenantContext.TenantId == null || a.TenantId == _tenantContext.TenantId);
-            modelBuilder.Entity<VariantGroup>().HasQueryFilter(v =>
-                _tenantContext.TenantId == null || v.TenantId == _tenantContext.TenantId);
-            modelBuilder.Entity<ProductAttributeTemplate>().HasQueryFilter(t =>
-                t.TenantId == null || t.TenantId == _tenantContext.TenantId);
-            modelBuilder.Entity<ProductAttributeGroup>().HasQueryFilter(g =>
-                g.TenantId == null || g.TenantId == _tenantContext.TenantId);
-        }
+        if (_tenantContext is null)
+            return;
+
+        // Named filters are added next to the soft-delete filter registered by
+        // AuditableDbContext instead of replacing it.
+        modelBuilder.Entity<Product>().HasQueryFilter(TenantFilterKey,
+            e => _tenantContext!.TenantId == null || e.TenantId == _tenantContext.TenantId);
+
+        modelBuilder.Entity<Category>().HasQueryFilter(TenantFilterKey,
+            e => _tenantContext!.TenantId == null || e.TenantId == _tenantContext.TenantId);
+
+        modelBuilder.Entity<AddonGroup>().HasQueryFilter(TenantFilterKey,
+            e => _tenantContext!.TenantId == null || e.TenantId == _tenantContext.TenantId);
+
+        modelBuilder.Entity<StoreProduct>().HasQueryFilter(TenantFilterKey,
+            e => _tenantContext!.TenantId == null || e.TenantId == _tenantContext.TenantId);
     }
 }

@@ -1,13 +1,12 @@
-﻿// SaaSPlatform.Seeder/Program.cs
-using CoreKit.Catalog.Persistence;
+﻿using CoreKit.Catalog.Persistence;
 using CoreKit.Catalog.Persistence.Seeders;
 using CoreKit.IAM.Interfaces;
 using CoreKit.IAM.Models;
 using CoreKit.IAM.Persistence;
 using CoreKit.IAM.Persistence.Seeders;
 using CoreKit.IAM.Services;
-using CoreKit.Order.Persistence;                // added for Order module
-using CoreKit.Order.Persistence.Seeders;        // added for Order seeder
+using CoreKit.Order.Persistence;
+using CoreKit.Order.Persistence.Seeders;
 using CoreKit.SharedKernel.Tenancy;
 using CoreKit.Subscription.Persistence;
 using CoreKit.Subscription.Persistence.Seeders;
@@ -49,7 +48,6 @@ builder.Services.AddDbContext<SubscriptionDbContext>(options =>
 builder.Services.AddDbContext<CatalogDbContext>(options =>
     options.UseNpgsql(connStr));
 
-// ---- Order Module ----
 builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseNpgsql(connStr));
 
@@ -62,7 +60,7 @@ builder.Services.AddSingleton(new IamOptions
     RequireImpersonationForCrossTenant = true
 });
 
-// IAM sub‑seeders
+// IAM sub-seeders
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<PermissionSeeder>();
 builder.Services.AddScoped<RoleSeeder>();
@@ -75,12 +73,7 @@ builder.Services.AddScoped<IamBootstrap>();
 builder.Services.AddScoped<StoreTypeSeeder>();
 builder.Services.AddScoped<TenantSeeder>();
 builder.Services.AddScoped<SubscriptionSeeder>();
-builder.Services.AddScoped<AttributeTemplateSeeder>();
-builder.Services.AddScoped<VariantAttributeTemplateSeeder>();
-builder.Services.AddScoped<VariantGroupSeeder>();
 builder.Services.AddScoped<AddonGroupSeeder>();
-
-// Order seeder
 builder.Services.AddScoped<OrderSeeder>();
 
 builder.Services.AddSingleton<ITenantContext>(new SeederTenantContext());
@@ -107,7 +100,7 @@ try
             "Check your connection string and ensure PostgreSQL is running.");
         Console.WriteLine();
         Console.WriteLine("ERROR: Database connection failed.");
-        Console.WriteLine($"Connection string: {connStr}");
+        Console.WriteLine("Check the 'Postgres' connection string and that PostgreSQL is running.");
         return;
     }
 
@@ -130,7 +123,6 @@ try
     await catalogDb.Database.MigrateAsync();
     logger.LogInformation("Catalog migrations applied successfully.");
 
-    // Apply Order migrations
     logger.LogInformation("Applying Order migrations...");
     await orderDb.Database.MigrateAsync();
     logger.LogInformation("Order migrations applied successfully.");
@@ -172,31 +164,13 @@ try
 
     Console.WriteLine();
     Console.WriteLine("==============================================");
-    Console.WriteLine("  SEEDING CATALOG ATTRIBUTE TEMPLATES");
+    Console.WriteLine("  SEEDING CATALOG ADD-ON GROUPS");
     Console.WriteLine("==============================================");
-
-    var catalogSeeder = services.GetRequiredService<AttributeTemplateSeeder>();
-    await catalogSeeder.SeedAsync();
-    logger.LogInformation("Catalog attribute templates seeded successfully.");
-
-    Console.WriteLine();
-    Console.WriteLine("==============================================");
-    Console.WriteLine("  SEEDING VARIANT ATTRIBUTE TEMPLATES");
-    Console.WriteLine("==============================================");
-
-    var variantSeeder = services.GetRequiredService<VariantAttributeTemplateSeeder>();
-    await variantSeeder.SeedAsync();
-    logger.LogInformation("Variant attribute templates seeded successfully.");
-
-    var variantGroupSeeder = services.GetRequiredService<VariantGroupSeeder>();
-    await variantGroupSeeder.SeedAsync();
-    logger.LogInformation("Variant groups seeded successfully.");
 
     var addonGroupSeeder = services.GetRequiredService<AddonGroupSeeder>();
     await addonGroupSeeder.SeedAsync();
-    logger.LogInformation("Addon groups seeded successfully.");
+    logger.LogInformation("Add-on groups seeded successfully.");
 
-    // ---- Seed Orders ----
     Console.WriteLine();
     Console.WriteLine("==============================================");
     Console.WriteLine("  SEEDING DEMO ORDERS");
@@ -212,14 +186,13 @@ try
     Console.WriteLine("==============================================");
     Console.WriteLine();
     Console.WriteLine("Seeded items:");
-    Console.WriteLine("  ✓ Store types (10 categories)");
+    Console.WriteLine("  ✓ Store types");
     Console.WriteLine("  ✓ System tenant + system store");
     Console.WriteLine("  ✓ Subscription plans (Free, Basic, Pro)");
-    Console.WriteLine("  ✓ Permissions (including platform.*)");
+    Console.WriteLine("  ✓ Permissions (including platform.* and catalog.menu.*)");
     Console.WriteLine("  ✓ PlatformAdmin role (all permissions)");
     Console.WriteLine("  ✓ Default admin user (phone: 0000000000)");
-    Console.WriteLine("  ✓ Catalog attribute templates (restaurant, grocery, ...)");
-    Console.WriteLine("  ✓ Variant attribute templates (restaurant, grocery, ...)");
+    Console.WriteLine("  ✓ Catalog add-on groups (restaurant / fast food)");
     Console.WriteLine("  ✓ Demo orders (collection & delivery)");
     Console.WriteLine();
     Console.WriteLine("IMPORTANT:");
@@ -229,7 +202,7 @@ try
     Console.WriteLine();
     Console.WriteLine("Platform architecture:");
     Console.WriteLine("  - No SuperAdmin bypass");
-    Console.WriteLine("  - Permission‑based access control");
+    Console.WriteLine("  - Permission-based access control");
     Console.WriteLine("  - Subscription plans ready");
     Console.WriteLine("  - Use /api/v{version:apiVersion}/admin/impersonation for tenant access");
     Console.WriteLine();

@@ -2,6 +2,7 @@
 using CoreKit.Catalog.Interfaces;
 using CoreKit.Catalog.Models;
 using CoreKit.IAM.Authorization;
+using CoreKit.IAM.Constants;
 using CoreKit.Infrastructure.Controllers;
 using CoreKit.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Authorization;
@@ -24,26 +25,23 @@ public class AddonGroupsController : TenantApiControllerBase
     }
 
     [HttpGet]
-    [RequiresPermission("catalog.products.view")]
-
+    [RequiresPermission(Permissions.Catalog.ProductsView)]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var groups = await _addonService.GetGroupsByTenantAsync(RequireTenantId(), ct);
+        var groups = await _addonService.GetGroupsAsync(RequireTenantId(), ct);
         return OkResponse(groups);
     }
 
     [HttpGet("{groupId:guid}")]
-    [RequiresPermission("catalog.products.view")]
-   
+    [RequiresPermission(Permissions.Catalog.ProductsView)]
     public async Task<IActionResult> GetById(Guid groupId, CancellationToken ct)
     {
-        var group = await _addonService.GetGroupByIdAsync(groupId, RequireTenantId(), ct);
+        var group = await _addonService.GetGroupByIdAsync(RequireTenantId(), groupId, ct);
         return group is null ? NotFound() : OkResponse(group);
     }
 
     [HttpPost]
-    [RequiresPermission("catalog.products.create")]
-   
+    [RequiresPermission(Permissions.Catalog.ProductsCreate)]
     public async Task<IActionResult> Create(CreateAddonGroupRequest request, CancellationToken ct)
     {
         var group = await _addonService.CreateGroupAsync(RequireTenantId(), request, ct);
@@ -51,47 +49,43 @@ public class AddonGroupsController : TenantApiControllerBase
     }
 
     [HttpPut("{groupId:guid}")]
-    [RequiresPermission("catalog.products.update")]
-   
+    [RequiresPermission(Permissions.Catalog.ProductsUpdate)]
     public async Task<IActionResult> Update(Guid groupId, UpdateAddonGroupRequest request, CancellationToken ct)
     {
-        var group = await _addonService.UpdateGroupAsync(groupId, RequireTenantId(), request, ct);
+        var group = await _addonService.UpdateGroupAsync(RequireTenantId(), groupId, request, ct);
         return OkResponse(group);
     }
 
     [HttpDelete("{groupId:guid}")]
-    [RequiresPermission("catalog.products.delete")]
-   
+    [RequiresPermission(Permissions.Catalog.ProductsDelete)]
     public async Task<IActionResult> Delete(Guid groupId, CancellationToken ct)
     {
-        await _addonService.DeleteGroupAsync(groupId, RequireTenantId(), ct);
+        await _addonService.DeleteGroupAsync(RequireTenantId(), groupId, ct);
         return DeletedResponse();
     }
 
     [HttpPost("{groupId:guid}/addons")]
-    [RequiresPermission("catalog.products.update")]
-
+    [RequiresPermission(Permissions.Catalog.ProductsUpdate)]
     public async Task<IActionResult> AddAddon(Guid groupId, AddAddonToGroupRequest request, CancellationToken ct)
     {
-        var addon = await _addonService.AddToGroupAsync(groupId, RequireTenantId(), request, ct);
+        var addon = await _addonService.AddAddonAsync(RequireTenantId(), groupId, request, ct);
         return CreatedResponse(addon);
     }
 
     [HttpPut("{groupId:guid}/addons/{addonId:guid}")]
-    [RequiresPermission("catalog.products.update")]
-
-    public async Task<IActionResult> UpdateAddon(Guid groupId, Guid addonId, AddAddonToGroupRequest request, CancellationToken ct)
+    [RequiresPermission(Permissions.Catalog.ProductsUpdate)]
+    public async Task<IActionResult> UpdateAddon(
+        Guid groupId, Guid addonId, UpdateAddonRequest request, CancellationToken ct)
     {
-        var addon = await _addonService.UpdateAddonAsync(groupId, addonId, RequireTenantId(), request, ct);
+        var addon = await _addonService.UpdateAddonAsync(RequireTenantId(), groupId, addonId, request, ct);
         return OkResponse(addon);
     }
 
     [HttpDelete("{groupId:guid}/addons/{addonId:guid}")]
-    [RequiresPermission("catalog.products.update")]
-
+    [RequiresPermission(Permissions.Catalog.ProductsUpdate)]
     public async Task<IActionResult> RemoveAddon(Guid groupId, Guid addonId, CancellationToken ct)
     {
-        await _addonService.RemoveFromGroupAsync(groupId, addonId, RequireTenantId(), ct);
+        await _addonService.RemoveAddonAsync(RequireTenantId(), groupId, addonId, ct);
         return DeletedResponse();
     }
 }

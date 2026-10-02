@@ -88,22 +88,20 @@ public static class Permissions
         public const string ManageBilling = "platform.billing.manage";
     }
 
-    // Add inside Permissions class, after System
     public static class Catalog
     {
         public const string ProductsView = "catalog.products.view";
         public const string ProductsCreate = "catalog.products.create";
         public const string ProductsUpdate = "catalog.products.update";
         public const string ProductsDelete = "catalog.products.delete";
+
         public const string CategoriesView = "catalog.categories.view";
         public const string CategoriesCreate = "catalog.categories.create";
         public const string CategoriesUpdate = "catalog.categories.update";
         public const string CategoriesDelete = "catalog.categories.delete";
-        public const string TemplatesManagePlatform = "catalog.templates.manage.platform";
-        public const string TemplatesManageTenant = "catalog.templates.manage.tenant";
-        public const string TemplatesAssign = "catalog.templates.assign";
-        public const string TemplatesToggleStore = "catalog.templates.toggle.store";
-        public const string TemplatesView = "catalog.templates.view";
+
+        public const string MenuView = "catalog.menu.view";
+        public const string MenuManage = "catalog.menu.manage";
 
         public const string OrdersView = "catalog.orders.view";
         public const string OrdersCreate = "catalog.orders.create";
@@ -111,7 +109,6 @@ public static class Permissions
         public const string OrdersDelete = "catalog.orders.delete";
     }
 
-    // Update the All list
     public static IReadOnlyList<string> All { get; } =
         typeof(Permissions)
             .GetNestedTypes(BindingFlags.Public | BindingFlags.Static)

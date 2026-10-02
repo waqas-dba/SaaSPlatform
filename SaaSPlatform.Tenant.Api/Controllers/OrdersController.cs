@@ -23,7 +23,7 @@ public class OrdersController : TenantApiControllerBase
     [RequiresPermission(Permissions.Catalog.OrdersCreate)]
     public async Task<IActionResult> Create(CreateOrderRequest request, CancellationToken ct)
     {
-        var order = await _orderService.CreateAsync(request, ct);
+        var order = await _orderService.CreateAsync(RequireTenantId(), request, ct);
         return CreatedResponse(order);
     }
 
@@ -31,7 +31,7 @@ public class OrdersController : TenantApiControllerBase
     [RequiresPermission(Permissions.Catalog.OrdersView)]
     public async Task<IActionResult> GetById(Guid orderId, CancellationToken ct)
     {
-        var order = await _orderService.GetByIdAsync(orderId, ct);
+        var order = await _orderService.GetByIdAsync(RequireTenantId(), orderId, ct);
         return order is null ? NotFound() : OkResponse(order);
     }
 
@@ -39,7 +39,7 @@ public class OrdersController : TenantApiControllerBase
     [RequiresPermission(Permissions.Catalog.OrdersView)]
     public async Task<IActionResult> GetByStore(Guid storeId, [FromQuery] PagedQuery query, CancellationToken ct)
     {
-        var result = await _orderService.GetByStoreAsync(storeId, query, ct);
+        var result = await _orderService.GetByStoreAsync(RequireTenantId(), storeId, query, ct);
         return OkResponse(result);
     }
 
@@ -47,7 +47,7 @@ public class OrdersController : TenantApiControllerBase
     [RequiresPermission(Permissions.Catalog.OrdersUpdate)]
     public async Task<IActionResult> UpdateStatus(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct)
     {
-        await _orderService.UpdateStatusAsync(orderId, request, ct);
+        await _orderService.UpdateStatusAsync(RequireTenantId(), orderId, request, ct);
         return UpdatedResponse();
     }
 
@@ -55,7 +55,7 @@ public class OrdersController : TenantApiControllerBase
     [RequiresPermission(Permissions.Catalog.OrdersDelete)]
     public async Task<IActionResult> Cancel(Guid orderId, CancellationToken ct)
     {
-        await _orderService.CancelAsync(orderId, ct);
+        await _orderService.CancelAsync(RequireTenantId(), orderId, ct);
         return DeletedResponse("Order cancelled.");
     }
 }

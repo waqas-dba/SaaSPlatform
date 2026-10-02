@@ -1,18 +1,19 @@
-﻿// CoreKit.Order/Services/OrderService.cs
+﻿using System.Text.Json;
 using CoreKit.Order.Entities;
 using CoreKit.Order.Interfaces;
 using CoreKit.Order.Models;
-using CoreKit.Order.Persistence;
 using CoreKit.SharedKernel.Interfaces;
 using CoreKit.SharedKernel.Models;
-using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace CoreKit.Order.Services;
 
 public class OrderService : IOrderService
 {
-    private readonly OrderDbContext _db;
+    private const int MaxItemsPerOrder = 50;
+    private const int MaxQuantityPerItem = 99;
+    private const decimal MaxDeliveryFee = 100_000m;
+
+    private readonly IOrderRepository _orderRepo;
     private readonly IProductOrderInfoProvider _productInfoProvider;
     private readonly IStoreInfoProvider _storeInfoProvider;
 
@@ -28,154 +29,254 @@ public class OrderService : IOrderService
     };
 
     public OrderService(
-        OrderDbContext db,
+        IOrderRepository orderRepo,
         IProductOrderInfoProvider productInfoProvider,
         IStoreInfoProvider storeInfoProvider)
     {
-        _db = db;
+        _orderRepo = orderRepo;
         _productInfoProvider = productInfoProvider;
         _storeInfoProvider = storeInfoProvider;
     }
 
-    public async Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
+    public async Task<OrderDto> CreateAsync(
+        Guid tenantId, CreateOrderRequest request, CancellationToken ct = default)
     {
-        var orderType = request.OrderType.Equals("Delivery", StringComparison.OrdinalIgnoreCase)
-            ? OrderType.Delivery : OrderType.Collection;
+        var orderType = ParseOrderType(request.OrderType);
 
-        if (orderType == OrderType.Delivery && string.IsNullOrWhiteSpace(request.DeliveryAddress))
-            throw new InvalidOperationException("Delivery address is required for delivery orders.");
+        var customerName = (request.CustomerName ?? string.Empty).Trim();
+        var customerPhone = (request.CustomerPhone ?? string.Empty).Trim();
 
-        var storeInfo = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct)
-            ?? throw new KeyNotFoundException("Store not found.");
+        if (customerName.Length == 0 || customerName.Length > 200)
+            throw new ArgumentException("Customer name is required (max 200 characters).");
+
+        if (customerPhone.Length == 0 || customerPhone.Length > 20)
+            throw new ArgumentException("Customer phone is required (max 20 characters).");
+
+        var notes = request.Notes?.Trim();
+        if (notes is { Length: > 1000 })
+            throw new ArgumentException("Notes are too long (max 1000 characters).");
+
+        if (request.Items is null || request.Items.Count == 0)
+            throw new ArgumentException("An order must contain at least one item.");
+
+        if (request.Items.Count > MaxItemsPerOrder)
+            throw new ArgumentException($"An order can contain at most {MaxItemsPerOrder} items.");
+
+        var store = await _storeInfoProvider.GetStoreInfoAsync(request.StoreId, ct);
+        if (store is null || store.TenantId != tenantId)
+            throw new KeyNotFoundException("Store not found.");
+
+        string? deliveryAddress = null;
+        decimal? deliveryFee = null;
+        string? tableNumber = null;
+        string? roomNumber = null;
+
+        switch (orderType)
+        {
+            case OrderType.Delivery:
+                deliveryAddress = RequireText(request.DeliveryAddress, "Delivery address is required for delivery orders.", 500);
+                deliveryFee = request.DeliveryFee ?? 0m;
+                if (deliveryFee < 0 || deliveryFee > MaxDeliveryFee)
+                    throw new ArgumentException("Delivery fee is not valid.");
+                break;
+
+            case OrderType.DineIn:
+                tableNumber = RequireText(request.TableNumber, "Table number is required for dine-in orders.", 20);
+                break;
+
+            case OrderType.RoomService:
+                roomNumber = RequireText(request.RoomNumber, "Room number is required for room service orders.", 20);
+                break;
+        }
 
         var order = new CustomerOrder
         {
             Id = Guid.NewGuid(),
             OrderNumber = GenerateOrderNumber(),
             StoreId = request.StoreId,
-            TenantId = storeInfo.TenantId,
-            CustomerName = request.CustomerName,
-            CustomerPhone = request.CustomerPhone,
+            TenantId = tenantId,
+            CustomerName = customerName,
+            CustomerPhone = customerPhone,
             Type = orderType,
             Status = OrderStatus.Pending,
-            DeliveryAddress = orderType == OrderType.Delivery ? request.DeliveryAddress : null,
-            DeliveryFee = orderType == OrderType.Delivery ? request.DeliveryFee : null,
-            Notes = request.Notes
+            DeliveryAddress = deliveryAddress,
+            DeliveryFee = deliveryFee,
+            TableNumber = tableNumber,
+            RoomNumber = roomNumber,
+            Notes = notes
         };
 
         decimal subTotal = 0;
+
         foreach (var itemReq in request.Items)
         {
-            var productInfo = await _productInfoProvider.GetProductInfoAsync(itemReq.ProductId, ct)
-                ?? throw new KeyNotFoundException($"Product {itemReq.ProductId} not found.");
+            if (itemReq.Quantity < 1 || itemReq.Quantity > MaxQuantityPerItem)
+                throw new ArgumentException($"Quantity must be between 1 and {MaxQuantityPerItem}.");
 
-            if (productInfo.StoreId != request.StoreId)
-                throw new InvalidOperationException($"Product '{productInfo.Name}' does not belong to this store.");
+            var product = await _productInfoProvider.GetProductInfoAsync(itemReq.ProductId, request.StoreId, ct);
+            if (product is null || product.TenantId != tenantId)
+                throw new InvalidOperationException($"Product {itemReq.ProductId} is not on this store's menu.");
 
-            if (!productInfo.IsActive)
-                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available.");
+            if (!product.IsActive)
+                throw new InvalidOperationException($"'{product.Name}' is not available right now.");
 
-            if (orderType == OrderType.Collection && !productInfo.AvailableForCollection)
-                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for collection.");
-            if (orderType == OrderType.Delivery && !productInfo.AvailableForDelivery)
-                throw new InvalidOperationException($"Product '{productInfo.Name}' is not available for delivery.");
+            if (!IsAvailableForType(product, orderType))
+                throw new InvalidOperationException($"'{product.Name}' is not available for {Describe(orderType)}.");
 
             string? variantName = null;
-            decimal unitPrice = productInfo.BasePrice;
+            var unitPrice = product.UnitPrice;
 
             if (itemReq.ProductVariantId.HasValue)
             {
-                var variantInfo = await _productInfoProvider.GetVariantInfoAsync(itemReq.ProductVariantId.Value, ct)
-                    ?? throw new KeyNotFoundException($"Variant {itemReq.ProductVariantId} not found.");
-                if (!variantInfo.IsActive)
-                    throw new InvalidOperationException("The selected variant is not available.");
-                variantName = variantInfo.Sku;
-                unitPrice = variantInfo.Price;
+                var variant = await _productInfoProvider.GetVariantInfoAsync(
+                    itemReq.ProductVariantId.Value, product.Id, ct)
+                    ?? throw new InvalidOperationException(
+                        $"The selected option does not belong to '{product.Name}'.");
+
+                if (!variant.IsActive)
+                    throw new InvalidOperationException($"The selected option of '{product.Name}' is not available.");
+
+                variantName = variant.Name;
+                unitPrice = variant.Price;
+            }
+            else if (product.HasVariants)
+            {
+                throw new InvalidOperationException($"Please choose an option for '{product.Name}'.");
             }
 
-            string? addonsJson = null;
-            if (itemReq.Addons != null && itemReq.Addons.Any())
-                addonsJson = JsonSerializer.Serialize(itemReq.Addons);
+            var selection = await _productInfoProvider.ResolveAddonsAsync(
+                product.Id, itemReq.AddonIds ?? new List<Guid>(), ct);
 
-            var orderItem = new OrderItem
+            if (!selection.IsValid)
+                throw new InvalidOperationException($"'{product.Name}': {string.Join(" ", selection.Errors)}");
+
+            var addonsTotal = selection.Addons.Sum(a => a.AdditionalPrice);
+
+            var addonsJson = selection.Addons.Count == 0
+                ? null
+                : JsonSerializer.Serialize(selection.Addons.Select(a => new AddonSnapshotDto
+                {
+                    Name = a.Name,
+                    Price = a.AdditionalPrice
+                }));
+
+            order.Items.Add(new OrderItem
             {
+                Id = Guid.NewGuid(),
                 OrderId = order.Id,
-                ProductId = itemReq.ProductId,
+                ProductId = product.Id,
                 ProductVariantId = itemReq.ProductVariantId,
-                ProductName = productInfo.Name,
+                ProductName = product.Name,
                 VariantName = variantName,
                 Quantity = itemReq.Quantity,
                 UnitPrice = unitPrice,
+                AddonsTotal = addonsTotal,
                 AddonsJson = addonsJson
-            };
-            order.Items.Add(orderItem);
-            subTotal += orderItem.Quantity * orderItem.UnitPrice;
+            });
+
+            subTotal += itemReq.Quantity * (unitPrice + addonsTotal);
         }
 
         order.SubTotal = subTotal;
-        order.Total = subTotal + (order.DeliveryFee ?? 0);
+        order.Total = subTotal + (order.DeliveryFee ?? 0m);
 
-        _db.Orders.Add(order);
-        await _db.SaveChangesAsync(ct);
+        _orderRepo.Add(order);
+        await _orderRepo.SaveChangesAsync(ct);
+
         return MapToDto(order);
     }
 
-    public async Task<OrderDto?> GetByIdAsync(Guid orderId, CancellationToken ct = default)
+    public async Task<OrderDto?> GetByIdAsync(Guid tenantId, Guid orderId, CancellationToken ct = default)
     {
-        var order = await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == orderId, ct);
+        var order = await _orderRepo.GetByIdAsync(tenantId, orderId, track: false, ct);
         return order is null ? null : MapToDto(order);
     }
 
-    public async Task<PagedResult<OrderDto>> GetByStoreAsync(Guid storeId, PagedQuery query, CancellationToken ct = default)
+    public async Task<PagedResult<OrderDto>> GetByStoreAsync(
+        Guid tenantId, Guid storeId, PagedQuery query, CancellationToken ct = default)
     {
-        var baseQuery = _db.Orders.Where(o => o.StoreId == storeId);
-        var total = await baseQuery.CountAsync(ct);
-        var items = await baseQuery
-            .OrderByDescending(o => o.CreatedAt)
-            .Skip(query.Skip).Take(query.PageSize)
-            .Select(o => MapToDto(o))
-            .ToListAsync(ct);
-        return PagedResult<OrderDto>.From(items, total, query.Page, query.PageSize);
+        var page = await _orderRepo.GetByStoreAsync(tenantId, storeId, query, ct);
+        var dtos = page.Items.Select(MapToDto).ToList();
+
+        return PagedResult<OrderDto>.From(dtos, page.TotalCount, page.Page, page.PageSize);
     }
 
-    public async Task UpdateStatusAsync(Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default)
+    public async Task UpdateStatusAsync(
+        Guid tenantId, Guid orderId, UpdateOrderStatusRequest request, CancellationToken ct = default)
     {
-        var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+        var order = await _orderRepo.GetByIdAsync(tenantId, orderId, track: true, ct)
             ?? throw new KeyNotFoundException("Order not found.");
 
-        if (!Enum.TryParse<OrderStatus>(request.Status, true, out var newStatus))
+        if (!Enum.TryParse<OrderStatus>(request.Status, true, out var newStatus) || !Enum.IsDefined(newStatus))
             throw new InvalidOperationException($"Invalid status '{request.Status}'.");
 
         if (!AllowedTransitions[order.Status].Contains(newStatus))
             throw new InvalidOperationException($"Cannot transition from '{order.Status}' to '{newStatus}'.");
 
-        if (newStatus == OrderStatus.ReadyForPickup && order.Type != OrderType.Collection)
-            throw new InvalidOperationException("ReadyForPickup status is only valid for collection orders.");
-        if (newStatus == OrderStatus.OutForDelivery && order.Type != OrderType.Delivery)
-            throw new InvalidOperationException("OutForDelivery status is only valid for delivery orders.");
+        if (newStatus == OrderStatus.ReadyForPickup &&
+            order.Type is not (OrderType.Collection or OrderType.DineIn))
+            throw new InvalidOperationException("ReadyForPickup is only valid for collection and dine-in orders.");
+
+        if (newStatus == OrderStatus.OutForDelivery &&
+            order.Type is not (OrderType.Delivery or OrderType.RoomService))
+            throw new InvalidOperationException("OutForDelivery is only valid for delivery and room service orders.");
 
         order.Status = newStatus;
-        _db.Orders.Update(order);
-        await _db.SaveChangesAsync(ct);
+        await _orderRepo.SaveChangesAsync(ct);
     }
 
-    public async Task CancelAsync(Guid orderId, CancellationToken ct = default)
+    public async Task CancelAsync(Guid tenantId, Guid orderId, CancellationToken ct = default)
     {
-        var order = await _db.Orders.FindAsync(new object[] { orderId }, ct)
+        var order = await _orderRepo.GetByIdAsync(tenantId, orderId, track: true, ct)
             ?? throw new KeyNotFoundException("Order not found.");
-        if (order.Status == OrderStatus.Delivered || order.Status == OrderStatus.Cancelled)
-            throw new InvalidOperationException("Cannot cancel an already completed or cancelled order.");
+
+        if (!AllowedTransitions[order.Status].Contains(OrderStatus.Cancelled))
+            throw new InvalidOperationException("Cannot cancel an order that is already completed or cancelled.");
+
         order.Status = OrderStatus.Cancelled;
-        _db.Orders.Update(order);
-        await _db.SaveChangesAsync(ct);
+        await _orderRepo.SaveChangesAsync(ct);
     }
+
+    private static OrderType ParseOrderType(string? raw)
+    {
+        if (!Enum.TryParse<OrderType>(raw?.Trim(), true, out var type) || !Enum.IsDefined(type))
+            throw new ArgumentException("OrderType must be Collection, Delivery, DineIn or RoomService.");
+
+        return type;
+    }
+
+    private static string RequireText(string? value, string message, int maxLength)
+    {
+        var text = value?.Trim() ?? string.Empty;
+        if (text.Length == 0) throw new ArgumentException(message);
+        if (text.Length > maxLength) throw new ArgumentException($"Value is too long (max {maxLength} characters).");
+        return text;
+    }
+
+    private static bool IsAvailableForType(ProductOrderInfo product, OrderType type) => type switch
+    {
+        OrderType.Collection => product.AvailableForCollection,
+        OrderType.Delivery => product.AvailableForDelivery,
+        OrderType.DineIn or OrderType.RoomService => product.AvailableForDineIn,
+        _ => false
+    };
+
+    private static string Describe(OrderType type) => type switch
+    {
+        OrderType.Collection => "collection",
+        OrderType.Delivery => "delivery",
+        OrderType.DineIn => "dine-in",
+        OrderType.RoomService => "room service",
+        _ => type.ToString()
+    };
 
     private static string GenerateOrderNumber()
-        => $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpper()}";
+        => $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}";
 
     private static OrderDto MapToDto(CustomerOrder o) => new()
     {
         Id = o.Id,
+        StoreId = o.StoreId,
         OrderNumber = o.OrderNumber,
         CustomerName = o.CustomerName,
         CustomerPhone = o.CustomerPhone,
@@ -183,16 +284,20 @@ public class OrderService : IOrderService
         Status = o.Status.ToString(),
         DeliveryAddress = o.DeliveryAddress,
         DeliveryFee = o.DeliveryFee,
+        TableNumber = o.TableNumber,
+        RoomNumber = o.RoomNumber,
         SubTotal = o.SubTotal,
         Total = o.Total,
         Notes = o.Notes,
         Items = o.Items.Select(i => new OrderItemDto
         {
+            ProductId = i.ProductId,
             ProductName = i.ProductName,
             VariantName = i.VariantName,
             Quantity = i.Quantity,
             UnitPrice = i.UnitPrice,
-            LineTotal = i.Quantity * i.UnitPrice,
+            AddonsTotal = i.AddonsTotal,
+            LineTotal = i.Quantity * (i.UnitPrice + i.AddonsTotal),
             Addons = string.IsNullOrWhiteSpace(i.AddonsJson)
                 ? null
                 : JsonSerializer.Deserialize<List<AddonSnapshotDto>>(i.AddonsJson)
